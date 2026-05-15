@@ -44,12 +44,14 @@ const uuidSchema = z.string().uuid();
  * objects with `transaction()`. We type loosely on purpose so the same
  * wrappers work in production and in tests.
  */
-// FIXME(blacknel): tipar tx correctamente cuando drizzle-orm unifique
-// tipos entre postgres-js y pglite. Tracking: TODO.md#dbas-type
+// FIXME(blacknel): tipar tx correctamente cuando drizzle-orm
+// unifique tipos entre postgres-js y pglite.
+// Tracking: TODO.md#dbas-tx-type
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyPgDb = any;
-// FIXME(blacknel): tipar tx correctamente cuando drizzle-orm unifique
-// tipos entre postgres-js y pglite. Tracking: TODO.md#dbas-type
+// FIXME(blacknel): tipar tx correctamente cuando drizzle-orm
+// unifique tipos entre postgres-js y pglite.
+// Tracking: TODO.md#dbas-tx-type
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyPgTx = any;
 

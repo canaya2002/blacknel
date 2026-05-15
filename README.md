@@ -117,14 +117,7 @@ exercise the same migration SQL the production DB runs.
 
 ### Intentional partial unique index
 
-`lib/db/migrations/0001_schema.sql` ships a **partial** unique index on
-`subscriptions(organization_id) WHERE status IN ('active', 'trialing',
-'past_due')`. This is deliberate: it enforces "at most one billable
-subscription per organization" while still letting canceled rows sit as
-history. Drizzle's `uniqueIndex` builder cannot emit a partial constraint,
-so the index lives in hand-written SQL with a matching note in
-`lib/db/schema/subscriptions.ts`. Do not "clean it up" — removing it allows
-two active subs on the same org, which silently breaks plan gating.
+`subscriptions(organization_id) WHERE status IN ('active', 'trialing', 'past_due')` in `0001_schema.sql` is hand-written on purpose — Drizzle can't emit partial unique indexes; do not remove it (it enforces one billable subscription per org).
 
 ## Repository layout
 
