@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+build
+dist
+coverage
+.turbo
+.vercel
+pnpm-lock.yaml
+.pnpm-store
+*.tsbuildinfo
+next-env.d.ts
+lib/db/migrations

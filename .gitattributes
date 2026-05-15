@@ -1,0 +1,18 @@
+# Force LF line endings repo-wide regardless of platform's core.autocrlf.
+# Keeps diffs clean across macOS/Linux/Windows contributors.
+* text=auto eol=lf
+
+# Lockfiles should not change line endings.
+pnpm-lock.yaml -text
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
