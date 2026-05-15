@@ -7,6 +7,96 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 3 (Integrations Center · 16 mock connectors)
+
+**Connector foundation (`lib/connectors/base/`)**
+
+- `types.ts` — 16 `PlatformCode` (incl. `mock`) and 16 `Capability`
+  codes. `lib/connectors/types.ts` is now a thin re-export so the
+  existing `lib/plans` import stays stable.
+- `errors.ts` — `ConnectorError` hierarchy: `TokenExpiredError`,
+  `RateLimitedError`, `CapabilityNotSupportedError`, `PlatformError`.
+  All extend `AppError`.
+- `normalized.ts` — UI-facing DTOs (NormalizedComment, …,
+  NormalizedInsights). The UI never sees raw platform shapes.
+- `connector.ts` — `Connector` interface (optional methods per
+  capability) + `BaseConnector` abstract class with
+  `ensureCapability()` guard.
+- `mock-connector.ts` — shared `MockConnector` reused by every
+  platform. Deterministic seeded RNG per (platform, accountId);
+  honors `BLACKNEL_MOCK_ERRORS` (~10% TokenExpired, ~2% RateLimited).
+
+**16 platform packages**
+
+- facebook, instagram, gbp, whatsapp, tiktok, linkedin, x, youtube,
+  pinterest, reddit, yelp, tripadvisor, trustpilot, bbb, avvo, mock —
+  each with `capabilities.ts`, `mock.ts`, `index.ts`. Capability sets
+  mirror the real APIs (Yelp read-only, BBB CSV import, Avvo
+  scraping-pending, Instagram/WhatsApp 24h DM window, etc.).
+
+**Registry (`lib/connectors/registry.ts`)**
+
+- `getConnector(platform)`, `getCapabilities(platform)`,
+  `listConnectorsForPlan(plan)` — drives /integrations and gating.
+
+**Schema**
+
+- `lib/db/schema/connected-accounts.ts` — 16 columns, capabilities
+  snapshot, `oauth_tokens_encrypted` placeholder, status enum.
+- `lib/db/schema/connector-sync-runs.ts` — append-only run log.
+- Enums `connected_account_status`, `connector_sync_run_status`.
+- `lib/db/migrations/0004_connectors.sql` — tables, indexes, RLS
+  (tenant-scoped reads; sync runs derive tenancy via subquery on
+  connected_accounts), updated_at trigger.
+
+**Jobs + dev events**
+
+- `lib/jobs/sync-account.ts` — in-process `syncAccount(accountId)`.
+  Idempotent (refuses parallel runs); records ConnectorSyncRun;
+  flags account `expired` / `error` on failure. Phase 11 swaps body
+  for an Inngest function.
+- `lib/connectors/dev-events.ts` — `maybeTickConnectorEvents()` runs
+  on /integrations visits when `BLACKNEL_MOCK_EVENTS=true`. Throttled
+  to once per minute per process: rolls 10% to expired, 3% to error,
+  syncs the rest.
+
+**Pages**
+
+- `/integrations` — grid of 15 platform tiles + a dev-only Mock tile.
+  Connected accounts list above the grid. Tiles below current plan are
+  dimmed with `<PlanBadge>` + Upgrade button to `/billing`.
+- `components/integrations/platform-tile.tsx` — initials-based color
+  badges (real SVG logos refinable later), capability badges with
+  tooltips for platform notes.
+- `components/integrations/connect-modal.tsx` — simulates OAuth
+  redirect with a 1.5s spinner labeled "Estableciendo conexión con
+  <Platform>…" then writes the row. Honors plan + usage cap; 10%
+  failure path when `BLACKNEL_MOCK_ERRORS=true`.
+- `/integrations/[accountId]` — detail page with capability list,
+  Sync now / Reconnect / Disconnect buttons, last-20 sync runs
+  history, reconnect banner for expired / error accounts.
+- `app/(app)/integrations/actions.ts` — connect, disconnect,
+  reconnect, syncNow, reassign Server Actions. Plan + permission gates.
+
+**Env**
+
+- `BLACKNEL_MOCK_EVENTS` flag added (default false).
+
+**Tests** (34 new, 94 total)
+
+- `tests/unit/connector-registry.test.ts` — 16 platforms resolve;
+  `listConnectorsForPlan` semantics across tiers.
+- `tests/unit/capabilities.test.ts` — capability contract snapshot
+  per platform (Yelp missing reply_reviews; BBB/Avvo notes required).
+- `tests/unit/mock-connector.test.ts` — deterministic seed math;
+  reviews bounded 1..5; sync count stable.
+- `tests/unit/capability-gating.test.ts` — calling an unsupported
+  capability throws `CapabilityNotSupportedError` with platform +
+  capability meta; supported ones still work.
+- `tests/integration/integrations-actions.test.ts` — tenant isolation
+  on `connected_accounts`; unique `(org, platform, external)` holds;
+  ON DELETE CASCADE removes child sync_runs.
+
 ### Added — Phase 2 (onboarding · billing conceptual · invitations)
 
 **Onboarding flow**

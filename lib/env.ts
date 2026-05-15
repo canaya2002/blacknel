@@ -49,6 +49,13 @@ const envSchema = z.object({
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),
   BLACKNEL_MOCK_ERRORS: boolFromString(false),
+  /**
+   * When `true`, the /integrations page ticks a synthetic event loop
+   * on visit: some active accounts roll forward to `expired` / `error`
+   * and successful syncs accumulate. Phase 11 swaps this for Inngest
+   * crons against real platforms.
+   */
+  BLACKNEL_MOCK_EVENTS: boolFromString(false),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

@@ -20,3 +20,5 @@ export * from './locations';
 export * from './subscriptions';
 export * from './usage-counters';
 export * from './audit-events';
+export * from './connected-accounts';
+export * from './connector-sync-runs';

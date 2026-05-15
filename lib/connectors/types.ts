@@ -1,50 +1,23 @@
 /**
- * Platform identifiers shared across Blacknel. Used by:
+ * Public re-export hub for connector types. Keeps the import path
+ * `@/lib/connectors/types` stable for `lib/plans` and other code that
+ * needed `PlatformCode` / `Capability` before Phase 3 shipped the full
+ * connector machinery.
  *
- *   - `lib/plans/plans.ts` to declare which platforms a plan exposes.
- *   - `lib/connectors/` (Phase 3) to register a Connector implementation
- *     per platform.
- *   - UI gates that hide buttons whose platform isn't available.
- *
- * Adding a new platform is a one-line change here; Phase 3 then ships
- * a Connector that satisfies the capability flags. The plan-feature
- * `networks` array uses these codes verbatim.
+ * The real definitions live in `./base/types.ts` now. Import from
+ * `@/lib/connectors/base` when you need the connector interface itself
+ * (Server Actions, job dispatchers, the registry); the export path
+ * here is fine for type-only consumers (plans, UI gates).
  */
-export type PlatformCode =
-  | 'facebook'
-  | 'instagram'
-  | 'gbp'
-  | 'whatsapp'
-  | 'tiktok'
-  | 'linkedin'
-  | 'x'
-  | 'youtube'
-  | 'pinterest'
-  | 'reddit'
-  | 'yelp'
-  | 'tripadvisor'
-  | 'trustpilot'
-  | 'bbb'
-  | 'avvo'
-  | 'mock';
-
-/**
- * Capabilities Phase 3 connectors declare per account. Defined here so
- * `lib/plans/gating.ts` can reason about them without depending on the
- * full connector machinery before it lands.
- */
-export type Capability =
-  | 'read_comments'
-  | 'reply_comments'
-  | 'read_dms'
-  | 'send_dms'
-  | 'read_mentions'
-  | 'publish_post'
-  | 'schedule_post'
-  | 'delete_post'
-  | 'read_insights'
-  | 'read_reviews'
-  | 'reply_reviews'
-  | 'read_ads'
-  | 'pause_ads'
-  | 'send_review_request';
+export type {
+  Capability,
+  CAPABILITIES_LIST,
+  ConnectorCapabilities,
+  ConnectorAccount,
+  PlatformCode,
+  PLATFORM_CODES,
+} from './base/types';
+export {
+  CAPABILITIES,
+  PLATFORMS,
+} from './base/types';

@@ -50,3 +50,17 @@ export const auditActorTypeEnum = pgEnum('audit_actor_type', [
   'system',
   'automation',
 ]);
+
+export const connectedAccountStatusEnum = pgEnum('connected_account_status', [
+  'connected',
+  'disconnected',
+  'expired',
+  'error',
+]);
+
+export const connectorSyncRunStatusEnum = pgEnum('connector_sync_run_status', [
+  'running',
+  'success',
+  'partial',
+  'failed',
+]);
