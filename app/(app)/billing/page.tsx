@@ -1,12 +1,17 @@
 import { CreditCard } from 'lucide-react';
 import Link from 'next/link';
 
+import { ChangePlanDialog } from '@/components/billing/change-plan-dialog';
+import { UsageCard } from '@/components/billing/usage-card';
 import { PageHeader } from '@/components/common/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { requireUser } from '@/lib/auth/server';
+import { dbAdmin } from '@/lib/db/client';
+import { sessionCan } from '@/lib/permissions/can';
 import { PLANS } from '@/lib/plans/plans';
+import { readUsage } from '@/lib/usage/counters';
 import { getOrgPlanCode } from '@/lib/queries/plan';
 
 export default async function BillingPage(): Promise<React.ReactElement> {
@@ -19,22 +24,33 @@ export default async function BillingPage(): Promise<React.ReactElement> {
     maximumFractionDigits: 0,
   });
 
+  const [usersUsed, socialUsed, locationsUsed, brandsUsed, postsUsed] = await Promise.all([
+    dbAdmin(async (tx) => readUsage(tx, session.orgId, 'users')),
+    dbAdmin(async (tx) => readUsage(tx, session.orgId, 'socialAccounts')),
+    dbAdmin(async (tx) => readUsage(tx, session.orgId, 'locations')),
+    dbAdmin(async (tx) => readUsage(tx, session.orgId, 'brands')),
+    dbAdmin(async (tx) => readUsage(tx, session.orgId, 'postsPerMonth')),
+  ]);
+
+  const canManageBilling = sessionCan(session, 'billing:manage');
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Billing"
-        description="Plan actual, uso vs límites, próximo cobro y método de pago. El portal de Stripe se cablea hasta la Fase 12 — hoy los cambios de plan son inmediatos y conceptuales."
+        description="Plan actual, uso vs límites, próximo cobro y método de pago. El portal de Stripe se cablea en la Fase 12 — hoy los cambios de plan son inmediatos y conceptuales."
         actions={
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <span tabIndex={0}>
-                  <Button disabled>Actualizar método de pago</Button>
+                  <Button disabled variant="outline">
+                    Customer portal
+                  </Button>
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                Stripe se cablea en la Fase 12; hasta entonces el plan se cambia desde aquí
-                sin costo real.
+                Disponible con billing real en la Fase 12 (Stripe Customer Portal).
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -53,34 +69,46 @@ export default async function BillingPage(): Promise<React.ReactElement> {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <Metric label="Marcas" value={formatLimit(plan.limits.brands)} />
-          <Metric label="Usuarios" value={formatLimit(plan.limits.users)} />
-          <Metric
-            label="Cuentas sociales"
-            value={formatLimit(plan.limits.socialAccounts)}
-          />
-          <Metric label="Ubicaciones" value={formatLimit(plan.limits.locations)} />
-          <Metric
-            label="Posts / mes"
-            value={formatLimit(plan.limits.postsPerMonth)}
-          />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Cambiar de plan</CardTitle>
-          <CardDescription>
-            Compara features y precios en la página de pricing pública. El upgrade real
-            (con Stripe Checkout y proration) llega en la Fase 12.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/pricing">Ver comparativa de planes</Link>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          {canManageBilling ? (
+            <ChangePlanDialog currentPlan={planCode} />
+          ) : (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button disabled variant="outline">
+                      Cambiar plan
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Sólo el owner puede cambiar el plan.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/pricing">Ver comparativa</Link>
           </Button>
         </CardContent>
       </Card>
+
+      <UsageCard
+        plan={planCode}
+        items={[
+          { metric: 'users', label: 'Usuarios', current: usersUsed },
+          {
+            metric: 'socialAccounts',
+            label: 'Cuentas sociales conectadas',
+            current: socialUsed,
+          },
+          { metric: 'locations', label: 'Ubicaciones', current: locationsUsed },
+          { metric: 'brands', label: 'Marcas', current: brandsUsed },
+          { metric: 'postsPerMonth', label: 'Posts este mes', current: postsUsed },
+        ]}
+      />
+
       <Card className="bg-muted/20">
         <CardHeader>
           <div className="flex items-start gap-3">
@@ -91,33 +119,13 @@ export default async function BillingPage(): Promise<React.ReactElement> {
               <CardTitle className="text-base">Facturas y pagos</CardTitle>
               <CardDescription>
                 Cuando Stripe esté cableado verás historial de facturas, próximo cobro,
-                método de pago y portal de gestión sin salir de Blacknel.
+                método de pago y portal de gestión sin salir de Blacknel. Hasta la
+                Fase 12 los cambios de plan son inmediatos pero no generan cobro.
               </CardDescription>
             </div>
           </div>
         </CardHeader>
       </Card>
-    </div>
-  );
-}
-
-function formatLimit(value: number): string {
-  return value === -1 ? 'Ilimitado' : String(value);
-}
-
-function Metric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}): React.ReactElement {
-  return (
-    <div className="flex flex-col gap-1 rounded-md border bg-card p-3">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span className="text-lg font-semibold tracking-tight">{value}</span>
     </div>
   );
 }

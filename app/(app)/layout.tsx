@@ -1,8 +1,11 @@
+import { redirect } from 'next/navigation';
+
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { BrandLocationCookieSync } from '@/components/layout/context-sync';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { hasOrg } from '@/lib/auth/constants';
 import { requireUser } from '@/lib/auth/server';
 import { listBrandsAndLocations } from '@/lib/context/brand-location';
 import { getOrgPlanCode } from '@/lib/queries/plan';
@@ -25,6 +28,10 @@ export default async function AppLayout({
   // /login, so reaching this point and having no session is exotic —
   // we propagate the throw so Next renders an error boundary.
   const session = await requireUser();
+
+  // Fresh sign-ups land here with the NO_ORG sentinel cookie. Bounce
+  // them to onboarding so they never see a placeholder app shell.
+  if (!hasOrg(session.orgId)) redirect('/onboarding/start');
 
   const [brands, planCode] = await Promise.all([
     listBrandsAndLocations(session),

@@ -4,9 +4,11 @@ import { eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
+import { NO_ORG_SENTINEL } from '@/lib/auth/constants';
 import { loginAsDevUser } from '@/lib/auth/dev';
 import { dbAdmin } from '@/lib/db/client';
 import { organizationMembers, users as usersTable } from '@/lib/db/schema';
+import { clearOnboardingState } from '@/lib/onboarding/state';
 import type { Role } from '@/lib/permissions/roles';
 
 const inputSchema = z.object({
@@ -66,4 +68,42 @@ export async function devLoginAction(
   });
 
   redirect('/dashboard');
+}
+
+/**
+ * Fresh-account flow. Creates a new public.users row with no membership
+ * and signs the session cookie pointing at the NO_ORG sentinel; the
+ * (app) layout will then redirect to /onboarding/start.
+ *
+ * The role on the cookie is 'viewer' as a harmless default — onboarding
+ * doesn't check roles, and the cookie is rewritten with the correct
+ * role once the user finishes the organization step.
+ */
+export async function startFreshAccountAction(): Promise<void> {
+  const timestamp = Date.now();
+  const email = `fresh-${timestamp}@blacknel.test`;
+
+  const created = await dbAdmin<Array<{ id: string }>>(async (tx) =>
+    tx
+      .insert(usersTable)
+      .values({
+        id: crypto.randomUUID(),
+        email,
+        name: 'Nuevo usuario',
+      })
+      .returning({ id: usersTable.id }),
+  );
+  const row = created[0];
+  if (!row) throw new Error('Failed to create fresh user row.');
+
+  await clearOnboardingState();
+  await loginAsDevUser({
+    userId: row.id,
+    orgId: NO_ORG_SENTINEL,
+    role: 'viewer',
+    email,
+    name: 'Nuevo usuario',
+  });
+
+  redirect('/onboarding/start');
 }

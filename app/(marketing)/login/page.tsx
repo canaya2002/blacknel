@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { dbAdmin } from '@/lib/db/client';
 import {
@@ -9,6 +10,7 @@ import {
 } from '@/lib/db/schema';
 import type { Role } from '@/lib/permissions/roles';
 
+import { startFreshAccountAction } from './actions';
 import { LoginForm } from './login-form';
 
 // /login lists the seeded users — the row set lives in pglite, which only
@@ -81,6 +83,22 @@ export default async function LoginPage(): Promise<React.ReactElement> {
               name: r.name ?? r.email,
             }))}
           />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">¿Sin cuenta?</CardTitle>
+          <CardDescription>
+            Crea una cuenta nueva en blanco para probar el flujo de onboarding —
+            organización, plan, marca, ubicación y equipo. Ideal para QA.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={startFreshAccountAction}>
+            <Button type="submit" variant="outline" className="w-full">
+              Empezar como nuevo usuario
+            </Button>
+          </form>
         </CardContent>
       </Card>
     </section>

@@ -7,6 +7,101 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 2 (onboarding · billing conceptual · invitations)
+
+**Onboarding flow**
+
+- `lib/onboarding/state.ts` — signed JWT cookie state machine with 7
+  steps (`organization`, `plan`, `brand`, `location`, `connect`, `team`,
+  `welcome`). Server-side state survives reloads / tabs closed.
+- `lib/auth/constants.ts` — `NO_ORG_SENTINEL` UUID + `hasOrg(id)`.
+  Fresh users carry the sentinel as their session orgId until they
+  complete the organization step.
+- `app/(onboarding)/onboarding/start/{page,actions}.tsx` — single hub
+  page; renders the correct step component based on the cookie.
+- `app/(onboarding)/onboarding/start/step-*.tsx` — 7 step components
+  (Organization, Plan, Brand, Location, Connect, Team, Welcome).
+- `app/(onboarding)/layout.tsx` — minimal shell with logout.
+- `/login` adds a "Empezar como nuevo usuario" Server Action that
+  spawns a fresh public.users row, signs the session cookie with
+  NO_ORG_SENTINEL, and redirects to /onboarding/start.
+- `app/(app)/layout.tsx` bounces NO_ORG sessions to onboarding.
+
+**Billing v2**
+
+- `app/(app)/billing/actions.ts` — `changePlanAction` mutates
+  `organizations.plan_id` + `subscriptions` directly (Phase 12 swaps to
+  Stripe). Downgrade-safety refuses when current usage exceeds the
+  target plan, returning a blockers list.
+- `components/billing/change-plan-dialog.tsx`,
+  `components/billing/usage-card.tsx`.
+- `/billing` rewritten: plan card, ChangePlanDialog, UsageCard (5
+  metrics with amber/red thresholds), disabled "Customer portal".
+
+**Team v2 + invitations**
+
+- `lib/invitations/tokens.ts` — `generateInvitationToken()` (32-byte
+  base64url), `INVITATION_TTL_MS` (7 days), `invitationAcceptUrl()`.
+- `lib/emails/send.ts` + `lib/emails/dev-outbox.ts` — sendEmail() logs
+  + pushes to an in-memory dev outbox. Resend wires in Phase 11.
+- `app/(app)/team/actions.ts` — inviteTeamAction (multi-email + role +
+  plan-limit check), changeRoleAction, removeMemberAction (last-owner
+  protection), cancelInvitationAction +
+  cancelInvitationFormAction wrapper.
+- `app/auth/accept/[token]/{page,accept-form,actions}.tsx` — public
+  accept route, idempotent.
+- `components/team/{invite-dialog,pending-invitations,member-actions}.tsx`
+- `/team` rewritten: live member list, role tones, Pending Invitations
+  section with copyable acceptance links.
+
+**Usage counters**
+
+- `lib/usage/period.ts` — `currentMonthPeriod`, `periodContains`,
+  `INFINITY_PERIOD` (1900–9999 sentinel window).
+- `lib/usage/counters.ts` — readUsage, incrementUsage, decrementUsage
+  (floors at 0), checkUsage, snapshotUsage. Windowed (postsPerMonth)
+  vs point-in-time metrics.
+
+**Dashboard checklist**
+
+- `lib/queries/checklist.ts` — derives item completion from DB facts.
+- `components/dashboard/onboarding-checklist.tsx` — persistent card
+  with progress bar; dismissable via `blacknel_checklist_dismissed`
+  cookie.
+
+**UI primitives added**
+
+- `components/ui/{dialog,input,label,radio-group,select,progress}.tsx`.
+- New Radix deps: `@radix-ui/react-{dialog,label,popover,progress,
+  radio-group,select}`.
+
+**Other**
+
+- `vitest.config.ts` aliases `'server-only'` to a no-op shim so server
+  modules import cleanly in tests.
+
+**Tests** (25 new, 60 total)
+
+- `tests/unit/period.test.ts` — calendar-month boundaries.
+- `tests/integration/usage-counters.test.ts` — increment / decrement
+  (floor-at-0) / checkUsage cap handling for both metric flavors.
+- `tests/integration/invitations.test.ts` — token shape + URL builder,
+  create + list pending, idempotent accept via acceptedAt + acceptedBy,
+  expired filter.
+- `tests/integration/plan-switching.test.ts` — upgrade always allowed
+  vs downgrade blocked by over-usage.
+- `tests/integration/onboarding-spine.test.ts` — DB transitions every
+  onboarding step performs (4 sub-tests, one per step that mutates).
+
+**Visible feature gates (≥5 asked, 7 delivered)**
+
+1. Listening, Competitors, Audit, Feedback show `<UpgradePrompt>` on
+   Standard (Phase 1 plumbing).
+2. Ads shows `<UpgradePrompt>` on anything below Enterprise.
+3. inviteTeamAction refuses invites that would exceed plan users cap.
+4. changePlanAction refuses downgrade when current usage exceeds the
+   target plan, returns blockers list.
+
 ### Added — Phase 1 / Commit 4
 
 **Dev runtime**
