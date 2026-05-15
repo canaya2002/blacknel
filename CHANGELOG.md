@@ -7,6 +7,89 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 1 / Commit 4
+
+**Dev runtime**
+
+- `lib/db/dev-runtime.ts` — pglite with FS persistence at
+  `.blacknel/pglite-data/`. Boots once per process, auto-applies every
+  SQL migration, idempotent-seeds via `seedDatabase`. Same Postgres
+  semantics (RLS, triggers, enums, roles) as the Phase-11 cutover.
+- `lib/db/migrate.ts` + `lib/db/seed.ts` — extracted from `scripts/`
+  so the migration runner and seed are reusable by the dev runtime
+  *and* the standalone CLI scripts.
+- `lib/db/client.ts` updated: `getRawDb()` is now async and routes
+  between postgres-js and pglite based on `BLACKNEL_USE_MOCKS` + the
+  presence of `DATABASE_URL`. Tests refuse to call it — they must
+  inject the test fixture instead.
+- `.blacknel/` added to `.gitignore`.
+
+**App shell**
+
+- `app/layout.tsx` — root layout with `<Providers>` and `globals.css`.
+- `app/globals.css` — Tailwind v4 with `@theme` design tokens
+  (`--color-brand-primary`, `--color-brand-accent: #3F4753`,
+  `--color-brand-warning`, `--color-brand-danger`) and shadcn-style HSL
+  semantic tokens for light/dark.
+- `components/ui/*` — minimum shadcn set written in by hand for
+  Tailwind v4 compat: button, card, badge, skeleton, separator,
+  tooltip, dropdown-menu, avatar, collapsible.
+- `components/common/*` — `PageHeader`, `EmptyState` (icon + title +
+  specific description + optional disabled CTA with phase tooltip),
+  `PlanBadge`, `UpgradePrompt`, `ModuleSkeleton`.
+- `components/layout/*` — `Sidebar` (5 grouped collapsible sections,
+  plan-aware items with badges + tooltips, redirects gated clicks to
+  /billing), `Topbar` (brand + location switchers, theme toggle, user
+  menu with sign-out Server Action), `BrandSwitcher` /
+  `LocationSwitcher` (URL-driven via `useSearchParams`),
+  `Breadcrumbs` (derived from pathname via `SIDEBAR_ITEMS_BY_HREF`),
+  `ThemeToggle`, `UserMenu`, `BrandLocationCookieSync` (writes URL
+  scope to the cookie for next-session persistence).
+
+**Brand / location context**
+
+- `lib/context/constants.ts` — client-safe `CONTEXT_COOKIE_NAME`.
+- `lib/context/brand-location.ts` — `resolveBrandLocationContext`,
+  `listBrandsAndLocations`, `writeBrandLocationCookie`. URL params
+  win, cookie is the fallback.
+- `lib/queries/plan.ts` — `getOrgPlanCode(session)` for plan-aware UI.
+
+**Routes**
+
+- `app/(marketing)/page.tsx` — landing.
+- `app/(marketing)/pricing/page.tsx` — pricing comparison generated
+  from the `PLANS` const.
+- `app/(marketing)/login/page.tsx` + `login-form.tsx` + `actions.ts` —
+  dev impersonation. Lists every seeded `(user × org)` pair; selecting
+  one signs the session cookie via `loginAsDevUser` and redirects to
+  /dashboard. Aborts in production.
+- `app/(app)/layout.tsx` — Shell with sidebar, topbar, breadcrumbs,
+  cookie sync. `force-dynamic` (the app is request-bound; SSG against
+  pglite would freeze the seed).
+- `app/(app)/<module>/page.tsx` + `loading.tsx` × 19 — one per module
+  in the doc's section 11.3 layout. Each has a specific page header
+  description and an `EmptyState` whose copy describes what the
+  surface shows once data exists, plus phase-tagged disabled CTAs.
+  Plan-gated modules (Approvals, Feedback, Listening, Competitors,
+  Ads, Audit) render an `UpgradePrompt` instead of the empty state
+  when the org's plan is below the threshold. Locations, Team, and
+  Billing render live seed data — cards of the 5 locations / 6 users
+  with role tones / current plan summary with usage placeholders.
+
+**Other**
+
+- `proxy.ts` (renamed from `middleware.ts` per Next 16 deprecation) —
+  validates the session cookie, drops malformed cookies, redirects
+  unauthenticated traffic on protected paths to `/login?next=…`.
+  Public marketing routes and `/feedback/*` callbacks stay open.
+- `next.config.ts` — `typedRoutes` moved out of `experimental`.
+- `app/(app)/actions.ts` — `logoutAction` Server Action.
+- `tsconfig.json` updated by Next 16 build (`jsx: react-jsx`, plus
+  `.next/dev/types/**` in include).
+- New deps: `lucide-react`, `clsx`, `tailwind-merge`,
+  `class-variance-authority`, `@radix-ui/react-*` (avatar, collapsible,
+  dropdown-menu, popover, separator, slot, tooltip).
+
 ### Added — Phase 1 / Commit 3
 
 - `lib/permissions/roles.ts` — `Role` and `Permission` types plus the

@@ -4,6 +4,7 @@ import postgres from 'postgres';
 import { z } from 'zod';
 
 import { env } from '../env';
+
 import * as schema from './schema';
 
 /**
@@ -12,9 +13,10 @@ import * as schema from './schema';
  *   1. The Postgres role we connect as. Migrations create two roles:
  *      `authenticated` (no superuser, no BYPASSRLS) and `service_role`
  *      (BYPASSRLS, all privileges). The connection itself is as the
- *      Supabase `postgres` role, which is a superuser — so by default
- *      RLS is bypassed. `SET LOCAL ROLE <name>` inside a transaction
- *      changes which role evaluates policies for that transaction only.
+ *      Supabase `postgres` role (or pglite's bundled postgres superuser
+ *      in dev), which is a superuser — so by default RLS is bypassed.
+ *      `SET LOCAL ROLE <name>` inside a transaction changes which role
+ *      evaluates policies for that transaction only.
  *
  *   2. Two session-local config values that every tenant policy reads:
  *
@@ -31,9 +33,15 @@ import * as schema from './schema';
  *   - `dbAs(ctx, fn)`    → role=authenticated, vars set. RLS enforced.
  *   - `dbAdmin(fn)`      → role=service_role. RLS bypassed. Use sparingly.
  *
- * The "production" wrappers use a singleton postgres-js connection
- * (`env.DATABASE_URL`). For integration tests we run the same logic
- * against a pglite-backed Drizzle instance via `runAs` / `runAdmin`.
+ * Runtime selection (read at first `getRawDb()` call):
+ *
+ *   - `BLACKNEL_USE_MOCKS=true` (default in dev) → pglite, FS-persisted
+ *     at `.blacknel/pglite-data/`. Migrations + seed applied on boot.
+ *   - `BLACKNEL_USE_MOCKS=false` + `DATABASE_URL=…` → postgres-js. This
+ *     is the Phase 11 cutover path (Supabase) and also how the live RLS
+ *     test runs.
+ *   - `NODE_ENV=test` with mocks on → refuses. Tests must inject their
+ *     own pglite via `tests/helpers/test-db.ts` so each run is fresh.
  */
 
 const uuidSchema = z.string().uuid();
@@ -97,61 +105,84 @@ export async function runAdmin<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Production singleton
+// Runtime singleton (production: postgres-js / dev: pglite)
 // ---------------------------------------------------------------------------
 
-let _prodRawDb: AnyPgDb | null = null;
+let _rawDb: AnyPgDb | null = null;
 let _prodSqlClient: ReturnType<typeof postgres> | null = null;
 
 /**
- * Lazy-initialized postgres-js connection + Drizzle wrapper. Throws if
- * `DATABASE_URL` is missing — keeps import-time side effects nil so
- * pglite-backed tests don't accidentally trip the production path.
+ * Resolve the active runtime Drizzle instance. Async because the dev
+ * runtime needs to spin up pglite + apply migrations + seed on first
+ * boot.
  */
-export function getRawDb(): AnyPgDb {
-  if (_prodRawDb) return _prodRawDb;
-  if (!env.DATABASE_URL) {
+export async function getRawDb(): Promise<AnyPgDb> {
+  if (_rawDb) return _rawDb;
+
+  // Explicit production / live-test path. Used when caller opts out
+  // of mocks AND provides a real DATABASE_URL — Phase 11 production
+  // and `rls.live.test.ts`.
+  if (!env.BLACKNEL_USE_MOCKS && env.DATABASE_URL) {
+    _prodSqlClient = postgres(env.DATABASE_URL, { prepare: false });
+    _rawDb = drizzlePostgres(_prodSqlClient, { schema });
+    return _rawDb;
+  }
+
+  // Phase-11-only error: mocks off but no DATABASE_URL configured.
+  if (!env.BLACKNEL_USE_MOCKS && !env.DATABASE_URL) {
     throw new Error(
-      [
-        'DATABASE_URL is not set.',
-        'Configure Supabase blacknel-dev in .env.local before using the production db client,',
-        'or pass an explicit Drizzle instance to runAs() / runAdmin() (used by integration tests).',
-      ].join(' '),
+      'BLACKNEL_USE_MOCKS=false requires DATABASE_URL. Set it in .env.local or flip BLACKNEL_USE_MOCKS back on.',
     );
   }
-  _prodSqlClient = postgres(env.DATABASE_URL, { prepare: false });
-  _prodRawDb = drizzlePostgres(_prodSqlClient, { schema });
-  return _prodRawDb;
+
+  // Tests must inject their own db. The fixture in tests/helpers/test-db.ts
+  // builds a fresh in-memory pglite per run — sharing the dev singleton
+  // would pollute the filesystem-persisted dev DB.
+  if (env.NODE_ENV === 'test') {
+    throw new Error(
+      'Do not call getRawDb() from tests. Pass an explicit Drizzle instance from ' +
+        'createTestDb() to runAs() / runAdmin() instead.',
+    );
+  }
+
+  // Default path: pglite with FS persistence at `.blacknel/pglite-data/`.
+  // Migrations + seed applied on first boot. Loaded lazily so test runs
+  // never trigger the file-backed pglite.
+  const { getDevDb } = await import('./dev-runtime');
+  _rawDb = await getDevDb();
+  return _rawDb;
 }
 
-/** Close the production connection pool. Used by long-running scripts. */
+/** Close any open underlying connection. Safe to call when none is open. */
 export async function closeProdDb(): Promise<void> {
   if (_prodSqlClient) {
     await _prodSqlClient.end({ timeout: 5 });
     _prodSqlClient = null;
-    _prodRawDb = null;
   }
+  _rawDb = null;
 }
 
 /**
  * Public API matching the project spec: `dbAs({orgId, userId}, fn)`.
- * Resolves the production raw db on first call and delegates to `runAs`.
+ * Resolves the runtime db on first call and delegates to `runAs`.
  */
 export async function dbAs<T>(
   ctx: { orgId: string; userId: string },
   fn: (tx: AnyPgTx) => Promise<T>,
 ): Promise<T> {
-  return runAs(getRawDb(), ctx, fn);
+  const db = await getRawDb();
+  return runAs(db, ctx, fn);
 }
 
 /**
  * Public API matching the project spec: `dbAdmin(fn)`. Resolves the
- * production raw db on first call and delegates to `runAdmin`.
+ * runtime db on first call and delegates to `runAdmin`.
  *
  * AUDIT EVERY CALLER. RLS bypass is a tenant-isolation escape hatch.
  */
 export async function dbAdmin<T>(fn: (tx: AnyPgTx) => Promise<T>): Promise<T> {
-  return runAdmin(getRawDb(), fn);
+  const db = await getRawDb();
+  return runAdmin(db, fn);
 }
 
 export { schema };

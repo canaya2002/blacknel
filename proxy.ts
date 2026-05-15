@@ -27,7 +27,7 @@ function isPublicPath(pathname: string): boolean {
   return false;
 }
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const session = sessionCookie ? await verifySession(sessionCookie) : null;

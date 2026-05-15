@@ -2,31 +2,22 @@
 /**
  * Apply every pending migration in `lib/db/migrations/` against the
  * configured `DATABASE_URL`. Migrations are SQL files; ordering is
- * lexical. Each file is applied once and only once — tracked in a
- * `_migrations` table the script creates on first run.
+ * lexical. Each file is applied once and only once — tracked by sha256
+ * in a `_migrations` table the runner creates on first run.
  *
  *   pnpm db:migrate
  *
  * Idempotent. Re-running after a successful run is a no-op.
  *
- * Aborts if a previously-applied file has been edited (sha256 drift),
- * because re-running an edited migration on top of itself is almost
- * always wrong. Treat applied migrations as immutable — add new files
- * for changes.
+ * NOTE: this script only targets the real-postgres path (Phase 11).
+ * The dev pglite runtime applies the same migrations *automatically*
+ * on first boot via `lib/db/dev-runtime.ts` — no manual step needed.
  */
-import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import postgres from 'postgres';
 
+import { applyMigrations, type MigrationRunnerAdapter } from '../lib/db/migrate';
 import { env } from '../lib/env';
 import { log } from '../lib/log';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const MIGRATIONS_DIR = path.resolve(__dirname, '../lib/db/migrations');
 
 async function main(): Promise<void> {
   if (!env.DATABASE_URL) {
@@ -35,67 +26,36 @@ async function main(): Promise<void> {
   }
 
   const sql = postgres(env.DATABASE_URL, { max: 1, prepare: false });
+  const adapter: MigrationRunnerAdapter = {
+    async exec(sqlText: string): Promise<void> {
+      await sql.unsafe(sqlText);
+    },
+    async query<T = unknown>(
+      sqlText: string,
+      params?: ReadonlyArray<unknown>,
+    ): Promise<T[]> {
+      // postgres-js `.unsafe(text, [params])` returns rows directly.
+      // Params are runtime values (string / number / boolean / null) the
+      // driver serialises; cast keeps `MigrationRunnerAdapter` adapter
+      // agnostic between postgres-js and pglite.
+      const rows = await sql.unsafe(
+        sqlText,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        params ? ([...params] as any[]) : [],
+      );
+      return rows as unknown as T[];
+    },
+  };
 
   try {
-    await sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS _migrations (
-        filename    text PRIMARY KEY,
-        sha256      text NOT NULL,
-        applied_at  timestamptz NOT NULL DEFAULT now()
-      );
-    `);
-
-    const files = (await readdir(MIGRATIONS_DIR))
-      .filter((f) => f.endsWith('.sql'))
-      .sort();
-
-    if (files.length === 0) {
-      log.warn('No migration files found in lib/db/migrations/');
-      return;
-    }
-
-    const applied = new Map<string, string>(
-      (await sql<{ filename: string; sha256: string }[]>`
-        SELECT filename, sha256 FROM _migrations
-      `).map((row) => [row.filename, row.sha256]),
-    );
-
-    let appliedCount = 0;
-    for (const filename of files) {
-      const fullPath = path.join(MIGRATIONS_DIR, filename);
-      const contents = await readFile(fullPath, 'utf8');
-      const sha = createHash('sha256').update(contents).digest('hex');
-
-      const prevSha = applied.get(filename);
-      if (prevSha === sha) {
-        log.debug({ filename }, 'migration.skip (already applied)');
-        continue;
-      }
-      if (prevSha && prevSha !== sha) {
-        log.error(
-          { filename, prevSha, currentSha: sha },
-          'migration.drift — applied migration was edited after the fact. Aborting.',
-        );
-        process.exit(2);
-      }
-
-      log.info({ filename }, 'migration.apply');
-      await sql.begin(async (tx) => {
-        await tx.unsafe(contents);
-        await tx`
-          INSERT INTO _migrations (filename, sha256) VALUES (${filename}, ${sha})
-        `;
-      });
-      appliedCount += 1;
-    }
-
-    log.info({ applied: appliedCount, total: files.length }, 'migration.done');
+    const applied = await applyMigrations(adapter);
+    log.info({ applied }, 'migrate.done');
   } finally {
     await sql.end({ timeout: 5 });
   }
 }
 
 main().catch((err) => {
-  log.error({ err }, 'migration.failed');
+  log.error({ err }, 'migrate.failed');
   process.exit(1);
 });

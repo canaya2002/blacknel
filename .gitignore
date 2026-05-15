@@ -31,6 +31,9 @@ coverage/
 .swc/
 .vercel/
 
+# Blacknel runtime data (pglite dev DB)
+.blacknel/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,0 +1,256 @@
+import 'server-only';
+
+import { sql } from 'drizzle-orm';
+
+import {
+  brands,
+  locations,
+  organizationMembers,
+  organizations,
+  plans,
+  subscriptions,
+  users,
+} from './schema';
+import { PLANS, type PlanCode } from '../plans/plans';
+
+import type { AnyPgTx } from './client';
+
+/**
+ * Conservative Phase-1 tenancy seed. Idempotent (deterministic UUIDs +
+ * ON CONFLICT DO UPDATE) so it can run safely on every dev-runtime
+ * boot, and as a thin wrapper from `scripts/seed.ts`.
+ *
+ *   - 3 plans projected from `lib/plans/plans.ts`
+ *   - 1 organization: Blacknel Demo (Growth plan)
+ *   - 2 brands: La Trattoria + Clínica Solis
+ *   - 5 locations spread across the two brands
+ *   - 6 users covering owner / admin x 2 / manager / agent / viewer
+ *   - 1 active subscription on Growth
+ *
+ * Inbox threads, reviews, posts, automations etc. land in their own
+ * phases' seeds. This seed only sets up the tenancy spine.
+ *
+ * `tx` is the transaction passed by `runAdmin()` — RLS is bypassed.
+ * Never call this from a user-facing code path.
+ */
+
+export const SEED_IDS = {
+  plan: {
+    standard: '00000000-0000-4000-8000-000000000001',
+    growth: '00000000-0000-4000-8000-000000000002',
+    enterprise: '00000000-0000-4000-8000-000000000003',
+  },
+  org: {
+    demo: '11111111-1111-4111-8111-111111111111',
+  },
+  user: {
+    owner: '22222222-2222-4222-8222-220000000001',
+    admin1: '22222222-2222-4222-8222-220000000002',
+    admin2: '22222222-2222-4222-8222-220000000003',
+    manager: '22222222-2222-4222-8222-220000000004',
+    agent: '22222222-2222-4222-8222-220000000005',
+    viewer: '22222222-2222-4222-8222-220000000006',
+  },
+  brand: {
+    trattoria: '33333333-3333-4333-8333-330000000001',
+    clinica: '33333333-3333-4333-8333-330000000002',
+  },
+  location: {
+    trattoriaDowntown: '44444444-4444-4444-8444-440000000001',
+    trattoriaNorth: '44444444-4444-4444-8444-440000000002',
+    trattoriaMall: '44444444-4444-4444-8444-440000000003',
+    clinicaCentral: '44444444-4444-4444-8444-440000000004',
+    clinicaWest: '44444444-4444-4444-8444-440000000005',
+  },
+  subscription: {
+    demo: '55555555-5555-4555-8555-555555555555',
+  },
+} as const;
+
+export async function seedDatabase(tx: AnyPgTx): Promise<void> {
+  const planIdByCode: Record<PlanCode, string> = {
+    standard: SEED_IDS.plan.standard,
+    growth: SEED_IDS.plan.growth,
+    enterprise: SEED_IDS.plan.enterprise,
+  };
+
+  // --- Plans ----------------------------------------------------------
+  await tx
+    .insert(plans)
+    .values(
+      (Object.keys(PLANS) as PlanCode[]).map((code) => {
+        const def = PLANS[code];
+        return {
+          id: planIdByCode[code],
+          code: def.code,
+          name: def.name,
+          priceCents: def.priceCents,
+          limits: def.limits,
+          features: def.features,
+        };
+      }),
+    )
+    .onConflictDoUpdate({
+      target: plans.code,
+      set: {
+        name: sql`EXCLUDED.name`,
+        priceCents: sql`EXCLUDED.price_cents`,
+        limits: sql`EXCLUDED.limits`,
+        features: sql`EXCLUDED.features`,
+      },
+    });
+
+  // --- Users ----------------------------------------------------------
+  await tx
+    .insert(users)
+    .values([
+      { id: SEED_IDS.user.owner, email: 'owner@blacknel.demo', name: 'Demo Owner', locale: 'en' },
+      { id: SEED_IDS.user.admin1, email: 'admin1@blacknel.demo', name: 'Demo Admin One', locale: 'en' },
+      { id: SEED_IDS.user.admin2, email: 'admin2@blacknel.demo', name: 'Demo Admin Two', locale: 'en' },
+      { id: SEED_IDS.user.manager, email: 'manager@blacknel.demo', name: 'Demo Manager', locale: 'en' },
+      { id: SEED_IDS.user.agent, email: 'agent@blacknel.demo', name: 'Demo Agent', locale: 'en' },
+      { id: SEED_IDS.user.viewer, email: 'viewer@blacknel.demo', name: 'Demo Viewer', locale: 'en' },
+    ])
+    .onConflictDoUpdate({
+      target: users.id,
+      set: { email: sql`EXCLUDED.email`, name: sql`EXCLUDED.name` },
+    });
+
+  // --- Organization ---------------------------------------------------
+  await tx
+    .insert(organizations)
+    .values({
+      id: SEED_IDS.org.demo,
+      name: 'Blacknel Demo',
+      slug: 'blacknel-demo',
+      planId: SEED_IDS.plan.growth,
+      createdBy: SEED_IDS.user.owner,
+      billingEmail: 'billing@blacknel.demo',
+      country: 'MX',
+      locale: 'es',
+      timezone: 'America/Mexico_City',
+      status: 'active',
+    })
+    .onConflictDoUpdate({
+      target: organizations.id,
+      set: { name: sql`EXCLUDED.name`, planId: sql`EXCLUDED.plan_id` },
+    });
+
+  // Backfill `default_organization_id` on demo users now that the org exists.
+  await tx
+    .update(users)
+    .set({ defaultOrganizationId: SEED_IDS.org.demo })
+    .where(
+      sql`id IN (
+        ${SEED_IDS.user.owner}::uuid, ${SEED_IDS.user.admin1}::uuid, ${SEED_IDS.user.admin2}::uuid,
+        ${SEED_IDS.user.manager}::uuid, ${SEED_IDS.user.agent}::uuid, ${SEED_IDS.user.viewer}::uuid
+      )`,
+    );
+
+  // --- Memberships ----------------------------------------------------
+  await tx
+    .insert(organizationMembers)
+    .values([
+      { organizationId: SEED_IDS.org.demo, userId: SEED_IDS.user.owner, role: 'owner', status: 'active' },
+      { organizationId: SEED_IDS.org.demo, userId: SEED_IDS.user.admin1, role: 'admin', status: 'active' },
+      { organizationId: SEED_IDS.org.demo, userId: SEED_IDS.user.admin2, role: 'admin', status: 'active' },
+      { organizationId: SEED_IDS.org.demo, userId: SEED_IDS.user.manager, role: 'manager', status: 'active' },
+      { organizationId: SEED_IDS.org.demo, userId: SEED_IDS.user.agent, role: 'agent', status: 'active' },
+      { organizationId: SEED_IDS.org.demo, userId: SEED_IDS.user.viewer, role: 'viewer', status: 'active' },
+    ])
+    .onConflictDoNothing();
+
+  // --- Brands ---------------------------------------------------------
+  await tx
+    .insert(brands)
+    .values([
+      {
+        id: SEED_IDS.brand.trattoria,
+        organizationId: SEED_IDS.org.demo,
+        name: 'La Trattoria',
+        slug: 'la-trattoria',
+        status: 'active',
+      },
+      {
+        id: SEED_IDS.brand.clinica,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Clínica Solis',
+        slug: 'clinica-solis',
+        status: 'active',
+      },
+    ])
+    .onConflictDoUpdate({
+      target: brands.id,
+      set: { name: sql`EXCLUDED.name`, slug: sql`EXCLUDED.slug` },
+    });
+
+  // --- Locations ------------------------------------------------------
+  await tx
+    .insert(locations)
+    .values([
+      {
+        id: SEED_IDS.location.trattoriaDowntown,
+        organizationId: SEED_IDS.org.demo,
+        brandId: SEED_IDS.brand.trattoria,
+        name: 'La Trattoria — Downtown',
+        city: 'Ciudad de México',
+        country: 'MX',
+        timezone: 'America/Mexico_City',
+      },
+      {
+        id: SEED_IDS.location.trattoriaNorth,
+        organizationId: SEED_IDS.org.demo,
+        brandId: SEED_IDS.brand.trattoria,
+        name: 'La Trattoria — North',
+        city: 'Monterrey',
+        country: 'MX',
+        timezone: 'America/Monterrey',
+      },
+      {
+        id: SEED_IDS.location.trattoriaMall,
+        organizationId: SEED_IDS.org.demo,
+        brandId: SEED_IDS.brand.trattoria,
+        name: 'La Trattoria — Plaza',
+        city: 'Guadalajara',
+        country: 'MX',
+        timezone: 'America/Mexico_City',
+      },
+      {
+        id: SEED_IDS.location.clinicaCentral,
+        organizationId: SEED_IDS.org.demo,
+        brandId: SEED_IDS.brand.clinica,
+        name: 'Clínica Solis — Centro',
+        city: 'Ciudad de México',
+        country: 'MX',
+        timezone: 'America/Mexico_City',
+      },
+      {
+        id: SEED_IDS.location.clinicaWest,
+        organizationId: SEED_IDS.org.demo,
+        brandId: SEED_IDS.brand.clinica,
+        name: 'Clínica Solis — Poniente',
+        city: 'Ciudad de México',
+        country: 'MX',
+        timezone: 'America/Mexico_City',
+      },
+    ])
+    .onConflictDoUpdate({
+      target: locations.id,
+      set: { name: sql`EXCLUDED.name` },
+    });
+
+  // --- Subscription ---------------------------------------------------
+  await tx
+    .insert(subscriptions)
+    .values({
+      id: SEED_IDS.subscription.demo,
+      organizationId: SEED_IDS.org.demo,
+      planId: SEED_IDS.plan.growth,
+      status: 'active',
+      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    })
+    .onConflictDoUpdate({
+      target: subscriptions.id,
+      set: { planId: sql`EXCLUDED.plan_id`, status: sql`EXCLUDED.status` },
+    });
+}

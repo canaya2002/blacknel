@@ -14,8 +14,14 @@
  * Invocation:
  *
  *   RLS_LIVE_TEST=true \
+ *   BLACKNEL_USE_MOCKS=false \
  *   DATABASE_URL=postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres \
  *   pnpm vitest run tests/integration/rls.live.test.ts
+ *
+ * The `BLACKNEL_USE_MOCKS=false` flag is what routes `getRawDb()` to
+ * postgres-js instead of the pglite dev runtime — leaving it on
+ * (default) would point at the local `.blacknel/pglite-data/` instead
+ * of the configured DATABASE_URL.
  *
  * Reproduces the seven cases from `rls.test.ts` against real Postgres.
  * Inserts rows under sentinel UUIDs (prefix `9e9e`) so they are easy to
@@ -63,7 +69,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
   let planId: string;
 
   beforeAll(async () => {
-    const db = getRawDb();
+    const db = await getRawDb();
 
     // Pull the seeded `standard` plan id. If seed has not run, fail fast.
     const planRows = await runAdmin<Array<{ id: string }>>(db, async (tx) =>
@@ -157,7 +163,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    const db = getRawDb();
+    const db = await getRawDb();
     await runAdmin(db, async (tx) => {
       await tx.delete(brands).where(inArray(brands.id, [brandA, brandB]));
       await tx
@@ -176,7 +182,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
   describe('brands isolation', () => {
     it('user A authed in org A sees only org A brands (inside the 9e9e set)', async () => {
       const visible = await runAs<Brand[]>(
-        getRawDb(),
+        await getRawDb(),
         { orgId: orgA, userId: userA },
         async (tx) => tx.select().from(brands),
       );
@@ -190,7 +196,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
 
     it('user A querying explicitly for org B brand returns []', async () => {
       const result = await runAs<Brand[]>(
-        getRawDb(),
+        await getRawDb(),
         { orgId: orgA, userId: userA },
         async (tx) =>
           tx.select().from(brands).where(eq(brands.organizationId, orgB)),
@@ -200,7 +206,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
 
     it('user B authed in org B sees only org B brands (inside the 9e9e set)', async () => {
       const visible = await runAs<Brand[]>(
-        getRawDb(),
+        await getRawDb(),
         { orgId: orgB, userId: userB },
         async (tx) => tx.select().from(brands),
       );
@@ -224,7 +230,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
   describe('organizations isolation', () => {
     it('user A only sees org A in the organizations table', async () => {
       const visible = await runAs<Array<{ id: string }>>(
-        getRawDb(),
+        await getRawDb(),
         { orgId: orgA, userId: userA },
         async (tx) => tx.select({ id: organizations.id }).from(organizations),
       );
@@ -233,7 +239,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
 
     it('user A cannot read org B even with explicit id filter', async () => {
       const result = await runAs<Array<{ id: string }>>(
-        getRawDb(),
+        await getRawDb(),
         { orgId: orgA, userId: userA },
         async (tx) =>
           tx
@@ -248,7 +254,7 @@ describeLive('RLS LIVE (against DATABASE_URL)', () => {
   describe('users isolation', () => {
     it('user A sees self plus other members of org A', async () => {
       const visible = await runAs<User[]>(
-        getRawDb(),
+        await getRawDb(),
         { orgId: orgA, userId: userA },
         async (tx) =>
           tx
