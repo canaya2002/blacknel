@@ -7,6 +7,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 1 / Commit 3
+
+- `lib/permissions/roles.ts` — `Role` and `Permission` types plus the
+  full `ROLE_PERMISSIONS` matrix (owner / admin / manager / agent /
+  viewer).
+- `lib/permissions/can.ts` — `can(role, permission)` pure predicate,
+  `authorize(role, permission)` throwing variant (raises `FORBIDDEN`),
+  `sessionCan(session, permission)` convenience.
+- `lib/plans/plans.ts` — `PLANS` const (Standard $69 / Growth $299 /
+  Enterprise $1,099) with limits + features + platform networks.
+  Source of truth; `scripts/seed.ts` now reads from here instead of
+  duplicating data.
+- `lib/plans/gating.ts` — `planAllowsFeature`, `planFeatureTier`,
+  `planAllowsPlatform`, throwing variants `requireFeature` and
+  `requirePlatform` (raise `FEATURE_NOT_AVAILABLE_ON_PLAN`).
+- `lib/plans/limits.ts` — `getPlanLimit`, `fitsLimit`, `requireLimit`
+  (raises `PLAN_LIMIT_REACHED`). Treats `-1` as unlimited.
+- `lib/connectors/types.ts` — `PlatformCode` and `Capability` types
+  shared between plans, future connectors and UI gates.
+- `lib/auth/types.ts` — `Session` shape (userId, orgId, role, email,
+  optional name) — same shape Phase 11 Supabase Auth will populate.
+- `lib/auth/cookie.ts` — JOSE-backed JWT HS256 sign / verify with
+  embedded `v` schema version. Falls back to a stable dev secret when
+  `BLACKNEL_COOKIE_SECRET` is unset (with a one-shot warning); throws
+  in production.
+- `lib/auth/server.ts` — `getSession`, `requireUser`, `requireOrg`,
+  `requirePermission`, `setSession`, `clearSession`. Marked
+  `server-only` so an accidental client import fails at build.
+- `lib/auth/dev.ts` — `loginAsDevUser` / `logoutDevUser`. Aborts in
+  production; Commit 4 will wire the dev login UI to it.
+- `middleware.ts` — root middleware. Validates the session cookie,
+  drops it cleanly when malformed, redirects unauthenticated traffic
+  on protected paths to `/login?next=...`. Marketing routes (`/`,
+  `/pricing`, `/login`, `/feedback/*`, `/auth/*`) stay open.
+- `components/providers.tsx` — client `<Providers>` wrapping
+  `<QueryClientProvider>` + `<ThemeProvider>`. Conservative React Query
+  defaults (no refetch-on-focus, 30s stale, retry 1).
+- `tests/unit/permissions.test.ts` — 11 cases covering matrix invariants
+  and `authorize` error shape.
+- `tests/unit/plans.test.ts` — 17 cases covering catalog contract,
+  feature gating, platform gating, limit fits / requires, and tier
+  resolution.
+- New deps: `jose`, `@tanstack/react-query`, `next-themes`. Env adds
+  `BLACKNEL_COOKIE_SECRET` (optional in dev, required in production).
+
 ### Added — Phase 1 / Commit 2
 
 - `.nvmrc` and `.node-version` pinning Node 22; README section

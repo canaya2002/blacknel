@@ -31,6 +31,7 @@ import {
 } from '../lib/db/schema';
 import { env } from '../lib/env';
 import { log } from '../lib/log';
+import { PLANS, type PlanCode } from '../lib/plans/plans';
 
 // Deterministic UUIDs so the seed is rerun-friendly and the demo data
 // always lives at the same ids.
@@ -77,92 +78,30 @@ async function main(): Promise<void> {
 
   await dbAdmin(async (tx) => {
     // ---- Plans ---------------------------------------------------------
+    // Source of truth lives in `lib/plans/plans.ts` — we project it into
+    // the `plans` table here. Each seeded row keeps a stable deterministic
+    // id so other rows (subscriptions, org.plan_id) can reference it.
+    const planIdByCode: Record<PlanCode, string> = {
+      standard: ID.plan.standard,
+      growth: ID.plan.growth,
+      enterprise: ID.plan.enterprise,
+    };
+
     await tx
       .insert(plans)
-      .values([
-        {
-          id: ID.plan.standard,
-          code: 'standard',
-          name: 'Standard',
-          priceCents: 6900,
-          limits: {
-            brands: 1,
-            users: 3,
-            socialAccounts: 5,
-            locations: 1,
-            postsPerMonth: 30,
-          },
-          features: {
-            networks: ['facebook', 'instagram', 'gbp'],
-            ai: 'basic',
-            listening: false,
-            competitors: false,
-            ads: false,
-            reports: 'basic',
-            approvals: false,
-            audit: false,
-            nps: false,
-            crisis: false,
-            reportBuilder: false,
-          },
-        },
-        {
-          id: ID.plan.growth,
-          code: 'growth',
-          name: 'Growth',
-          priceCents: 29900,
-          limits: {
-            brands: 3,
-            users: 10,
-            socialAccounts: 20,
-            locations: 5,
-            postsPerMonth: 250,
-          },
-          features: {
-            networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
-            ai: 'standard',
-            listening: 'basic',
-            competitors: 'basic',
-            ads: false,
-            reports: 'standard',
-            approvals: true,
-            audit: 'basic',
-            nps: 'basic',
-            crisis: 'basic',
-            reportBuilder: false,
-          },
-        },
-        {
-          id: ID.plan.enterprise,
-          code: 'enterprise',
-          name: 'Enterprise',
-          priceCents: 109900,
-          limits: {
-            brands: -1,
-            users: -1,
-            socialAccounts: 75,
-            locations: 25,
-            postsPerMonth: -1,
-          },
-          features: {
-            networks: [
-              'facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin',
-              'x', 'youtube', 'pinterest', 'reddit',
-              'yelp', 'tripadvisor', 'trustpilot', 'bbb', 'avvo',
-            ],
-            ai: 'advanced',
-            listening: 'advanced',
-            competitors: 'advanced',
-            ads: true,
-            reports: 'advanced',
-            approvals: true,
-            audit: 'advanced',
-            nps: 'advanced',
-            crisis: 'advanced',
-            reportBuilder: true,
-          },
-        },
-      ])
+      .values(
+        (Object.keys(PLANS) as PlanCode[]).map((code) => {
+          const def = PLANS[code];
+          return {
+            id: planIdByCode[code],
+            code: def.code,
+            name: def.name,
+            priceCents: def.priceCents,
+            limits: def.limits,
+            features: def.features,
+          };
+        }),
+      )
       .onConflictDoUpdate({
         target: plans.code,
         set: {

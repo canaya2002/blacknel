@@ -38,6 +38,14 @@ const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
 
+  // --- Auth ---
+  // Secret used to sign the session cookie (JWT HS256). In Phase 1-10
+  // the cookie carries `{userId, orgId, role}` and the app trusts it
+  // directly. In Phase 11 the cutover switches to Supabase Auth tokens
+  // and this variable becomes unused. Must be ≥32 chars in production;
+  // dev/test fall back to a stable placeholder via `lib/auth/cookie.ts`.
+  BLACKNEL_COOKIE_SECRET: z.string().min(32).optional(),
+
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),
   BLACKNEL_MOCK_ERRORS: boolFromString(false),
