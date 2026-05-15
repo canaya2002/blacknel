@@ -92,6 +92,40 @@ pnpm dev                     # start dev server on :3000
 
 ---
 
+## Database
+
+The data layer is Supabase Postgres + Drizzle ORM. Schema lives in TypeScript
+under `lib/db/schema/`; migrations are **hand-written SQL** under
+`lib/db/migrations/` and applied by `scripts/migrate.ts` (sha256-tracked,
+append-only — see `lib/db/migrations/README.md`).
+
+### RLS model
+
+Every tenant-scoped table has Row Level Security enabled. Policies read
+`current_setting('app.current_org_id', true)::uuid` and
+`current_setting('app.current_user_id', true)::uuid` — both set inside the
+transaction opened by `dbAs({orgId,userId}, fn)`. Two Postgres roles do the
+gating:
+
+- `authenticated` — RLS applies. `dbAs()` switches to this role via
+  `SET LOCAL ROLE` before any query.
+- `service_role` — `BYPASSRLS`. `dbAdmin()` switches here for jobs, seeds,
+  migrations, and audited admin paths.
+
+The pglite-backed integration tests in `tests/integration/rls.test.ts`
+exercise the same migration SQL the production DB runs.
+
+### Intentional partial unique index
+
+`lib/db/migrations/0001_schema.sql` ships a **partial** unique index on
+`subscriptions(organization_id) WHERE status IN ('active', 'trialing',
+'past_due')`. This is deliberate: it enforces "at most one billable
+subscription per organization" while still letting canceled rows sit as
+history. Drizzle's `uniqueIndex` builder cannot emit a partial constraint,
+so the index lives in hand-written SQL with a matching note in
+`lib/db/schema/subscriptions.ts`. Do not "clean it up" — removing it allows
+two active subs on the same org, which silently breaks plan gating.
+
 ## Repository layout
 
 This will grow as commits land. As of Commit 1:

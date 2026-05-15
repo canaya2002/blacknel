@@ -87,24 +87,73 @@ table in their own schema and writing through us. Standard
 
 ### Manual smoke test (with Supabase Auth)
 
+#### Option A — via the Supabase Dashboard (recommended after provisioning)
+
+Run this after applying migrations against a fresh Supabase project to
+confirm the trigger is wired correctly end-to-end:
+
+1. **Supabase Dashboard → Authentication → Users → "Add user"**.
+   Use an email like `smoke@blacknel.test`. Pick either "Send invitation"
+   or "Create user with password" — both end up calling GoTrue's INSERT.
+2. **Supabase Dashboard → SQL Editor**. Run:
+
+   ```sql
+   SELECT id, email, created_at
+   FROM public.users
+   WHERE email = 'smoke@blacknel.test';
+   ```
+
+   You should see exactly **one row**, with `id` matching the value shown
+   in the Authentication → Users list.
+3. **Cleanup**. Authentication → Users → menu → "Delete user". That
+   removes the `auth.users` row. The mirror in `public.users` is **not**
+   deleted automatically (no `ON DELETE CASCADE` against `auth.users` —
+   see below). Run:
+
+   ```sql
+   DELETE FROM public.users WHERE email = 'smoke@blacknel.test';
+   ```
+
+If step 2 returns no rows, debug in this order:
+
 ```sql
--- As superuser, simulate a GoTrue insert:
+-- 1. Trigger exists and is enabled?
+SELECT tgname, tgenabled
+FROM pg_trigger
+WHERE tgname = 'on_auth_user_created';
+-- tgenabled = 'O' means enabled (origin). 'D' = disabled.
+
+-- 2. Function exists and is SECURITY DEFINER?
+SELECT proname, prosecdef, proowner::regrole
+FROM pg_proc
+WHERE proname = 'handle_new_auth_user';
+-- prosecdef = true; proowner should be a role with INSERT on public.users.
+
+-- 3. Recent errors? Look in Supabase Dashboard → Database → Logs for
+-- "handle_new_auth_user" or "permission denied for table users".
+```
+
+If `proowner` is not a superuser-class role, re-apply `0003_triggers.sql`
+as a superuser. The function must be owned by a role that has INSERT on
+`public.users`, or `SECURITY DEFINER` won't grant the necessary
+privilege.
+
+#### Option B — pure SQL (works on any Postgres with an `auth.users` table)
+
+```sql
 INSERT INTO auth.users (id, email, created_at)
   VALUES (gen_random_uuid(), 'smoke@blacknel.test', NOW());
 
--- Verify the mirror row appeared:
 SELECT id, email FROM public.users WHERE email = 'smoke@blacknel.test';
 
--- Cleanup:
 DELETE FROM auth.users WHERE email = 'smoke@blacknel.test';
--- (ON DELETE CASCADE removes the public.users row.)
+DELETE FROM public.users WHERE email = 'smoke@blacknel.test';
 ```
 
-This test depends on the FK `users.id → auth.users.id` being declared
-with `ON DELETE CASCADE`. We do **not** declare that FK in our
-migrations because we treat `auth.users` as external infrastructure;
-instead, app code that cares about deletes goes through Supabase Auth
-APIs, which handle cascade behavior.
+Note: we deliberately do **not** declare a foreign key `users.id →
+auth.users.id` because we treat `auth.users` as external infrastructure
+owned by GoTrue. App-level cascade behavior (deleting an org, removing a
+member, etc.) is handled through `public.users` and our own FKs.
 
 ## Testing migrations locally
 
