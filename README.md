@@ -26,12 +26,32 @@ roadmap.
 
 ## Requirements
 
-- **Node.js 22.x (LTS)** — target. Node 24 also works locally.
+- **Node.js 22.x (LTS)** — target, pinned via `.nvmrc` and `.node-version`.
 - **pnpm 9+** — required (no npm/yarn).
 - **Git 2.40+**
 
-The repo declares `engines.node: "22.x"` but `engine-strict=false` in
-`.npmrc` lets Node 24 install for local dev convenience.
+### Node 22 — how to install
+
+The repo pins Node 22 in two places:
+
+- `engines.node: "22.x"` in `package.json` (what Vercel / CI honor)
+- `.nvmrc` and `.node-version` at the repo root (what local version
+  managers honor)
+
+Pick whichever version manager you already use:
+
+| Tool                              | Command                                       |
+| --------------------------------- | --------------------------------------------- |
+| [nvm](https://github.com/nvm-sh/nvm) / [nvm-windows](https://github.com/coreybutler/nvm-windows) | `nvm install 22 && nvm use 22` |
+| [fnm](https://github.com/Schniz/fnm) | `fnm install 22 && fnm use 22`                |
+| [Volta](https://volta.sh/)        | `volta install node@22` (auto-pins via `.node-version`) |
+| [asdf](https://asdf-vm.com/)      | `asdf install nodejs 22 && asdf local nodejs 22` |
+| [mise](https://mise.jdx.dev/)     | `mise use node@22`                            |
+
+`engine-strict` is left **off** in `.npmrc` so pnpm will still install
+on Node 24 with a non-fatal warning — convenient when you don't have a
+version manager set up yet, but **do not ship from Node 24**. Vercel and
+CI run on Node 22 and that's the only supported runtime.
 
 ---
 
