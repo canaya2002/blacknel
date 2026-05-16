@@ -389,9 +389,28 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
   // --- Connected accounts + sync runs (Phase 3 demo data) ------------
   // Gated by env so integration tests can opt out and keep their
   // seeded worlds minimal. Default `true` in dev / `pnpm db:seed`.
+  //
+  // Runs BEFORE the publishing seed because `seed-posts.ts`
+  // distributes `post_targets` against whichever
+  // `connected_accounts` exist. With the flag off, the publishing
+  // seed still inserts posts but skips per-account target rows.
   const { env } = await import('../env');
   if (env.BLACKNEL_SEED_CONNECTED) {
     const { seedConnectedAccounts } = await import('./seed-connected-accounts');
     await seedConnectedAccounts(tx);
+  }
+
+  // --- Publishing: campaigns + content_assets + posts + post_targets ---
+  // Gated by env. Default `true`. Order matters:
+  //   1. campaigns       — posts FK into here.
+  //   2. content_assets  — independent of posts; safe in any order.
+  //   3. posts (+post_targets) — references campaigns + connected_accounts.
+  if (env.BLACKNEL_SEED_PUBLISHING) {
+    const { seedCampaigns } = await import('./seed-campaigns');
+    await seedCampaigns(tx);
+    const { seedContentAssets } = await import('./seed-content-assets');
+    await seedContentAssets(tx);
+    const { seedPosts } = await import('./seed-posts');
+    await seedPosts(tx);
   }
 }

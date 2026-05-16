@@ -30,7 +30,16 @@ const EXPECTED: Record<Exclude<PlatformCode, 'mock'>, ReadonlyArray<Capability>>
     'schedule_post',
     'read_insights',
   ],
-  gbp: ['read_reviews', 'reply_reviews', 'read_insights', 'send_review_request'],
+  // Commit 17 extended gbp to declare publish_post + schedule_post for
+  // GBP local posts (distinct from reviews — see capabilities.ts).
+  gbp: [
+    'read_reviews',
+    'reply_reviews',
+    'read_insights',
+    'send_review_request',
+    'publish_post',
+    'schedule_post',
+  ],
   whatsapp: ['read_dms', 'send_dms', 'read_insights'],
   tiktok: [
     'read_comments',
@@ -46,7 +55,15 @@ const EXPECTED: Record<Exclude<PlatformCode, 'mock'>, ReadonlyArray<Capability>>
   trustpilot: ['read_reviews', 'reply_reviews'],
   bbb: ['read_reviews'],
   avvo: ['read_reviews'],
-  youtube: ['read_comments', 'reply_comments', 'read_insights'],
+  // Commit 17 extended youtube to declare publish_post + schedule_post
+  // covering both Community posts and video uploads via Videos.insert.
+  youtube: [
+    'read_comments',
+    'reply_comments',
+    'read_insights',
+    'publish_post',
+    'schedule_post',
+  ],
   pinterest: ['publish_post', 'schedule_post'],
   reddit: ['read_mentions', 'listening_source'],
 };

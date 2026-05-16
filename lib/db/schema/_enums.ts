@@ -188,3 +188,105 @@ export const reviewRequestOutcomeEnum = pgEnum('review_request_outcome', [
   'no_response',
   'expired',
 ]);
+
+/**
+ * Lifecycle of a publishing `posts` row.
+ *
+ * Transitions:
+ *
+ *   draft               → scheduled              (manager schedules)
+ *   draft               → pending_approval       (auto when brand requires_approval)
+ *   pending_approval    → scheduled              (approval approved)
+ *   pending_approval    → cancelled              (approval rejected)
+ *   scheduled           → publishing             (job picks it up at scheduled_at)
+ *   scheduled           → cancelled              (user cancels before window)
+ *   publishing          → published              (every target succeeded OR mixed)
+ *   publishing          → failed                 (every target failed)
+ *   draft               → published              (publish-now skips scheduled state)
+ *
+ * `cancelled` and `published` are terminal. `failed` is terminal for
+ * the parent row but individual `post_targets` may retry independently
+ * — see `post_target_status`.
+ *
+ * Phase-6 publish-job (Commit 20) is the only writer that transitions
+ * `scheduled → publishing → published|failed`. Earlier transitions go
+ * through Server Actions.
+ */
+export const postStatusEnum = pgEnum('post_status', [
+  'draft',
+  'pending_approval',
+  'scheduled',
+  'publishing',
+  'published',
+  'failed',
+  'cancelled',
+]);
+
+/**
+ * Lifecycle of a single `post_targets` row — one per (post,
+ * connected_account). The connector dispatch loop in the publish-job
+ * walks these and updates them independently:
+ *
+ *   pending     → publishing  (job starts the connector.publishPost call)
+ *   publishing  → published   (connector returned externalId)
+ *   publishing  → failed      (connector threw or exceeded retry budget)
+ *
+ * The parent `posts.status` rolls up: all published / all failed /
+ * mixed → `published` (partial publishing is intentional — the user
+ * sees per-target status in the detail view).
+ */
+export const postTargetStatusEnum = pgEnum('post_target_status', [
+  'pending',
+  'publishing',
+  'published',
+  'failed',
+]);
+
+/**
+ * Marketing-objective taxonomy for `campaigns`. Used for filtering,
+ * reports (Phase 8) and the goal column on the campaign card. Not
+ * enforced by content type — a campaign with goal `'awareness'` may
+ * still hold any kind of post.
+ */
+export const campaignGoalEnum = pgEnum('campaign_goal', [
+  'awareness',
+  'engagement',
+  'leads',
+  'reviews',
+  'reputation',
+  'event',
+  'launch',
+  'promotion',
+  'education',
+  'crisis',
+  'seasonal',
+  'evergreen',
+]);
+
+/**
+ * Campaign lifecycle. `draft` is pre-launch; `active` runs between
+ * starts_at and ends_at; `paused` is a manual hold (Phase 9
+ * automations can flip this); `completed` is post-end-date; `archived`
+ * hides it from the default list.
+ */
+export const campaignStatusEnum = pgEnum('campaign_status', [
+  'draft',
+  'active',
+  'paused',
+  'completed',
+  'archived',
+]);
+
+/**
+ * Kinds of asset stored in the content library. `pdf` covers
+ * documents only (linked, never embedded in a post). `gif` is split
+ * from `image` because some platforms handle GIFs as a separate
+ * media type (Twitter/X promotes them via a different endpoint;
+ * Instagram converts them to video on upload).
+ */
+export const contentAssetKindEnum = pgEnum('content_asset_kind', [
+  'image',
+  'video',
+  'pdf',
+  'gif',
+]);

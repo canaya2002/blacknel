@@ -433,3 +433,43 @@ should return exactly one hit (path b, the wrapper) or zero hits
 (path a, all through `dbAs`).
 
 **Target phase.** Phase 11 (security audit + Supabase cutover).
+
+## connector-publish-limits-2026
+
+**Problem.** Commit 17 added `publishLimits` to the
+`ConnectorCapabilities` interface and populated values for the
+8 publish-capable platforms (facebook, instagram, x, linkedin,
+tiktok, pinterest, youtube, gbp). Values are sourced from public
+API docs as of 2026-Q1 and JSDoc-annotated with the source URL
+in each capabilities.ts.
+
+Platform APIs change limits without notice (X tripled long-form
+in Q3 2025; Instagram's carousel cap moved from 10 to a
+threaded-post model in beta). The Phase-5 composer is mock-only;
+divergence between our `publishLimits` and reality doesn't break
+anything until the real connector lands.
+
+**Resolution criteria (Phase 11).** Close when:
+
+1. For each of the 8 publish-capable platforms, the connector
+   integration test calls a tiny sandbox API call that confirms
+   the limit values are still accurate, OR a manual checklist in
+   the Phase-11 connector README records the verification per
+   platform with a date.
+2. The 8 `capabilities.ts` files have their JSDoc source-date
+   updated to the verification date.
+3. Any limit that drifted gets a one-line update + a one-line
+   note in CHANGELOG.
+
+**Affected files (8).**
+
+- `lib/connectors/facebook/capabilities.ts`
+- `lib/connectors/instagram/capabilities.ts`
+- `lib/connectors/x/capabilities.ts`
+- `lib/connectors/linkedin/capabilities.ts`
+- `lib/connectors/tiktok/capabilities.ts`
+- `lib/connectors/pinterest/capabilities.ts`
+- `lib/connectors/youtube/capabilities.ts`
+- `lib/connectors/gbp/capabilities.ts`
+
+**Target phase.** Phase 11 (connector cutover).

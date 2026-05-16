@@ -7,6 +7,136 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 6 / Commit 17 (publishing schema · mock publish · seed · Server Actions base)
+
+Opens Phase 6 — Publishing & Calendar. Lands the DB shape,
+extended connector capabilities + mock publish, seed, and base
+Server Actions / queries. The list view (Commit 18), composer +
+previews + asset library (Commit 19), publish-job + retry +
+approval flow (Commit 20), and campaigns + polish (Commit 21)
+follow.
+
+**Enums (5 new in `_enums.ts`)**
+
+- `post_status` (draft / pending_approval / scheduled /
+  publishing / published / failed / cancelled) with lifecycle
+  JSDoc.
+- `post_target_status` (pending / publishing / published /
+  failed).
+- `campaign_goal` (12 marketing taxonomy values).
+- `campaign_status` (draft / active / paused / completed /
+  archived).
+- `content_asset_kind` (image / video / pdf / gif).
+
+**Schemas + migration**
+
+- `lib/db/schema/campaigns.ts`, `content-assets.ts`, `posts.ts`,
+  `post-targets.ts` — 4 Drizzle schemas.
+- `lib/db/migrations/0007_publishing.sql` — tables, RLS, triggers,
+  indexes.
+- Two load-bearing partial uniques on `posts` + `post_targets`:
+  - `posts (organization_id, idempotency_key) WHERE NOT NULL`
+    defends against double-click on Schedule.
+  - `post_targets (post_id, connected_account_id) WHERE status
+    != 'failed'` enforces one successful or in-flight target
+    per (post, account); failed retries exempt so history can
+    accumulate.
+- `post_targets.organization_id` denormalized via BEFORE INSERT
+  trigger (same pattern as `inbox_messages` and
+  `review_responses`).
+
+**Connector capabilities (Ajuste 1 — per-connector contract)**
+
+- `PublishLimits` interface added to `ConnectorCapabilities`.
+  Each connector declares its own limits — single source of
+  truth. The composer reads `getConnector(platform).capabilities
+  (account).publishLimits`; no global constant.
+- 6 existing publish-capable platforms (facebook, instagram, x,
+  linkedin, tiktok, pinterest) populated with 2026-Q1 values +
+  JSDoc source URLs.
+- 2 platforms extended to declare `publish_post` +
+  `schedule_post`:
+    - **YouTube** — covers Community posts (text + image) AND
+      video uploads.
+    - **GBP** — local posts API (distinct from reviews).
+- New `TODO.md#connector-publish-limits-2026` — Phase 11
+  re-verification checklist.
+
+**Mock connector publish (Ajuste 2 — testable idempotency map)**
+
+- `lib/connectors/base/mock-publish.ts` — extracted module.
+  500–2000ms randomized delay (seeded for determinism; flag
+  `BLACKNEL_MOCK_FAST_PUBLISH=true` collapses to 0).
+  Platform-specific error codes
+  (POST_RATE_LIMIT_EXCEEDED, MEDIA_INVALID_FORMAT,
+  VIDEO_PROCESSING_FAILED, etc.) when
+  `BLACKNEL_MOCK_ERRORS=true`. Exported
+  `MOCK_IDEMPOTENCY_MAP` + `clearMockIdempotency()` for tests.
+  TTL caveat documented for Phase-11 Upstash swap.
+- `MockConnector.publishPost` / `schedulePost` accept
+  `options.idempotencyKey` — same key returns the cached
+  externalId without re-throwing platform errors or burning
+  delay budget. Phase-11 real connectors will use platform
+  primitives (FB `client_token`, IG `creation_id`).
+
+**Server Actions + queries base**
+
+- `lib/publish/status-transitions.ts` — pure-function lifecycle
+  table for `posts.status` with `canTransition`,
+  `allowedTransitionsFrom`, `isTerminal`.
+- `lib/publish/queries.ts` — `listPostsForOrg` /
+  `listPostsWithTx` (joins brand / campaign / author + per-post
+  target count aggregates), `getPostDetail`,
+  `getPostKpiCounts`.
+- `lib/publish/posts.ts` — orchestrator with DI seam matching
+  inbox/send-reply. `createPost`, `updatePostDraft`,
+  `transitionPostStatus`, `cancelPost`. Audit row per mutation.
+  `postsPerMonth` counter reused — JSDoc clarifies it
+  increments at `→ published` only (Commit-20 publish-job is the
+  writer).
+- `app/(app)/publish/actions.ts` — Server Actions wrapping the
+  orchestrator with auth + RBAC + Zod + `revalidatePath`.
+
+**Seed**
+
+- 3 lazy-imported modules: `seed-campaigns`, `seed-content-assets`,
+  `seed-posts`.
+- 3 campaigns (evergreen, promotion, awareness), 20 content
+  assets (12 Trattoria + 8 Clínica), 40 posts in the spec'd
+  status mix (8 drafts / 12 scheduled / 15 published / 3
+  failed / 2 pending_approval).
+- 80 post_targets distributed 1–3 per post against the org's
+  `connected_accounts`.
+- Gated by new `BLACKNEL_SEED_PUBLISHING` env flag (default
+  `true`). Order in `seed.ts`: connected_accounts → campaigns
+  → assets → posts.
+
+**Tests** (47 new, 480 total — was 433)
+
+- `tests/unit/post-status-transitions.test.ts` (32) — every
+  legal + illegal transition + terminal predicates.
+- `tests/unit/mock-publish-idempotency.test.ts` (7) — same key
+  returns same externalId, different keys differ,
+  platform-namespaced cache, `clearMockIdempotency` resets.
+- `tests/integration/posts-schema.test.ts` (8) — tenant
+  isolation, trigger auto-fill, cross-tenant insert rejection,
+  posts idempotency partial unique, NULL-allowed semantics,
+  one-success-per-account partial unique, cascade delete.
+- `_seed-health.test.ts` — extended to assert the 4 new tables
+  and the `BLACKNEL_SEED_PUBLISHING=false` opt-out.
+- `capabilities.test.ts` — youtube + gbp expected sets updated
+  with `publish_post` / `schedule_post`.
+
+**Env**
+
+- `BLACKNEL_SEED_PUBLISHING` (default `true`) — gates the
+  publishing seed for integration tests.
+
+**TODO**
+
+- New `connector-publish-limits-2026` — Phase 11 re-verification
+  of platform publish limits.
+
 ### Added — Phase 5 / Commit 16 (review requests · public feedback landing · CLOSES Phase 5)
 
 **Token primitives (Ajuste 1 isolation)**

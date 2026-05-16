@@ -32,3 +32,7 @@ export * from './reviews';
 export * from './review-responses';
 export * from './review-requests';
 export * from './reputation-snapshots';
+export * from './campaigns';
+export * from './content-assets';
+export * from './posts';
+export * from './post-targets';

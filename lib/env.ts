@@ -65,6 +65,14 @@ const envSchema = z.object({
    * exact rows they need explicitly.
    */
   BLACKNEL_SEED_CONNECTED: boolFromString(true),
+  /**
+   * Whether `seedDatabase()` should seed the demo publishing data
+   * (campaigns + content_assets + posts + post_targets). Default
+   * `true`. Integration tests for unrelated features can flip this
+   * to `false` to skip the ~150-row insert. The composer tests
+   * (Commit 19) stand up their own posts explicitly anyway.
+   */
+  BLACKNEL_SEED_PUBLISHING: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

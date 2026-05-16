@@ -1,5 +1,12 @@
 import { BaseConnector, type FetchOptions, type FetchPage } from './connector';
 import { PlatformError, RateLimitedError, TokenExpiredError } from './errors';
+import {
+  maybeThrowPublishError,
+  mockIdempotencyGet,
+  mockIdempotencySet,
+  mockPublishDelay,
+  mockShortDelay,
+} from './mock-publish';
 import type {
   NormalizedAuthor,
   NormalizedComment,
@@ -178,23 +185,54 @@ export class MockConnector extends BaseConnector {
   async publishPost(
     account: ConnectorAccount,
     draft: { text: string; mediaUrls?: ReadonlyArray<string>; link?: string },
+    options: { idempotencyKey?: string } = {},
   ): Promise<{ externalId: string }> {
     this.ensureCapability('publish_post');
+    // Idempotency check FIRST — same key returns the cached id
+    // without re-throwing platform errors or burning delay budget.
+    // Phase-11 real connectors get this from the platform itself
+    // (FB `client_token`, IG `creation_id`, etc.).
+    if (options.idempotencyKey) {
+      const cached = mockIdempotencyGet(this.platform, options.idempotencyKey);
+      if (cached) return { externalId: cached };
+    }
+    // Randomized publish delay (500–2000ms) seeded by platform +
+    // account + body length, so retries are deterministic. Tests
+    // can flip `BLACKNEL_MOCK_FAST_PUBLISH=true` to skip the wait.
+    await mockPublishDelay(this.platform, account, draft.text);
+    // Token-expired / rate-limited errors run alongside the
+    // platform-specific publish-error path.
     this.maybeThrow(account, 'publishPost');
-    void draft;
-    return { externalId: `mock-post-${randomId()}` };
+    maybeThrowPublishError(this.platform, account, 'publishPost', this.emitErrors);
+    const externalId = `mock-post-${this.platform}-${randomId()}`;
+    if (options.idempotencyKey) {
+      mockIdempotencySet(this.platform, options.idempotencyKey, externalId);
+    }
+    return { externalId };
   }
 
   async schedulePost(
     account: ConnectorAccount,
     draft: { text: string; mediaUrls?: ReadonlyArray<string>; link?: string },
     when: Date,
+    options: { idempotencyKey?: string } = {},
   ): Promise<{ externalId: string }> {
     this.ensureCapability('schedule_post');
+    if (options.idempotencyKey) {
+      const cached = mockIdempotencyGet(this.platform, options.idempotencyKey);
+      if (cached) return { externalId: cached };
+    }
+    // Schedule calls don't upload media — short delay only.
+    await mockShortDelay(this.platform, account.id);
     this.maybeThrow(account, 'schedulePost');
+    maybeThrowPublishError(this.platform, account, 'schedulePost', this.emitErrors);
     void draft;
     void when;
-    return { externalId: `mock-scheduled-${randomId()}` };
+    const externalId = `mock-scheduled-${this.platform}-${randomId()}`;
+    if (options.idempotencyKey) {
+      mockIdempotencySet(this.platform, options.idempotencyKey, externalId);
+    }
+    return { externalId };
   }
 
   async deletePost(account: ConnectorAccount, postId: string): Promise<void> {

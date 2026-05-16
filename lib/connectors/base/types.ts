@@ -62,6 +62,49 @@ export type Capability = (typeof CAPABILITIES)[number];
 export type CAPABILITIES_LIST = typeof CAPABILITIES;
 
 /**
+ * Per-platform limits for the publishing path. Optional — only
+ * platforms that declare `publish_post` populate this. The
+ * composer (Commit 19) reads from
+ * `getConnector(platform).capabilities(account).publishLimits` so
+ * each connector is the single source of truth for its own limits.
+ *
+ * Values reflect the public API limits as of 2026-Q1. Phase 11
+ * re-verifies against the real connector SDKs at cutover time
+ * (TODO.md#connector-publish-limits-2026).
+ */
+export interface PublishLimits {
+  /** Maximum image attachments per post. Omitted = unlimited. */
+  readonly maxImages?: number;
+  /** Maximum video attachments per post. */
+  readonly maxVideos?: number;
+  /**
+   * Character cap on the post body. Some platforms also constrain
+   * link-card descriptions separately; the composer does NOT
+   * enforce those today (handled at Phase 11 with real SDKs).
+   */
+  readonly maxTextLength?: number;
+  /**
+   * Media kinds the platform accepts. Filtered against
+   * `content_assets.kind` in the composer media picker.
+   */
+  readonly supportedMediaTypes?: ReadonlyArray<'image' | 'video' | 'gif' | 'pdf'>;
+  /**
+   * Aspect-ratio whitelist for image / video. Each entry is
+   * `"W:H"` (e.g. `"1:1"`, `"4:5"`, `"16:9"`). When omitted, the
+   * composer doesn't constrain ratio.
+   */
+  readonly aspectRatios?: ReadonlyArray<string>;
+  /**
+   * Premium-tier override flag. When `true`, the connector
+   * looks at `account.metadata.premium === true` and applies an
+   * alternative limit set encoded inline by the connector. Phase 6
+   * only declares the field; consumer logic lives in the composer
+   * (Commit 19).
+   */
+  readonly hasPremiumTier?: boolean;
+}
+
+/**
  * Declared capabilities for a connector — what the platform's real API
  * actually allows, expressed as `supported` plus per-capability
  * `notes` (UI tooltips that explain quirks).
@@ -70,10 +113,14 @@ export type CAPABILITIES_LIST = typeof CAPABILITIES;
  * API is read-only. Instagram includes `read_dms` but adds a note
  * about the Messenger inbox limitation. UI consumers render the
  * note next to the capability badge.
+ *
+ * `publishLimits` is populated by platforms that declare
+ * `publish_post`. See `PublishLimits` for the schema.
  */
 export interface ConnectorCapabilities {
   readonly supported: ReadonlyArray<Capability>;
   readonly notes?: Partial<Record<Capability, string>>;
+  readonly publishLimits?: PublishLimits;
 }
 
 /**

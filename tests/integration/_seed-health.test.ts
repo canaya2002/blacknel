@@ -55,8 +55,9 @@ async function countByTable(
 }
 
 describe('seed health check', () => {
-  it('default flags: seeds in <2s with 8 connected_accounts (6/1/1) + 16 sync runs', async () => {
+  it('default flags: seeds in <2s with 8 connected_accounts (6/1/1) + 16 sync runs + publishing data', async () => {
     vi.stubEnv('BLACKNEL_SEED_CONNECTED', 'true');
+    vi.stubEnv('BLACKNEL_SEED_PUBLISHING', 'true');
     vi.resetModules();
     const { seedDatabase } = await import('../../lib/db/seed');
 
@@ -91,6 +92,11 @@ describe('seed health check', () => {
       'audit_events',
       'connected_accounts',
       'connector_sync_runs',
+      // Phase-6 publishing tables (Commit 17).
+      'campaigns',
+      'content_assets',
+      'posts',
+      'post_targets',
     ]);
 
     const byStatus = await runAdmin<Array<{ status: string; n: number }>>(
@@ -140,11 +146,22 @@ describe('seed health check', () => {
     const runsRow = counts.find((c) => c.table === 'connector_sync_runs');
     expect(runsRow?.n).toBe(16);
 
+    // Publishing seed (Commit 17).
+    const byCount = (table: string): number =>
+      counts.find((c) => c.table === table)?.n ?? -1;
+    expect(byCount('campaigns')).toBe(3);
+    expect(byCount('content_assets')).toBe(20);
+    expect(byCount('posts')).toBe(40);
+    // 1-3 targets per post → 40-120; deterministic by seed.
+    expect(byCount('post_targets')).toBeGreaterThan(0);
+    expect(byCount('post_targets')).toBeLessThanOrEqual(120);
+
     await fixture.dispose();
   });
 
-  it('flag off: BLACKNEL_SEED_CONNECTED=false leaves connected_accounts empty', async () => {
+  it('flags off: connected + publishing flags can be opted out independently', async () => {
     vi.stubEnv('BLACKNEL_SEED_CONNECTED', 'false');
+    vi.stubEnv('BLACKNEL_SEED_PUBLISHING', 'false');
     vi.resetModules();
     const { seedDatabase } = await import('../../lib/db/seed');
 
@@ -156,6 +173,10 @@ describe('seed health check', () => {
     const counts = await countByTable(fixture.db, [
       'connected_accounts',
       'connector_sync_runs',
+      'campaigns',
+      'content_assets',
+      'posts',
+      'post_targets',
       // Sanity: the rest of the seed still runs.
       'plans',
       'organizations',
@@ -164,6 +185,11 @@ describe('seed health check', () => {
     const byTable = Object.fromEntries(counts.map((c) => [c.table, c.n]));
     expect(byTable.connected_accounts).toBe(0);
     expect(byTable.connector_sync_runs).toBe(0);
+    expect(byTable.campaigns).toBe(0);
+    expect(byTable.content_assets).toBe(0);
+    expect(byTable.posts).toBe(0);
+    expect(byTable.post_targets).toBe(0);
+    // Core tenancy + reviews still seeded.
     expect(byTable.plans).toBe(3);
     expect(byTable.organizations).toBe(1);
     expect(byTable.reviews).toBeGreaterThan(0);
