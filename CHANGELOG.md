@@ -7,6 +7,125 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 5 / Commit 16 (review requests · public feedback landing · CLOSES Phase 5)
+
+**Token primitives (Ajuste 1 isolation)**
+
+- `lib/reviews/request-tokens.ts` — `generateRequestToken()` mints
+  `bnf_` + base64url(24 bytes) = 36-char tokens (~144 bits of
+  entropy). Pure module, no DB. `validateTokenFormat()` is the
+  pre-DB shape check the public landing uses to short-circuit
+  malformed input — defeats timing-oracle enumeration by rejecting
+  before any query.
+
+- `lib/reviews/public-feedback.ts` — **SINGLE call-site** for
+  `dbAdmin` on the public review-feedback surface. The
+  `/feedback/[token]` landing has no session, so RLS can't be
+  enforced via `dbAs` — this file is the audited tenant-isolation
+  escape hatch. `grep "dbAdmin" lib/reviews/` shows this is the
+  only token-resolution caller. (Audit writes in `send-request.ts`
+  / `send-response.ts` also use `dbAdmin` but for the audit table,
+  not for token resolution — tracked at
+  `TODO.md#audit-events-atomicity`.)
+    - `loadFeedbackByToken` returns `null` indistinguishably for
+      every "no" branch — malformed (zero DB queries), unknown
+      (1 query), expired (1 query), already completed (1 query) —
+      so a timing attacker can't distinguish them.
+    - `submitFeedback` returns `err('NOT_FOUND', ...)` for every
+      same set of failures. Successful submissions split into
+      `positive_routed` (redirect URL to Google place review) or
+      `negative_captured` (internal `reviews` row inserted with
+      `escalated=true` + tag `feedback-captured`). Audit event
+      `feedback.received` is stamped in both branches.
+    - DI bag (`FeedbackDeps`) allows tests to spy `asAdmin` and
+      prove the malformed branch never reaches the DB.
+
+**Rate limiting (Ajuste 2 abstraction)**
+
+- `lib/reviews/rate-limit.ts` — `RateLimitStore` interface +
+  `InMemoryRateLimitStore` (Phase 5) + `createRateLimiter()`
+  factory. The Phase-5 default is 5 hits per (IP, action) per 60s.
+  Phase-11 cutover to Upstash Redis is ONE line in
+  `defaultFeedbackRateLimiter()`; consumers see no change.
+
+**Outbound request orchestrator (Ajuste 3 dedup)**
+
+- `lib/reviews/send-request.ts` — `sendReviewRequest` (single) +
+  `sendReviewRequestsBulk` + `cancelReviewRequest`. DI seam mirrors
+  `send-reply.ts` / `send-response.ts`.
+    - Plan-limit gate via
+      `checkUsage(reviewRequestsPerMonth)`.
+    - Dedup rule: same `(org, location, contact_info->>'email')`
+      sent in the last 30 days with `completedAt IS NULL` →
+      `DUPLICATE_REVIEW_REQUEST` with `existingRequestId` + the
+      prior `sentAt` in `error.meta`. Bulk send PARTITIONS into
+      `sent / skipped / limited` so a 50-recipient upload with 10
+      duplicates sends the 40 unique ones (doesn't fail-all).
+    - New `AppError` code `DUPLICATE_REVIEW_REQUEST` (HTTP 409).
+    - Per-recipient audit events: `review.request.sent` /
+      `review.request.skipped_dup` / `review.request.plan_limit` /
+      `review.request.cancelled`.
+    - Email via dev outbox (`sendEmail({ kind: 'review_request' })`)
+      — Resend wires in Phase 11.
+
+**Authenticated UI (`/reviews/requests`)**
+
+- `page.tsx` — single-pass dashboard loader (same pattern as
+  /reputation). KPI strip (sent / opened / completed /
+  positive_routed / negative_captured / completion rate) +
+  new-request form + list of in-flight requests.
+- `actions.ts` — `createReviewRequestAction`,
+  `bulkSendReviewRequestsAction`, `cancelReviewRequestAction`.
+- `lib/reviews/request-queries.ts` — `loadReviewRequestsDashboard`
+  parallel-fetch KPIs + list under one `dbAs` txn.
+- `components/reviews/{requests-kpis,requests-list,new-request-form}.tsx`.
+
+**Public landing (Ajuste 4 brand-first UX)**
+
+- `app/(public)/layout.tsx` — minimal standalone shell. NO
+  Blacknel sidebar, NO app chrome. Tiny "Powered by Blacknel"
+  footer credit.
+- `app/(public)/feedback/[token]/page.tsx` — brand header (logo
+  initial from `brandName`, location subtitle), per-token
+  metadata via `generateMetadata`. Locale auto-detected from
+  `contact_info.locale` (set by the orchestrator from the
+  location's country at send time). 404 on every failure mode so
+  the body doesn't reveal which branch fired.
+- `feedback-form.tsx` — mobile-first 5-star picker
+  (`aria-checked`, focus rings) + comment textarea + submit.
+  Post-submit variants: positive (CTA opens Google place review),
+  negative ("Un manager te contactará en 24 horas"). Locale-
+  specific copy (es / en) in a single `COPY` table.
+- `submit-action.ts` — public Server Action. IP from
+  `x-forwarded-for` → `cf-connecting-ip` → `x-real-ip`. Runs the
+  rate limiter BEFORE touching the DB; returns
+  `err('RATE_LIMITED', { retryAfterSeconds })` on 6th hit.
+
+**Tests** (37 new, 431 total — was 394)
+
+- `tests/unit/request-tokens.test.ts` (10).
+- `tests/unit/rate-limit.test.ts` (5).
+- `tests/integration/public-feedback.test.ts` (10) — Ajuste 1
+  contract verified with a spied `asAdmin`: malformed token →
+  zero queries; unknown / expired / already-completed → exactly
+  one query each.
+- `tests/integration/send-request.test.ts` (8) — happy path,
+  plan-limit gate at the real cap, 30-day dedup, no-dedup past
+  30 days, bulk partitioning, batch email dedup, cancel +
+  double-cancel CONFLICT.
+- `tests/integration/feedback-submit.test.ts` (4) — end-to-end
+  positive (5★ → redirect URL with placeId), negative (1★ →
+  internal review row inserted), replay-protection, rate
+  limiter contract.
+
+**Master-prompt configuration**
+
+- `lib/plans/plans.ts` — `PlanLimits.reviewRequestsPerMonth`
+  added with Standard=50, Growth=250, Enterprise=-1.
+- `lib/usage/counters.ts` — `WINDOWED_METRICS` extended.
+- `lib/errors.ts` — `DUPLICATE_REVIEW_REQUEST` AppError code
+  (HTTP 409).
+
 ### Added — Phase 5 / Commit 15 (`/reputation` dashboard · KPIs · charts · crisis)
 
 **Chart wrappers (Ajuste 1)**

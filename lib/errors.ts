@@ -19,6 +19,7 @@ export type AppErrorCode =
   | 'AI_COMPLIANCE_VIOLATION'
   | 'UNRESOLVED_PLACEHOLDERS'
   | 'APPROVAL_ALREADY_DECIDED'
+  | 'DUPLICATE_REVIEW_REQUEST'
   | 'NOT_IMPLEMENTED'
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR';
@@ -60,6 +61,7 @@ function httpStatusFor(code: AppErrorCode): number {
       return 404;
     case 'CONFLICT':
     case 'APPROVAL_ALREADY_DECIDED':
+    case 'DUPLICATE_REVIEW_REQUEST':
       return 409;
     case 'NOT_IMPLEMENTED':
       return 501;

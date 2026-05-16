@@ -20,6 +20,13 @@ export interface PlanLimits {
   socialAccounts: number;
   locations: number;
   postsPerMonth: number;
+  /**
+   * Monthly cap on outbound review-request emails (Commit 16). Window
+   * is the calendar month; counter rolls forward like
+   * `postsPerMonth`. Enforced by `lib/reviews/send-request.ts` via
+   * `checkUsage(...)` before each insert. `-1` is unlimited.
+   */
+  reviewRequestsPerMonth: number;
 }
 
 /** Granularity that a feature is available at, when not a plain boolean. */
@@ -62,6 +69,7 @@ export const PLANS = {
       socialAccounts: 5,
       locations: 1,
       postsPerMonth: 30,
+      reviewRequestsPerMonth: 50,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp'],
@@ -87,6 +95,7 @@ export const PLANS = {
       socialAccounts: 20,
       locations: 5,
       postsPerMonth: 250,
+      reviewRequestsPerMonth: 250,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
@@ -112,6 +121,7 @@ export const PLANS = {
       socialAccounts: 75,
       locations: 25,
       postsPerMonth: -1,
+      reviewRequestsPerMonth: -1,
     },
     features: {
       networks: [

@@ -34,7 +34,10 @@ export const POINT_IN_TIME_METRICS = [
   'locations',
 ] as const satisfies ReadonlyArray<LimitMetric>;
 
-export const WINDOWED_METRICS = ['postsPerMonth'] as const satisfies ReadonlyArray<LimitMetric>;
+export const WINDOWED_METRICS = [
+  'postsPerMonth',
+  'reviewRequestsPerMonth',
+] as const satisfies ReadonlyArray<LimitMetric>;
 
 export type PointInTimeMetric = (typeof POINT_IN_TIME_METRICS)[number];
 export type WindowedMetric = (typeof WINDOWED_METRICS)[number];
