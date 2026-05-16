@@ -12,6 +12,8 @@ import {
   updatePostDraft,
   type CreatePostSuccess,
 } from '@/lib/publish/posts';
+import { checkPostsCap } from '@/lib/publish/usage-check';
+import { getOrgPlanCode } from '@/lib/queries/plan';
 import { err, type Result } from '@/lib/types/result';
 
 /**
@@ -62,6 +64,29 @@ export async function createPostAction(
     return err('VALIDATION_ERROR', 'Datos del post inválidos.', {
       meta: { issues: parsed.error.flatten() },
     });
+  }
+
+  // Plan-cap enforcement (Commit 18, Section B). The UI hides the
+  // CTA when the cap is reached, but a stale tab / direct action
+  // call can still arrive — this is the defense in depth. Drafts
+  // and scheduled posts are subject to the cap because they
+  // consume future budget (the publish-job will tick the counter
+  // on success). Note: this counts the *intent* at create time;
+  // the actual postsPerMonth increment happens at
+  // status → published (Commit 20 publish-job).
+  if (
+    parsed.data.initialStatus === 'scheduled' ||
+    parsed.data.initialStatus === 'pending_approval'
+  ) {
+    const plan = await getOrgPlanCode(session);
+    const cap = await checkPostsCap(session.orgId, plan);
+    if (!cap.ok) {
+      return err(
+        'PLAN_LIMIT_REACHED',
+        'Has usado el cupo mensual de posts para tu plan.',
+        { meta: { current: cap.current, cap: cap.cap } },
+      );
+    }
   }
 
   const result = await createPost(
@@ -177,6 +202,19 @@ export async function schedulePostAction(
   authorize(session.role, 'posts:publish');
   const parsed = scheduleSchema.safeParse({ postId: formData.get('postId') });
   if (!parsed.success) return err('VALIDATION_ERROR', 'ID inválido.');
+
+  // Plan-cap enforcement at scheduling time. The transition
+  // draft → scheduled commits the org to a publish-budget seat
+  // for the current period.
+  const plan = await getOrgPlanCode(session);
+  const cap = await checkPostsCap(session.orgId, plan);
+  if (!cap.ok) {
+    return err(
+      'PLAN_LIMIT_REACHED',
+      'Has usado el cupo mensual de posts para tu plan.',
+      { meta: { current: cap.current, cap: cap.cap } },
+    );
+  }
 
   const result = await transitionPostStatus(
     { orgId: session.orgId, userId: session.userId },

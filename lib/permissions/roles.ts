@@ -25,9 +25,11 @@ export type Permission =
   | 'reviews:read'
   | 'reviews:reply'
   | 'reviews:approve'
+  | 'posts:read'
   | 'posts:create'
   | 'posts:publish'
   | 'posts:approve'
+  | 'posts:delete'
   | 'integrations:manage'
   | 'team:invite'
   | 'team:manage_roles'
@@ -53,9 +55,11 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'reviews:read',
   'reviews:reply',
   'reviews:approve',
+  'posts:read',
   'posts:create',
   'posts:publish',
   'posts:approve',
+  'posts:delete',
   'integrations:manage',
   'team:invite',
   'team:manage_roles',
@@ -89,9 +93,11 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'reviews:read',
     'reviews:reply',
     'reviews:approve',
+    'posts:read',
     'posts:create',
     'posts:publish',
     'posts:approve',
+    'posts:delete',
     'integrations:manage',
     'team:invite',
     'team:manage_roles',
@@ -119,9 +125,11 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'reviews:read',
     'reviews:reply',
     'reviews:approve',
+    'posts:read',
     'posts:create',
     'posts:publish',
     'posts:approve',
+    'posts:delete',
     'audit:read',
     'automations:manage',
     'ai:use_advanced',
@@ -134,8 +142,12 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'notes:write',
   ],
 
-  // Agent: front-line operator. Reads and replies, drafts posts, uses AI.
-  // No publish/approve authority — work goes through approvals.
+  // Agent: front-line operator. Reads and replies, drafts and
+  // schedules posts, uses AI. `posts:publish` here covers the
+  // "schedule" action (which transitions draft → scheduled); the
+  // actual publish-job is a system actor that fires at the scheduled
+  // time. Approval authority (`posts:approve`) stays with manager+;
+  // agent-authored posts that need approval flow through /approvals.
   agent: [
     'inbox:read',
     'inbox:reply',
@@ -143,7 +155,9 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'inbox:close',
     'reviews:read',
     'reviews:reply',
+    'posts:read',
     'posts:create',
+    'posts:publish',
     'ai:use_advanced',
     'reports:create',
     'notes:write',
@@ -153,6 +167,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
   viewer: [
     'inbox:read',
     'reviews:read',
+    'posts:read',
     'audit:read',
     'ads:read',
     'reports:create',

@@ -31,10 +31,33 @@ describe('Role permission matrix', () => {
     expect(can('viewer', 'inbox:reply')).toBe(false);
   });
 
-  it('agent can reply to inbox but cannot publish posts', () => {
+  // Commit 18 update: agent now holds `posts:publish` (the
+  // "schedule" action transitions draft→scheduled; the publish-job
+  // is the system actor that fires at scheduled_at). Approval
+  // authority stays with manager+.
+  it('agent can reply to inbox, can schedule posts, but cannot approve', () => {
     expect(can('agent', 'inbox:reply')).toBe(true);
-    expect(can('agent', 'posts:publish')).toBe(false);
+    expect(can('agent', 'posts:publish')).toBe(true);
     expect(can('agent', 'posts:approve')).toBe(false);
+    expect(can('agent', 'posts:delete')).toBe(false);
+  });
+
+  it('every role except viewer can create posts; every role can read', () => {
+    for (const r of ['owner', 'admin', 'manager', 'agent'] as const) {
+      expect(can(r, 'posts:create')).toBe(true);
+    }
+    expect(can('viewer', 'posts:create')).toBe(false);
+    for (const r of ['owner', 'admin', 'manager', 'agent', 'viewer'] as const) {
+      expect(can(r, 'posts:read')).toBe(true);
+    }
+  });
+
+  it('posts:delete is restricted to owner/admin/manager', () => {
+    expect(can('owner', 'posts:delete')).toBe(true);
+    expect(can('admin', 'posts:delete')).toBe(true);
+    expect(can('manager', 'posts:delete')).toBe(true);
+    expect(can('agent', 'posts:delete')).toBe(false);
+    expect(can('viewer', 'posts:delete')).toBe(false);
   });
 
   it('manager can publish and approve but cannot manage billing or team', () => {

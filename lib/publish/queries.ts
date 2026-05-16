@@ -344,16 +344,27 @@ export async function getPostKpiCounts(opts: {
   orgId: string;
   userId: string;
 }): Promise<PostKpiCounts> {
-  type Row = { status: PostListStatus; n: string | number };
-  const rows = await dbAs<Row[]>(
+  return dbAs(
     { orgId: opts.orgId, userId: opts.userId },
-    async (tx) =>
-      tx
-        .select({ status: posts.status, n: count(posts.id) })
-        .from(posts)
-        .where(eq(posts.organizationId, opts.orgId))
-        .groupBy(posts.status),
+    (tx) => getPostKpiCountsWithTx(tx, opts.orgId),
   );
+}
+
+/**
+ * Single-pass-loader-friendly variant. Same semantics; takes an
+ * existing transaction so the dashboard loader can run this query
+ * in parallel with the others under one `dbAs`.
+ */
+export async function getPostKpiCountsWithTx(
+  tx: AnyPgTx,
+  orgId: string,
+): Promise<PostKpiCounts> {
+  type Row = { status: PostListStatus; n: string | number };
+  const rows = (await tx
+    .select({ status: posts.status, n: count(posts.id) })
+    .from(posts)
+    .where(eq(posts.organizationId, orgId))
+    .groupBy(posts.status)) as Row[];
   const byStatus = Object.fromEntries(rows.map((r) => [r.status, toNum(r.n) ?? 0]));
   return {
     drafts: byStatus.draft ?? 0,
@@ -363,6 +374,75 @@ export async function getPostKpiCounts(opts: {
     failed: byStatus.failed ?? 0,
     pendingApproval: byStatus.pending_approval ?? 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Calendar month data — light projection optimized for cell rendering
+// ---------------------------------------------------------------------------
+
+export interface CalendarPost {
+  readonly id: string;
+  readonly status: PostListStatus;
+  readonly text: string;
+  readonly scheduledAt: Date | null;
+  readonly publishedAt: Date | null;
+  readonly brandId: string | null;
+  readonly campaignId: string | null;
+}
+
+export interface ListCalendarMonthOpts {
+  readonly orgId: string;
+  readonly monthFrom: Date;
+  readonly monthTo: Date;
+  readonly brandId?: string;
+  readonly campaignId?: string;
+  /** Optional status whitelist; otherwise the cell shows every non-cancelled. */
+  readonly status?: ReadonlyArray<PostListStatus>;
+}
+
+/**
+ * Returns posts whose `scheduled_at` OR `published_at` falls inside
+ * `[monthFrom, monthTo]`. The OR means a post that was scheduled
+ * for early in the month but slipped its publish into the next month
+ * still appears on its scheduled day, AND a post that was scheduled
+ * earlier but published THIS month appears on its published day.
+ * Calendar consumers de-duplicate by `id`.
+ */
+export async function getCalendarMonthWithTx(
+  tx: AnyPgTx,
+  opts: ListCalendarMonthOpts,
+): Promise<ReadonlyArray<CalendarPost>> {
+  const conditions: SQL[] = [eq(posts.organizationId, opts.orgId)];
+  if (opts.brandId) conditions.push(eq(posts.brandId, opts.brandId));
+  if (opts.campaignId) conditions.push(eq(posts.campaignId, opts.campaignId));
+  if (opts.status?.length) {
+    conditions.push(inArray(posts.status, opts.status as Array<PostListStatus>));
+  } else {
+    // Calendar default hides cancelled. Drafts have no
+    // scheduled_at and won't appear unless the user filters in.
+    conditions.push(sql`${posts.status} <> 'cancelled'`);
+  }
+  conditions.push(sql`(
+    (${posts.scheduledAt} >= ${opts.monthFrom} AND ${posts.scheduledAt} <= ${opts.monthTo})
+    OR
+    (${posts.publishedAt} >= ${opts.monthFrom} AND ${posts.publishedAt} <= ${opts.monthTo})
+  )`);
+
+  type Row = CalendarPost;
+  const rows = (await tx
+    .select({
+      id: posts.id,
+      status: posts.status,
+      text: posts.text,
+      scheduledAt: posts.scheduledAt,
+      publishedAt: posts.publishedAt,
+      brandId: posts.brandId,
+      campaignId: posts.campaignId,
+    })
+    .from(posts)
+    .where(and(...conditions))
+    .orderBy(posts.scheduledAt)) as Row[];
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
