@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { requireUser } from '@/lib/auth/server';
 import { authorize } from '@/lib/permissions/can';
+import { createOrFetchDraft } from '@/lib/publish/composer/new-draft';
 import {
   cancelPost,
   createPost,
@@ -240,6 +241,56 @@ export async function cancelPostAction(
   if (result.ok) {
     revalidatePath('/publish');
     revalidatePath(`/publish/composer/${parsed.data.postId}`);
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// createDraftAction — idempotent empty-draft entry point (Ajuste Y)
+// ---------------------------------------------------------------------------
+
+const createDraftSchema = z
+  .object({
+    idempotencyKey: z.string().uuid(),
+    brandId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+export type CreateDraftActionInput = z.infer<typeof createDraftSchema>;
+
+/**
+ * Opens (or fetches, when the key has already been used) an empty
+ * draft post. Called by the C18-era "Nuevo post" CTA. The client
+ * generates a fresh `crypto.randomUUID()` per click — same key on
+ * a double-click returns the same `postId` rather than two rows.
+ *
+ * No plan-cap check here: drafts don't consume `postsPerMonth`.
+ * The cap fires on `schedulePostAction` when the user commits the
+ * draft to a publish-budget seat.
+ */
+export async function createDraftAction(
+  _prev: unknown,
+  input: CreateDraftActionInput,
+): Promise<Result<{ postId: string; created: boolean }>> {
+  const session = await requireUser();
+  authorize(session.role, 'posts:create');
+
+  const parsed = createDraftSchema.safeParse(input);
+  if (!parsed.success) {
+    return err('VALIDATION_ERROR', 'Identificador de borrador inválido.', {
+      meta: { issues: parsed.error.flatten() },
+    });
+  }
+
+  const result = await createOrFetchDraft({
+    orgId: session.orgId,
+    userId: session.userId,
+    idempotencyKey: parsed.data.idempotencyKey,
+    ...(parsed.data.brandId !== undefined ? { brandId: parsed.data.brandId } : {}),
+  });
+
+  if (result.ok) {
+    revalidatePath('/publish');
   }
   return result;
 }

@@ -7,6 +7,176 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 6 / Commit 19a (composer shell · text editor · account picker · UTM · char limits · idempotent draft)
+
+First slice of the composer. The shell — left-column editor +
+right-column placeholders for previews/schedule — lands here so
+19b (media uploader + storage provider) and 19c (previews,
+schedule control, compliance pill, AI caption, approval rules)
+can drop into existing structure without churning layout.
+
+**Pages (Server Components)**
+
+- `app/(app)/publish/composer/new/page.tsx` — URL-driven entry
+  point. Reads `?key=<uuid>&brandId=<uuid?>`, validates with
+  Zod, calls `createOrFetchDraft`, redirects to
+  `/publish/composer/<postId>`. Cosmetic `assertPostsCap` probe
+  keeps the cap pipeline wired even though drafts don't
+  consume the budget.
+- `app/(app)/publish/composer/[id]/page.tsx` — composer editor
+  shell. Validates the id, loads `ComposerData` via the
+  single-pass loader, renders `<ComposerShell />` for editable
+  states (`draft` / `pending_approval`) or a "no longer
+  editable" notice otherwise.
+
+**Server Actions**
+
+- `app/(app)/publish/actions.ts` — adds `createDraftAction`:
+  Zod-validated wrapper around `createOrFetchDraft`. Drafts do
+  NOT trigger plan-cap checks (the cap fires at schedule
+  time).
+- `app/(app)/publish/composer/[id]/actions.ts` — composer-scoped
+  actions: `saveDraftAction` (text / link / utm / campaignId
+  via `updatePostDraft`) and `setPostTargetsAction` (account
+  picker selection diffed against `post_targets`).
+
+**Orchestrators (DI-friendly)**
+
+- `lib/publish/composer/new-draft.ts` —
+  `createOrFetchDraft({ orgId, userId, idempotencyKey, brandId? })`.
+  Inserts a `posts` row with `status='draft'` and empty `text`.
+  On the `posts_org_idempotency_unique` partial-unique
+  rejection, falls back to a SELECT-by-key and returns the
+  existing `postId`. Same `postId` on repeat keys, `created`
+  flag distinguishes the branch. Audit row only on the insert
+  path.
+- `lib/publish/composer/set-targets.ts` —
+  `setPostTargets({ orgId, userId, postId, accountIds })`.
+  Loads existing non-failed `post_targets`, diffs the requested
+  account set, deletes removed rows and inserts new ones in a
+  single `dbAs` transaction. Rejects when the parent post is
+  in a terminal / in-flight state.
+
+**Read paths**
+
+- `lib/publish/composer/queries.ts` —
+  `listPublishCapableAccounts` (active accounts whose connector
+  declares `publish_post` or `schedule_post`, optionally
+  scoped to a brand), `hydrateAccounts` (resolve a known id
+  list back to the same shape — preserves order, drops missing
+  ids).
+- `lib/publish/composer/loader.ts` — `loadComposerData` —
+  single-pass loader matching the C18 shape: post detail +
+  publish-capable accounts + brand/campaign options + org
+  presentation (timezone + locale). Returns `null` when the
+  post doesn't exist or RLS hides it.
+
+**Pure helpers**
+
+- `lib/publish/composer/character-limits.ts` —
+  `computeAccountUsages` (per-account effective length vs
+  declared `publishLimits.maxTextLength`),
+  `strictestMaxLength` (smallest declared cap across selected
+  accounts — drives the base editor's `X / N` counter),
+  `isWithinAllLimits` (gates the "Guardar borrador" CTA).
+  Variants override the base text per-account; platforms
+  without a declared `maxTextLength` (e.g. `mock`) are treated
+  as always-within.
+- `lib/publish/composer/utm.ts` — `buildUtmUrl`, `emitUtm`,
+  `normalizeUtm`, `utmDiffers`. Pulled out of
+  `utm-builder.tsx` and `composer-shell.tsx` so the
+  sanitization logic stays unit-testable without React.
+
+**UI components**
+
+- `components/publish/composer/composer-shell.tsx` (Client) —
+  2-column layout. Left: TextEditor + CharacterLimitsBar +
+  AccountPicker + PlatformVariants + UtmBuilder. Right:
+  preview placeholder (19c) + schedule placeholder (19c).
+  Local state owns the editing buffer; `saveDraftAction`
+  + `setPostTargetsAction` commit the diff. Dirty flag
+  surfaces an inline "Sin guardar" badge.
+- `components/publish/composer/text-editor.tsx` (Client) —
+  Textarea with strictest-platform char counter (neutral /
+  amber at >90% / red over).
+- `components/publish/composer/character-limits-bar.tsx`
+  (Client) — Per-platform usage chips with color escalation.
+- `components/publish/composer/account-picker.tsx` (Client) —
+  Multi-select grouped by platform. Empty-state points at
+  `/integrations`.
+- `components/publish/composer/platform-variants.tsx`
+  (Client) — Sub-tabs per selected account with per-platform
+  text override. Inherit-from-base by default; non-empty
+  variant writes `post_targets.platform_variant.text`.
+- `components/publish/composer/utm-builder.tsx` (Client) —
+  Link + 5 UTM fields with live URL preview. Reads
+  `buildUtmUrl` from `lib/publish/composer/utm.ts`.
+- `components/publish/composer/cancel-button.tsx` (Client) —
+  Minimal `confirm()` guard on dirty state. Full
+  `beforeunload` + auto-save in Commit 21
+  (TODO composer-dirty-state-guard).
+
+**Ajuste Y — Client-generated idempotency key**
+
+- `components/publish/create-post-button.tsx` (Client) —
+  replaces the C18 inline Link CTA. On click, generates
+  `crypto.randomUUID()` and invokes `createDraftAction`. On
+  success, navigates to `/publish/composer/<postId>`; on
+  failure, falls back to the URL-driven entry
+  (`/composer/new?key=…`) which retries the same key
+  server-side. The button is named `create-post-button.tsx`
+  deliberately to avoid colliding with the `new-post-cta.tsx`
+  filename that lived briefly in the repo from `c52373e`
+  (since removed in C18 cleanup).
+- `components/publish/publish-header.tsx` — drops the inline
+  `Link + Plus` block in favor of `<CreatePostButton />`.
+
+**Filename rationale (anti-collision)**
+
+The composer Client CTA is `create-post-button.tsx`, NOT
+`new-post-cta.tsx`. The latter was a ghost-file name from
+`c52373e`; using a fresh name keeps git blame readable and
+prevents a future contributor from re-litigating that
+deleted shape.
+
+**Tests** (+31)
+
+- `tests/unit/character-limits.test.ts` (13) —
+  `strictestMaxLength` empty / single / mixed / mock-fallback;
+  `computeAccountUsages` base-text vs variant fallback,
+  empty-string variant fall-back to base, over-flag when
+  X (280) is exceeded but Facebook (63206) isn't, input
+  ordering preserved; `isWithinAllLimits` happy / over /
+  mock-unlimited / variant-rescue paths.
+- `tests/unit/composer-utm.test.ts` (16) —
+  `buildUtmUrl` empty / invalid / no-utm / full-utm / trim /
+  drop-empty / preserve-existing-params / overwrite-existing-utm;
+  `emitUtm` sanitization; `normalizeUtm` defensive jsonb read;
+  `utmDiffers` covers add / remove / undefined-vs-empty
+  equivalence.
+- `tests/integration/composer-double-submit.test.ts` (2) —
+  Ajuste Y explicit case: two `createOrFetchDraft` calls with
+  the same key produce ONE `posts` row, second call's
+  `created` flag is `false`, different keys produce distinct
+  posts.
+
+**Carry-overs to 19b / 19c**
+
+- 19b: media uploader, `StorageProvider` interface,
+  filesystem-backed `DevFilesystemProvider`, asset library,
+  `/api/dev-uploads/[filename]` route handler. Media kinds
+  from `content_asset_kind` enum.
+- 19c: previews (Facebook / Instagram / GBP fieles +
+  `GenericPreview` placeholder for X / LinkedIn / TikTok /
+  Pinterest / YouTube), schedule control honoring
+  `org.timezone` (reuses C18 calendar helpers), AI caption
+  stub (deterministic from `hash(postId + brandId)`,
+  mirroring `reviews-stub.ts`), compliance pill (3 states),
+  approval rules in `brand_voices.metadata.approvalRules`
+  (schema migration).
+
+**`pnpm verify`** — 558 passed + 7 skipped (was 527 + 7).
+
 ### Added — Phase 6 / Commit 18 (publish dashboard · calendar · tabs · filters)
 
 Lights up `/publish` as the user-facing surface on top of the

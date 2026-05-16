@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
 
 import { PageHeader } from '@/components/common/page-header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
+
+import { CreatePostButton } from './create-post-button';
 
 interface PublishHeaderProps {
   /** True when the caller has `posts:create` AND is below the plan cap. */
@@ -37,16 +38,7 @@ export function PublishHeader({ canCreate, cap }: PublishHeaderProps): React.Rea
       <PageHeader
         title="Publish"
         description="Composer multi-red con previews por plataforma, calendario mensual y lista, biblioteca de assets, agrupación en campañas y agendado con timezone correcto."
-        actions={
-          showCta ? (
-            <Button asChild>
-              <Link href="/publish/composer/new" prefetch={false}>
-                <Plus className="h-4 w-4" aria-hidden />
-                Nuevo post
-              </Link>
-            </Button>
-          ) : null
-        }
+        actions={showCta ? <CreatePostButton /> : null}
       />
       {showBanner ? <PlanCapBanner cap={cap} /> : null}
     </div>
