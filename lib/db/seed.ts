@@ -385,4 +385,13 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
   // --- Reviews + published responses (Phase 5) -----------------------
   const { seedReviews } = await import('./seed-reviews');
   await seedReviews(tx);
+
+  // --- Connected accounts + sync runs (Phase 3 demo data) ------------
+  // Gated by env so integration tests can opt out and keep their
+  // seeded worlds minimal. Default `true` in dev / `pnpm db:seed`.
+  const { env } = await import('../env');
+  if (env.BLACKNEL_SEED_CONNECTED) {
+    const { seedConnectedAccounts } = await import('./seed-connected-accounts');
+    await seedConnectedAccounts(tx);
+  }
 }

@@ -51,6 +51,11 @@ Triggering conditions to revisit:
   stack across the board, or a postgres-js-only stack via a
   testcontainer in Phase 11+).
 
+**Target phase.** Phase 11 (opportunistic). The cutover to Supabase
+is the moment we consolidate on a single runtime in production;
+tests can follow with a testcontainer. If Drizzle ships unified
+types before Phase 11, close earlier.
+
 ## trigger-defaulted-cols
 
 **Problem.** `inbox_messages.organization_id` and
@@ -71,6 +76,23 @@ trigger — so the Server Action in `app/(app)/inbox/actions.ts`
    insert object and stamps `organization_id` explicitly from the
    session before reaching Drizzle — bypassing the trigger but keeping
    the SQL as a defense-in-depth fallback.
+
+**Affected files.**
+
+- `lib/db/migrations/0005_inbox.sql` — the `inbox_messages_set_org_id`
+  / `internal_notes_set_org_id` / `review_responses_set_org_id`
+  triggers (added in Commit 12 to extend the same pattern).
+- `app/(app)/inbox/actions.ts` — `addInternalNoteAction` (the
+  `as any` cast).
+- Future review-response actions in Commit 14 already use explicit
+  `organizationId` from session so they don't trip the issue; if
+  any future caller forgets, this TODO is the reference for the
+  workaround.
+
+**Target phase.** Deferred indefinitely; this is a Drizzle ergonomics
+issue, not a correctness one. Phase 11 may close path #2 (typed
+wrapper) opportunistically when refactoring inbox queries for
+Supabase real-time.
 
 ## inbox-fts-trigram
 
@@ -96,9 +118,27 @@ unblocked whenever we wire it in.
    `CREATE INDEX inbox_messages_body_trgm_idx ON inbox_messages USING GIN (body gin_trgm_ops);`
    and the search path in `lib/inbox/queries.ts` (Commit 8) consults it
    for fuzzy matches when the `tsvector` query is empty.
+3. `lib/reviews/queries.ts` (Commit 13) also switches its current
+   ILIKE fallback to the trigram index — the same TODO covers both
+   surfaces.
+
+**Affected files.**
+
+- `lib/inbox/queries.ts` — `filters.q` branch using `plainto_tsquery`.
+- `lib/reviews/queries.ts` — `filters.q` branch using ILIKE (the
+  Phase-5 fallback explicitly notes this TODO).
+- `lib/db/dev-runtime.ts` — extension loading (pending pglite
+  support).
+- New migration `00NN_trigram.sql` (to be added at resolution time).
+
+**Target phase.** Phase 11. Supabase Postgres ships with `pg_trgm`
+in the default extension set; the production cutover unblocks the
+real change. Dev runtime side may close earlier if pglite ships
+trigram support.
 
 Until then, the `'simple'` tsvector index is good enough for inbox
-search at Phase-4 volumes.
+search at Phase-4 volumes; ILIKE is fine for /reviews search at
+Phase-5 volumes (~200 reviews per org).
 
 ## audit-events-atomicity
 
@@ -130,12 +170,26 @@ leave production with an untraceable side effect.
 3. Tests confirm: if the audit row insert is forced to fail, the
    approval/decision rolls back too — no orphan effects.
 
-Affected files:
+**Affected files.**
 
-- `app/(app)/approvals/actions.ts` — 4 actions (approve, approveWithEdits,
-  reject, escalate).
-- `lib/inbox/send-reply.ts` — 3 audit call sites (sent, blocked, routed).
-- Possibly `lib/db/migrations/0006_audit_authenticated_grant.sql` (new).
+- `app/(app)/approvals/actions.ts` — 4 actions (approve,
+  approveWithEdits, reject, escalate).
+- `lib/inbox/send-reply.ts` — 3 audit call sites (sent, blocked,
+  routed).
+- `lib/reviews/send-response.ts` — 5 audit call sites added in
+  Commit 14 (drafted / sent / routed_to_approval / published /
+  rejected).
+- `lib/reviews/send-request.ts` — 4 audit call sites added in
+  Commit 16 (sent / skipped_dup / plan_limit / cancelled).
+- `lib/reviews/public-feedback.ts` — `feedback.received` audit
+  (Commit 16). This one already runs inside the `dbAdmin` txn so
+  is atomic by accident; the resolution still needs to verify it.
+- Possibly `lib/db/migrations/00NN_audit_authenticated_grant.sql`
+  (new) or a SECURITY DEFINER function wrapper.
+
+**Target phase.** Phase 11 (Supabase cutover). The atomicity gain
+is meaningful once a real network sits between the app and the
+DB; in pglite the post-commit window is sub-millisecond.
 
 ## polling-scroll-and-url-state
 
@@ -168,6 +222,21 @@ poll catches them mid-scroll.
    the topmost-visible item id and restoring after.
 3. Verify behavior end-to-end with Playwright when the e2e harness
    lands in Phase 12.
+
+**Affected files.**
+
+- `components/common/use-polling.ts` — the hook that runs
+  `router.refresh()` on tick.
+- `components/inbox/thread-list.tsx` — accumulated `useState`
+  list (Commit 8).
+- `components/approvals/approvals-list.tsx` — same shape
+  (Commit 10).
+- `components/reviews/reviews-list.tsx` — same shape (Commit 13).
+- Future virtualized lists added in Phase 6 (Publishing
+  calendar) and Phase 8 (Reports) will inherit the same TODO
+  until this is closed.
+
+**Target phase.** Phase 12 (polish + Playwright e2e harness).
 
 ## history-collapsed-commit
 
@@ -205,6 +274,14 @@ once it's been shared. Phase 12 is when we cut a clean
    `9054859`. `CHANGELOG.md` already groups changes by phase, which
    covers most archaeology needs.
 
+**Affected files.** None in `lib/` or `app/`. This is a git-history
+concern; resolution operates on the commit graph, not on source
+files. `CHANGELOG.md` carries the per-phase narrative the squashed
+commit obscures.
+
+**Target phase.** Phase 12 (release-branch cut). Either rewrite
+or accept-and-document at that point.
+
 **Not blocking.** Tests, types, lint, and runtime behavior are all
 green. This is a historiography issue, not a correctness one.
 
@@ -228,8 +305,17 @@ the trip-time of the raw rows starts to dominate.
 3. Integration tests against 10K+ seeded reviews show the SQL path
    is faster than the JS path under the same filter shape.
 
-Until then the JS aggregation is fine — top-tags is a dashboard
-card, not a hot path. Affected file: `lib/reputation/queries.ts`.
+**Affected files.**
+
+- `lib/reputation/queries.ts` — the `getTopTagsWithTx` JS
+  aggregation block.
+- `tests/integration/reputation-queries.test.ts` — the
+  `getTopTagsWithTx` assertions; will need a 10K-row seed
+  performance harness once the SQL path lands.
+
+**Target phase.** Phase 11+ (volume-triggered). The JS aggregation
+is fine for top-tags at Phase-5 volumes — top-tags is a dashboard
+card, not a hot path.
 
 ## crisis-yoy-suppression
 
@@ -253,5 +339,97 @@ ships and includes:
    the suppression reason so the dashboard can render "Suppressed:
    matches 2025 holiday week pattern".
 
-Affected file: `lib/reputation/crisis-rule.ts` and (Phase-7) the
-new `lib/ai/crisis.ts`.
+**Affected files.**
+
+- `lib/reputation/crisis-rule.ts` — current `evaluateCrisis`
+  predicate; needs a YoY-aware sibling or a wrapper.
+- `lib/reputation/queries.ts` — `getCrisisCountsWithTx` already
+  exposes the counts but not the prior-year slice; will need an
+  extra branch.
+- New file `lib/ai/crisis.ts` (Phase-7) for the IA classifier.
+- `lib/db/schema/crisis-alerts.ts` (new) — the persistent
+  alerts table with `crisis_suppressed_by` field.
+
+**Target phase.** Phase 7 (IA + crisis detection module). The
+heuristic in Commit 15 is the Phase-5 baseline.
+
+## usage-counters-rls-scoped
+
+**Problem.** 11 sites use `dbAdmin` to read or write
+`usage_counters`. The pattern is correct but ergonomically
+suboptimal — `usage_counters` only grants `SELECT` to the
+`authenticated` role (RLS-scoped to the caller's org), so every
+INSERT / UPDATE has to escape into `dbAdmin`. The repetition
+spreads `dbAdmin` references across the codebase, which makes
+the Phase-11 security audit surface harder to reason about.
+
+The actual security boundary is: a counter writer must never
+write outside its org. The current implementation enforces this
+by convention (every caller passes `session.orgId`); RLS would
+enforce it structurally.
+
+Two paths to evaluate at the Phase-11 security audit:
+
+  (a) **RLS-scoped writes.** Add a policy
+      `usage_counters_tenant_write` that allows INSERT / UPDATE
+      for `authenticated` when `organization_id = NULLIF(
+      current_setting('app.current_org_id', true), '')::uuid`.
+      Drop the `dbAdmin` wrapper from all 11 sites; they call
+      the counter helpers through `dbAs` like every other write.
+      Pro: structural enforcement matches the rest of the schema.
+      Con: any future migration that forgets the policy silently
+      demotes the guarantee.
+
+  (b) **Centralized admin wrapper.** Keep `dbAdmin` but funnel
+      every counter mutation through a single
+      `lib/usage/admin-write.ts` exposing
+      `bumpUsageAsAdmin(orgId, metric, delta)`. The 11 sites
+      lose their direct `dbAdmin` imports; the audit surface
+      for usage-counter writes shrinks to one file. Pro:
+      explicit, auditable. Con: another indirection layer.
+
+Decision depends on the Phase-11 security audit. Path (a) is
+more idiomatic; path (b) is more conservative.
+
+**Affected files (11 sites; also referenced from
+`lib/usage/counters.ts` JSDoc).**
+
+- `app/(app)/integrations/actions.ts:70` — `checkUsage`
+- `app/(app)/integrations/actions.ts:112` — `incrementUsage(socialAccounts)`
+- `app/(app)/integrations/actions.ts:145` — `decrementUsage(socialAccounts)`
+- `app/(app)/team/actions.ts:66` — `checkUsage(users)`
+- `app/(app)/team/actions.ts:116` — `incrementUsage(users)`
+- `app/(app)/team/actions.ts:243` — `decrementUsage(users)`
+- `app/(app)/team/actions.ts:280` — `decrementUsage(users)`
+- `app/(app)/billing/page.tsx:28–32` — five `readUsage` calls
+  (one per metric)
+- `app/(onboarding)/onboarding/start/actions.ts:235` —
+  `incrementUsage(brands)`
+- `app/(onboarding)/onboarding/start/actions.ts:298` —
+  `incrementUsage(locations)`
+- `app/(onboarding)/onboarding/start/actions.ts:371` —
+  `incrementUsage(users)`
+- `lib/reviews/send-request.ts` —
+  `incrementUsage(reviewRequestsPerMonth)` (added in Commit 16;
+  same pattern, separated from the main txn for the same RLS
+  reason)
+
+If path (a) wins, also update the JSDoc on
+`lib/usage/counters.ts` to drop the admin reference.
+
+**Resolution criteria.** Close when either of these holds:
+
+1. **Path (a) chosen.** A new migration adds the RLS write
+   policy. Every site listed above drops its `dbAdmin` wrapper
+   and calls the counter helpers under `dbAs`. `pnpm verify`
+   still passes.
+2. **Path (b) chosen.** `lib/usage/admin-write.ts` is the only
+   place that imports `dbAdmin` for counter mutations. The 11
+   sites import the wrapper instead.
+
+Verification command (either path):
+`grep -rn "dbAdmin.*\(increment\|decrement\|check\|read\)Usage" app/ lib/`
+should return exactly one hit (path b, the wrapper) or zero hits
+(path a, all through `dbAs`).
+
+**Target phase.** Phase 11 (security audit + Supabase cutover).

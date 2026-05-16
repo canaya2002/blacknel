@@ -1,0 +1,10 @@
+{
+  "//": "tsx-specific tsconfig for standalone CLI scripts (db:seed, db:reset, db:migrate). Extends the main tsconfig with one extra path mapping: `'server-only'` resolves to a no-op shim. Without this, tsx cannot resolve the Next-vendored `'server-only'` marker that appears at the top of server modules (lib/db/seed.ts and its siblings). Next.js itself uses its own resolver and is unaffected by this file — the real `'server-only'` package vendored inside `next/dist/compiled/server-only` continues to block client imports the way it always did.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "server-only": ["./scripts/server-only-shim.ts"]
+    }
+  }
+}

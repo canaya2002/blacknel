@@ -56,6 +56,15 @@ const envSchema = z.object({
    * crons against real platforms.
    */
   BLACKNEL_MOCK_EVENTS: boolFromString(false),
+  /**
+   * Whether `seedDatabase()` should seed the demo `connected_accounts`
+   * + `connector_sync_runs` set. Default `true` so a fresh
+   * `pnpm db:seed` / `pnpm dev` leaves /integrations populated.
+   * Integration tests set this to `false` to keep their seeded
+   * worlds minimal and fast — Phase-3 connector tests stand up the
+   * exact rows they need explicitly.
+   */
+  BLACKNEL_SEED_CONNECTED: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),
