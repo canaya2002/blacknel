@@ -168,3 +168,42 @@ poll catches them mid-scroll.
    the topmost-visible item id and restoring after.
 3. Verify behavior end-to-end with Playwright when the e2e harness
    lands in Phase 12.
+
+## history-collapsed-commit
+
+**Problem.** On 2026-05-16, the operator's `git pull` brought down all
+of Phase 4 (Commits 7–11) plus Commit 12 squashed into a single commit
+`9054859` with the placeholder message `"sefjs}"`. 15,736 LOC across
+109 files (schemas, migrations, Server Actions, components, tests for
+inbox, approvals, and the reviews-schema portion of Phase 5) are in
+that one commit. The local Commits 7–12 progress narrative the
+operator dictated in chat is real work — it just isn't reflected in
+git's commit-by-commit history.
+
+**Impact.** Cosmetic for now. `git log` doesn't tell the story of each
+commit's scope, `git blame` lumps every line into the same SHA, and a
+bisect against any regression introduced in that range collapses to
+"it was already broken in 9054859". Commit 13 onward is back to clean
+incremental commits.
+
+**Why deferred.** Reconstructing 6 commits requires `git filter-branch`
+or `git rebase -i` with careful chunking of the 109 files into the
+right commits. That's a destructive history rewrite on `main` —
+appropriate before any external contributor sees the repo, dangerous
+once it's been shared. Phase 12 is when we cut a clean
+`origin/release/v1` branch anyway.
+
+**Resolution criteria (Phase 12 evaluation).** Pick one:
+
+1. **Rewrite path** — branch from before `9054859`, replay Commits 7–12
+   from the chat-recorded narrative (schemas → inbox list → inbox
+   detail → approvals → polling → reviews schema), force-push the
+   rewritten `main`. Coordinate with the operator that no external
+   clones exist.
+2. **Accept and document** — leave history as-is, add a long-form
+   description to the v1 release notes explaining what landed in
+   `9054859`. `CHANGELOG.md` already groups changes by phase, which
+   covers most archaeology needs.
+
+**Not blocking.** Tests, types, lint, and runtime behavior are all
+green. This is a historiography issue, not a correctness one.

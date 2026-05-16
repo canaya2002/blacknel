@@ -7,6 +7,11 @@ import {
   dispatchInboxReplyApproval,
   type InboxApprovalRow,
 } from './dispatchers/inbox-reply';
+import {
+  dispatchReviewResponseApproval,
+  dispatchReviewResponseRejection,
+  type ReviewResponseApprovalRow,
+} from './dispatchers/review-response';
 
 /**
  * Central dispatcher for approved approvals. Runs INSIDE the
@@ -36,6 +41,10 @@ export interface DispatchableApproval extends InboxApprovalRow {
 export interface DispatchResult {
   /** Set when the dispatched approval produced an inbox_messages row. */
   readonly messageId?: string;
+  /** Set when the dispatched approval transitioned a review_response. */
+  readonly reviewResponseId?: string;
+  /** Set when the dispatched approval transitioned a review_response. */
+  readonly reviewId?: string;
 }
 
 export async function dispatchApproved(
@@ -48,16 +57,18 @@ export async function dispatchApproved(
       const { messageId } = await dispatchInboxReplyApproval(tx, approval, actorUserId);
       return { messageId };
     }
+    case 'review_responses': {
+      const { reviewResponseId, reviewId } = await dispatchReviewResponseApproval(
+        tx,
+        approval as ReviewResponseApprovalRow,
+        actorUserId,
+      );
+      return { reviewResponseId, reviewId };
+    }
     case 'posts':
       throw new AppError(
         'NOT_IMPLEMENTED',
         'Post dispatch lands in Phase 6 (Publishing).',
-        { meta: { entityTable: approval.entityTable } },
-      );
-    case 'review_responses':
-      throw new AppError(
-        'NOT_IMPLEMENTED',
-        'Review response dispatch lands in Phase 5 (Reviews).',
         { meta: { entityTable: approval.entityTable } },
       );
     default:
@@ -66,5 +77,33 @@ export async function dispatchApproved(
         `Unknown entity_table on approval: "${approval.entityTable}". CHECK constraint should have prevented this.`,
         { meta: { entityTable: approval.entityTable, approvalId: approval.id } },
       );
+  }
+}
+
+/**
+ * Reject-side counterpart. The reject path doesn't dispatch a side
+ * effect in the inbox case (no message to un-send) but for review
+ * responses it does need to flip the response row to `rejected` so
+ * the composer surface reflects the outcome. `rejectAction` calls
+ * this from inside its locked transaction.
+ */
+export async function dispatchRejection(
+  tx: AnyPgTx,
+  approval: DispatchableApproval,
+): Promise<DispatchResult> {
+  switch (approval.entityTable) {
+    case 'review_responses': {
+      const { reviewResponseId } = await dispatchReviewResponseRejection(
+        tx,
+        approval as ReviewResponseApprovalRow,
+      );
+      return { reviewResponseId };
+    }
+    case 'inbox_messages':
+    case 'posts':
+      // No outbound effect to undo on reject — the row was never created.
+      return {};
+    default:
+      return {};
   }
 }

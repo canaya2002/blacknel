@@ -1,0 +1,91 @@
+'use server';
+
+import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
+
+import { requireUser } from '@/lib/auth/server';
+import { suggestReviewResponse } from '@/lib/ai/reviews-stub';
+import { dbAs } from '@/lib/db/client';
+import { brands, locations, reviews } from '@/lib/db/schema';
+import { authorize } from '@/lib/permissions/can';
+import { err, ok, type Result } from '@/lib/types/result';
+
+/**
+ * AI-suggest button on the response composer. Stays inside its own
+ * Server Action so:
+ *
+ *   - Auth + RBAC run before the (free in Phase 5, paid in Phase 7)
+ *     suggestion compute fires.
+ *   - The orchestrator can hop straight to a real Claude call in
+ *     Phase 7 by replacing the body of `suggestReviewResponse`
+ *     without touching the composer client code.
+ *   - Future audit row goes here (`ai.suggestion.generated`) — left
+ *     unwired in Phase 5 since the suggestion is deterministic and
+ *     free; Phase 7 will add it.
+ */
+
+const inputSchema = z.object({ reviewId: z.string().uuid() });
+
+export interface SuggestActionResult {
+  body: string;
+  variantIndex: number;
+  bucket: 'positive' | 'neutral' | 'negative';
+  unresolvedVariables: ReadonlyArray<string>;
+}
+
+export async function suggestResponseAction(
+  _prev: unknown,
+  input: { reviewId: string },
+): Promise<Result<SuggestActionResult>> {
+  const session = await requireUser();
+  authorize(session.role, 'reviews:reply');
+
+  const parsed = inputSchema.safeParse(input);
+  if (!parsed.success) return err('VALIDATION_ERROR', 'ID inválido.');
+
+  const rows = await dbAs<
+    Array<{
+      id: string;
+      rating: number;
+      authorName: string | null;
+      brandName: string | null;
+      locationName: string | null;
+    }>
+  >({ orgId: session.orgId, userId: session.userId }, async (tx) =>
+    tx
+      .select({
+        id: reviews.id,
+        rating: reviews.rating,
+        authorName: reviews.authorName,
+        brandName: brands.name,
+        locationName: locations.name,
+      })
+      .from(reviews)
+      .leftJoin(brands, eq(brands.id, reviews.brandId))
+      .leftJoin(locations, eq(locations.id, reviews.locationId))
+      .where(
+        and(
+          eq(reviews.id, parsed.data.reviewId),
+          eq(reviews.organizationId, session.orgId),
+        ),
+      )
+      .limit(1),
+  );
+  if (rows.length === 0) return err('NOT_FOUND', 'Review no encontrada.');
+  const row = rows[0]!;
+
+  const suggestion = suggestReviewResponse({
+    reviewId: row.id,
+    rating: row.rating,
+    authorName: row.authorName,
+    brandName: row.brandName,
+    locationName: row.locationName,
+  });
+
+  return ok({
+    body: suggestion.body,
+    variantIndex: suggestion.variantIndex,
+    bucket: suggestion.bucket,
+    unresolvedVariables: suggestion.unresolvedVariables,
+  });
+}

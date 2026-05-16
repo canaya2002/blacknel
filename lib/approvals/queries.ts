@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { type AnyPgTx, dbAs } from '../db/client';
-import { approvals, users } from '../db/schema';
+import { approvals, reviewResponses, users } from '../db/schema';
 
 import { encodeApprovalCursor, type ApprovalCursor } from './cursor';
 import type { ApprovalFilters } from './filters';
@@ -278,6 +278,49 @@ export async function pendingApprovalsForThread(opts: {
             eq(approvals.kind, 'inbox_reply'),
             inArray(approvals.status, ['pending', 'escalated'] as const),
             sql`(${approvals.proposedPayload}->>'threadId') = ${opts.threadId}`,
+          ),
+        )
+        .orderBy(desc(approvals.createdAt))
+        .limit(5),
+  );
+}
+
+/**
+ * Return pending / escalated approvals tied to a given review. Drives
+ * the bidirectional banner on /reviews/[reviewId]:
+ *
+ *   "Hay 1 respuesta pendiente de aprobación → /approvals/[id]"
+ *
+ * Matched via `proposed_payload.reviewId` (set by send-response.ts).
+ * Falls back to a JOIN through `review_responses` for any legacy
+ * approval rows without that payload field — both paths return the
+ * same shape.
+ */
+export async function pendingApprovalsForReview(opts: {
+  orgId: string;
+  userId: string;
+  reviewId: string;
+}): Promise<ReadonlyArray<{ id: string; createdAt: Date; riskLevel: string }>> {
+  return dbAs<Array<{ id: string; createdAt: Date; riskLevel: string }>>(
+    { orgId: opts.orgId, userId: opts.userId },
+    async (tx) =>
+      tx
+        .select({
+          id: approvals.id,
+          createdAt: approvals.createdAt,
+          riskLevel: approvals.riskLevel,
+        })
+        .from(approvals)
+        .leftJoin(reviewResponses, eq(reviewResponses.id, approvals.entityId))
+        .where(
+          and(
+            eq(approvals.organizationId, opts.orgId),
+            eq(approvals.kind, 'review_response'),
+            inArray(approvals.status, ['pending', 'escalated'] as const),
+            sql`(
+              (${approvals.proposedPayload}->>'reviewId') = ${opts.reviewId}
+              OR ${reviewResponses.reviewId} = ${opts.reviewId}::uuid
+            )`,
           ),
         )
         .orderBy(desc(approvals.createdAt))

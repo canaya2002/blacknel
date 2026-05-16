@@ -5,7 +5,11 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { requireUser } from '@/lib/auth/server';
-import { dispatchApproved, type DispatchableApproval } from '@/lib/approvals/dispatch';
+import {
+  dispatchApproved,
+  dispatchRejection,
+  type DispatchableApproval,
+} from '@/lib/approvals/dispatch';
 import { dbAdmin, dbAs } from '@/lib/db/client';
 import { approvals, auditEvents } from '@/lib/db/schema';
 import { AppError } from '@/lib/errors';
@@ -62,7 +66,15 @@ async function writeAudit(
 
 /** Sentinel returned by the txn body. The action wraps it in `Result`. */
 type TxOutcome =
-  | { kind: 'ok'; messageId?: string }
+  | {
+      kind: 'ok';
+      messageId?: string;
+      /** Phase-5 review-response dispatch products. */
+      reviewResponseId?: string;
+      reviewId?: string;
+      /** Carries through the entity_table of the approval so audit emits the right event. */
+      entityTable?: string;
+    }
   | { kind: 'not_found' }
   | { kind: 'already_decided'; decidedBy: string | null; decidedAt: Date | null; status: string };
 
@@ -146,9 +158,15 @@ export async function approveAction(
         })
         .where(eq(approvals.id, row.id));
 
-      const result: TxOutcome = { kind: 'ok' };
+      const result: TxOutcome = { kind: 'ok', entityTable: row.entityTable };
       if (dispatch.messageId) {
         result.messageId = dispatch.messageId;
+      }
+      if (dispatch.reviewResponseId) {
+        result.reviewResponseId = dispatch.reviewResponseId;
+      }
+      if (dispatch.reviewId) {
+        result.reviewId = dispatch.reviewId;
       }
       return result;
     },
@@ -171,10 +189,12 @@ export async function approveAction(
     );
   }
   const dispatchedMessageId = outcome.messageId;
+  const dispatchedResponseId = outcome.reviewResponseId;
+  const dispatchedReviewId = outcome.reviewId;
 
-  // Audit. approval.approved fires for every successful decision;
-  // inbox.reply.sent fires only when the dispatcher created a
-  // message (entity_table=inbox_messages).
+  // Audit. `approval.approved` always fires; the per-entity audit
+  // emits afterward so observability dashboards can group by
+  // entity_table.
   await writeAudit(
     session.orgId,
     session.userId,
@@ -186,6 +206,7 @@ export async function approveAction(
       decidedBy: session.userId,
       ...(parsed.data.decisionReason ? { decisionReason: parsed.data.decisionReason } : {}),
       ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}),
+      ...(dispatchedResponseId ? { reviewResponseId: dispatchedResponseId } : {}),
     },
   );
   if (dispatchedMessageId) {
@@ -198,10 +219,31 @@ export async function approveAction(
       { approvalId: parsed.data.approvalId, via: 'approval_dispatch' },
     );
   }
+  if (dispatchedResponseId) {
+    await writeAudit(
+      session.orgId,
+      session.userId,
+      'review.response.published',
+      dispatchedResponseId,
+      null,
+      {
+        approvalId: parsed.data.approvalId,
+        reviewId: dispatchedReviewId ?? null,
+        via: 'approval_dispatch',
+      },
+    );
+  }
 
   revalidatePath('/approvals');
   revalidatePath(`/approvals/${parsed.data.approvalId}`);
-  return ok({ approvalId: parsed.data.approvalId, ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}) });
+  if (dispatchedReviewId) {
+    revalidatePath('/reviews');
+    revalidatePath(`/reviews/${dispatchedReviewId}`);
+  }
+  return ok({
+    approvalId: parsed.data.approvalId,
+    ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -292,9 +334,15 @@ export async function approveWithEditsAction(
         })
         .where(eq(approvals.id, row.id));
 
-      const result: TxOutcome = { kind: 'ok' };
+      const result: TxOutcome = { kind: 'ok', entityTable: row.entityTable };
       if (dispatch.messageId) {
         result.messageId = dispatch.messageId;
+      }
+      if (dispatch.reviewResponseId) {
+        result.reviewResponseId = dispatch.reviewResponseId;
+      }
+      if (dispatch.reviewId) {
+        result.reviewId = dispatch.reviewId;
       }
       return result;
     },
@@ -317,6 +365,8 @@ export async function approveWithEditsAction(
     );
   }
   const dispatchedMessageId = outcome.messageId;
+  const dispatchedResponseId = outcome.reviewResponseId;
+  const dispatchedReviewId = outcome.reviewId;
 
   await writeAudit(
     session.orgId,
@@ -330,6 +380,7 @@ export async function approveWithEditsAction(
       proposed: parsed.data.editedPayload,
       ...(parsed.data.decisionReason ? { decisionReason: parsed.data.decisionReason } : {}),
       ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}),
+      ...(dispatchedResponseId ? { reviewResponseId: dispatchedResponseId } : {}),
     },
   );
   if (dispatchedMessageId) {
@@ -345,10 +396,31 @@ export async function approveWithEditsAction(
       },
     );
   }
+  if (dispatchedResponseId) {
+    await writeAudit(
+      session.orgId,
+      session.userId,
+      'review.response.published',
+      dispatchedResponseId,
+      null,
+      {
+        approvalId: parsed.data.approvalId,
+        reviewId: dispatchedReviewId ?? null,
+        via: 'approval_dispatch_edited',
+      },
+    );
+  }
 
   revalidatePath('/approvals');
   revalidatePath(`/approvals/${parsed.data.approvalId}`);
-  return ok({ approvalId: parsed.data.approvalId, ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}) });
+  if (dispatchedReviewId) {
+    revalidatePath('/reviews');
+    revalidatePath(`/reviews/${dispatchedReviewId}`);
+  }
+  return ok({
+    approvalId: parsed.data.approvalId,
+    ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -380,9 +452,13 @@ export async function rejectAction(
       const lockedRows = await tx
         .select({
           id: approvals.id,
+          organizationId: approvals.organizationId,
+          entityTable: approvals.entityTable,
+          entityId: approvals.entityId,
           status: approvals.status,
           decidedBy: approvals.decidedBy,
           decidedAt: approvals.decidedAt,
+          proposedPayload: approvals.proposedPayload,
         })
         .from(approvals)
         .where(
@@ -403,6 +479,12 @@ export async function rejectAction(
           status: row.status,
         };
       }
+
+      // Reject-side dispatch — for review_response approvals, flip the
+      // child row to `rejected` so the composer surface reflects the
+      // outcome. Inbox / posts don't need a side effect here.
+      const dispatch = await dispatchRejection(tx, row as DispatchableApproval);
+
       await tx
         .update(approvals)
         .set({
@@ -412,7 +494,22 @@ export async function rejectAction(
           decisionReason: parsed.data.decisionReason,
         })
         .where(eq(approvals.id, row.id));
-      return { kind: 'ok' };
+
+      const result: TxOutcome = { kind: 'ok', entityTable: row.entityTable };
+      if (dispatch.reviewResponseId) {
+        result.reviewResponseId = dispatch.reviewResponseId;
+      }
+      // Extract reviewId from proposed_payload for revalidation +
+      // audit context. The dispatcher doesn't return it on reject.
+      if (
+        row.entityTable === 'review_responses' &&
+        row.proposedPayload &&
+        typeof row.proposedPayload === 'object' &&
+        typeof (row.proposedPayload as { reviewId?: unknown }).reviewId === 'string'
+      ) {
+        result.reviewId = (row.proposedPayload as { reviewId: string }).reviewId;
+      }
+      return result;
     },
   );
 
@@ -439,11 +536,35 @@ export async function rejectAction(
     'approval.rejected',
     parsed.data.approvalId,
     { status: 'pending' },
-    { status: 'rejected', decisionReason: parsed.data.decisionReason },
+    {
+      status: 'rejected',
+      decisionReason: parsed.data.decisionReason,
+      ...(outcome.reviewResponseId
+        ? { reviewResponseId: outcome.reviewResponseId }
+        : {}),
+    },
   );
+  if (outcome.reviewResponseId) {
+    await writeAudit(
+      session.orgId,
+      session.userId,
+      'review.response.rejected',
+      outcome.reviewResponseId,
+      null,
+      {
+        approvalId: parsed.data.approvalId,
+        reviewId: outcome.reviewId ?? null,
+        decisionReason: parsed.data.decisionReason,
+      },
+    );
+  }
 
   revalidatePath('/approvals');
   revalidatePath(`/approvals/${parsed.data.approvalId}`);
+  if (outcome.reviewId) {
+    revalidatePath('/reviews');
+    revalidatePath(`/reviews/${outcome.reviewId}`);
+  }
   return ok({ approvalId: parsed.data.approvalId });
 }
 

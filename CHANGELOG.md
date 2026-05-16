@@ -7,6 +7,142 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 5 / Commit 14 (`/reviews/[reviewId]` · composer · IA stub · approval bidirección)
+
+**Compliance + IA stubs**
+
+- `lib/ai/compliance-stub.ts` — extended with optional review context
+  (`{ entityType: 'review', rating, brandName, locationName }`). Three
+  new flags sum to the base keyword set (Ajuste 2):
+    - `low_rating_monetary_offer` (high risk): rating ≤2 + any of
+      refund / discount / compensation / reimbursement / gift card /
+      voucher / reembolso / descuento / compensación / cupón / bonificación.
+    - `named_person_outside_allowlist` (medium risk): capitalized 4+
+      char token that isn't in the brand-or-location allowlist and
+      isn't a stop word.
+    - `long_response` (low risk on its own): body > 800 chars.
+  Inbox callers without the review context don't see the new flags.
+- `lib/ai/reviews-stub.ts` — deterministic suggestion. 3 buckets by
+  rating × 4–5 variants each. `fnv1aHash(reviewId) % variants.length`
+  selects; same review always yields the same body. When the picked
+  variant references a missing variable (`{firstName}` /
+  `{locationName}` / `{businessName}`), falls back to the first
+  variant in the bucket with `needs: []` so the body NEVER contains
+  an unresolved placeholder. No `Math.random` / `Date.now` /
+  `crypto.randomUUID`. JSDoc tags Phase-7 Haiku as the cutover.
+
+**Review-response orchestration**
+
+- `lib/reviews/review-detail.ts` — `getReviewDetail` loader that
+  joins brand + location + assignee + response history under a single
+  `dbAs` context. `canReply` derived per platform — `false` for Yelp.
+- `lib/reviews/send-response.ts` — funnel for outbound responses,
+  same DI shape as `lib/inbox/send-reply.ts`. Three modes:
+    - `draft`: row → `draft`, audit `review.response.drafted`.
+    - `send` + rating ≥4 + clean compliance: row → `published`,
+      review → `responded`, audit `review.response.sent`.
+    - `send` + (rating ≤3 OR compliance high/critical OR
+      requiresApproval): row → `pending_approval`, approval row
+      created, audits `review.response.routed_to_approval` +
+      `approval.created`.
+  Capability gate: Yelp returns `CAPABILITY_NOT_AVAILABLE`.
+  Idempotency: the partial unique index
+  `review_responses_review_idempotency_unique` fires on retry — the
+  orchestrator catches it and returns `CONFLICT`.
+- `app/(app)/reviews/[reviewId]/response-action.ts` — Server Action
+  wrapping the orchestrator (auth + RBAC + Zod + revalidatePath).
+- `app/(app)/reviews/[reviewId]/suggest-action.ts` — Server Action
+  for the AI-suggest button. Loads context, calls
+  `suggestReviewResponse`, returns the body + variant. Phase-7 will
+  log to `ai_generations` from here.
+
+**Approval dispatcher for review_response (Ajuste 4)**
+
+- `lib/approvals/dispatchers/review-response.ts` —
+  `dispatchReviewResponseApproval` (approve) flips the response row
+  `pending_approval` → `published`, writes `finalText` from the
+  payload (so `approveWithEdits` can override the draft), and
+  transitions parent `reviews.status` → `responded`. Guards against
+  re-publishing an already-`published` / already-`rejected` row with
+  `CONFLICT`. `dispatchReviewResponseRejection` (reject) flips to
+  `rejected`.
+- `lib/approvals/dispatch.ts` — switch wires `review_responses` to
+  the new dispatcher (replacing the NOT_IMPLEMENTED stub) and adds a
+  `dispatchRejection` sibling for the reject path. The
+  `NOT_IMPLEMENTED` test in `approvals-flows.test.ts` now asserts
+  the new `VALIDATION_ERROR` shape (malformed payload) instead.
+- `app/(app)/approvals/actions.ts` — `approveAction` /
+  `approveWithEditsAction` / `rejectAction` extended:
+    - Capture `entityTable` + `reviewResponseId` + `reviewId` from
+      the locked approval row.
+    - Emit `review.response.published` audit on approve dispatch.
+    - Emit `review.response.rejected` audit on reject dispatch.
+    - `revalidatePath('/reviews')` + `revalidatePath('/reviews/{id}')`
+      when a review_response was touched.
+- `lib/approvals/queries.ts` — `pendingApprovalsForReview` (parallel
+  to `pendingApprovalsForThread`) joins
+  `review_responses` so the banner works whether the lookup hits
+  `proposed_payload.reviewId` (Phase-5 path) or only the entity_id
+  link (legacy / external creators).
+
+**UI**
+
+- `app/(app)/reviews/[reviewId]/page.tsx` — review detail page:
+  `<ReviewHeader>` (stars size-5 + body + tags + brand/location +
+  status / sentiment / escalated pills) → bidirectional
+  `<PendingApprovalBanner>` → `<ResponsesHistory>` →
+  `<ResponseComposer>`. Same Promise.all data-load shape as
+  `app/(app)/inbox/[threadId]/page.tsx`.
+- `components/reviews/response-composer.tsx` — composer with
+  AI-suggest button (calls `suggestResponseAction`), "Guardar
+  borrador" / "Enviar" buttons (each in their own
+  `useTransition`), rating ≤3 advance-notice strip, char counter,
+  `⌘+enter` send, friendly error text for `CONFLICT` /
+  `CAPABILITY_NOT_AVAILABLE`. Self-disables when `canReply=false`
+  (Yelp), rendering a read-only notice instead.
+- `components/reviews/responses-history.tsx` — timeline list, one
+  row per response. Status icon + badge + AI badge + author +
+  created-at + published-at. Rejected body rendered struck-through.
+- `components/reviews/pending-approval-banner.tsx` — bidirectional
+  twin of inbox's banner; links the first pending approval.
+- `components/reviews/review-header.tsx` — collapsible header block
+  with avatar, stars, platform, location, status pills.
+- `app/(app)/approvals/[approvalId]/page.tsx` — adds the "Review
+  origen → /reviews/X" link for `kind='review_response'` approvals,
+  symmetrical with the existing "Thread origen → /inbox/X" line.
+- `app/(app)/reviews/[reviewId]/loading.tsx` — skeleton mirroring
+  the detail layout.
+
+**Tests** (41 new, 347 total — was 306)
+
+- `tests/unit/reviews-stub.test.ts` (11) — bucketing by rating,
+  determinism across calls, variable substitution, fallback when
+  context is missing (50-iteration probe verifies no
+  `{placeholder}` ever leaks).
+- `tests/unit/compliance-review.test.ts` (13) — low-rating monetary
+  offer (1★/2★ + refund/descuento/compensation), named-person flag
+  (María flagged, Trattoria/Downtown allow-listed, sentence-leading
+  greetings exempt), long-response > 800, SUM-not-replace semantics,
+  inbox-context isolation, determinism.
+- `tests/integration/reviews-send-response.test.ts` (12) — direct
+  publish (5★ clean), auto-route (2★, 3★), compliance-forced route
+  at 5★ (legal keyword), draft mode, idempotency CONFLICT, Yelp
+  capability gate, empty-body / missing-key / unknown-id validation
+  errors, audit events emitted per branch.
+- `tests/integration/reviews-approval-dispatch.test.ts` (5) —
+  approve happy path, edited-approve uses edited body, reject flips
+  to `rejected`, sequential concurrency (Ajuste 5: second moderator
+  sees post-decision status, no double-publish), re-dispatch of
+  already-published row throws `CONFLICT`.
+
+**TODO**
+
+- `TODO.md#history-collapsed-commit` — new entry. The 2026-05-16
+  `git pull` brought Phase-4 + Commit-12 in a single
+  `9054859 "sefjs}"` commit (15,736 LOC, 109 files). Documents both
+  resolution paths (rewrite vs accept) to evaluate during Phase 12
+  release-branch cut.
+
 ### Added — Phase 5 / Commit 13 (`/reviews` list · filters · cursor · empty states)
 
 **Filter / cursor primitives (`lib/reviews/`)**

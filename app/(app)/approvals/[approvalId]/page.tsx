@@ -1,4 +1,4 @@
-import { ArrowLeft, AlertTriangle, MessageSquare } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, MessageSquare, Star } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
@@ -35,6 +35,10 @@ export default async function ApprovalDetailPage({
     typeof detail.proposedPayload.threadId === 'string'
       ? (detail.proposedPayload.threadId as string)
       : null;
+  const reviewId =
+    typeof detail.proposedPayload.reviewId === 'string'
+      ? (detail.proposedPayload.reviewId as string)
+      : null;
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -70,6 +74,16 @@ export default async function ApprovalDetailPage({
         >
           <MessageSquare className="h-3.5 w-3.5" />
           Thread origen → /inbox/{threadId.slice(0, 8)}…
+        </Link>
+      ) : null}
+
+      {detail.kind === 'review_response' && reviewId ? (
+        <Link
+          href={`/reviews/${reviewId}` as `/reviews/${string}`}
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <Star className="h-3.5 w-3.5" />
+          Review origen → /reviews/{reviewId.slice(0, 8)}…
         </Link>
       ) : null}
 

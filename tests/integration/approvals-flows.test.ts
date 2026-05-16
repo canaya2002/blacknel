@@ -357,7 +357,7 @@ describe('approveWithEdits — dispatches the edited body', () => {
   });
 });
 
-describe('NOT_IMPLEMENTED dispatchers for posts / review_responses', () => {
+describe('dispatch contract for non-inbox entity tables', () => {
   it('post entity_table throws NOT_IMPLEMENTED', async () => {
     const fakeApproval = {
       id: '44444444-4444-4444-8444-fe0000000099',
@@ -375,7 +375,11 @@ describe('NOT_IMPLEMENTED dispatchers for posts / review_responses', () => {
     ).rejects.toThrow(/Post dispatch lands in Phase 6/);
   });
 
-  it('review_responses entity_table throws NOT_IMPLEMENTED', async () => {
+  it('review_responses with an invalid proposed_payload throws VALIDATION_ERROR', async () => {
+    // Commit 14 wires the review-response dispatcher. The "land in
+    // Phase 5" NOT_IMPLEMENTED message is gone; instead the
+    // dispatcher validates the payload shape and rejects an empty
+    // proposed_payload as a malformed approval.
     const fakeApproval = {
       id: '44444444-4444-4444-8444-fe0000000098',
       organizationId: orgA,
@@ -389,7 +393,7 @@ describe('NOT_IMPLEMENTED dispatchers for posts / review_responses', () => {
         { orgId: orgA, userId: userMod },
         async (tx) => dispatchApproved(tx, fakeApproval, userMod),
       ),
-    ).rejects.toThrow(/Review response dispatch lands in Phase 5/);
+    ).rejects.toThrow(/not a valid review_response shape/);
   });
 });
 
