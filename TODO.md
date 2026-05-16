@@ -207,3 +207,51 @@ once it's been shared. Phase 12 is when we cut a clean
 
 **Not blocking.** Tests, types, lint, and runtime behavior are all
 green. This is a historiography issue, not a correctness one.
+
+## reputation-tags-sql-path
+
+**Problem.** `getTopTagsWithTx` (Commit 15) reads `(sentiment, tags)`
+for the in-scope reviews and aggregates in JS instead of unrolling
+via `jsonb_array_elements_text` + `GROUP BY` on the SQL side. For
+Phase-5 volumes (~200 reviews per org) the JS pass is cheaper than
+the SQL one; once volumes climb past ~10K reviews per filter window
+the trip-time of the raw rows starts to dominate.
+
+**Resolution criteria (Phase 11+).** Close when:
+
+1. A migration / query path exposes `reviews.tags` exploded via
+   `jsonb_array_elements_text` with the same RLS scope (predicates
+   on `organization_id` / `brand_id` / `location_id` / `platform` /
+   `posted_at`).
+2. `getTopTagsWithTx` switches to the SQL path; the JS aggregation
+   is removed.
+3. Integration tests against 10K+ seeded reviews show the SQL path
+   is faster than the JS path under the same filter shape.
+
+Until then the JS aggregation is fine — top-tags is a dashboard
+card, not a hot path. Affected file: `lib/reputation/queries.ts`.
+
+## crisis-yoy-suppression
+
+**Problem.** `evaluateCrisis` (Commit 15) fires on a strict spike
+predicate: ≥5 negative reviews in 72h AND ≤1 in the prior 72h. It
+does NOT compare against the same window last year. A location with
+a recurring seasonal negative cluster (holiday week, exam period,
+sale-promo aftermath) will fire CRISIS_TRIGGER every year for the
+same legitimate reason, which is noise.
+
+**Resolution criteria (Phase 7).** Close when `lib/ai/crisis.ts`
+ships and includes:
+
+1. Same-window-last-year recall: pull negative counts for the
+   matching ISO week from the prior year. If the year-over-year
+   count is within a configurable band (default ±30%), downgrade the
+   severity by one level (`high` → `medium`, `medium` → suppressed).
+2. The Phase-5 `evaluateCrisis` predicate stays as the fallback when
+   year-over-year data is missing (new locations, first year).
+3. A `crisis_suppressed_by` audit field on `crisis_alerts` records
+   the suppression reason so the dashboard can render "Suppressed:
+   matches 2025 holiday week pattern".
+
+Affected file: `lib/reputation/crisis-rule.ts` and (Phase-7) the
+new `lib/ai/crisis.ts`.

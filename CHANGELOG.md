@@ -7,6 +7,122 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 5 / Commit 15 (`/reputation` dashboard · KPIs · charts · crisis)
+
+**Chart wrappers (Ajuste 1)**
+
+- `recharts` added as a dependency.
+- `components/charts/{types,bar-chart,line-chart,pie-chart,empty-chart}.tsx`
+  — domain code consumes the wrappers, never recharts directly. The
+  wrappers apply the Blacknel theme (`--brand-*`, axis/grid/tooltip
+  tones) in one place. White-label org theming (Phase 12) plugs in
+  via the `theme` prop without touching consumers.
+- `ChartDataPoint` + `SeriesDataPoint` types abstract recharts away.
+- `EmptyChart` shared "no data" stand-in keeps the dashboard layout
+  stable when a card has zero rows.
+
+**Reputation library (`lib/reputation/`)**
+
+- `filters.ts` — URL parser. Preset (30/90/365) defaults to 30d when
+  nothing is provided; custom from/to wins when both bounds are
+  valid; malformed dates / inverted / future / >365d falls back to
+  default. `windowDays` is derived for the delta math. Same
+  defensive posture as `lib/reviews/filters.ts`.
+- `crisis-rule.ts` — strict, testable predicate (Ajuste 2):
+    ```
+    CRISIS_TRIGGER = (recentCount ≥ 5) AND (previousCount ≤ 1)
+    severity      = recentCount ≥ 10 ? 'high' : 'medium'
+    ```
+  The prior-window quiet check avoids firing on locations with a
+  high baseline of negative reviews. Year-over-year suppression is
+  deferred to Phase 7 (`lib/ai/crisis.ts`); tracked at
+  `TODO.md#crisis-yoy-suppression`.
+- `deltas.ts` — KPI delta math (Ajuste 3). `state: 'na'` when prior
+  sample size < 3 reviews; `direction: 'up' | 'down' | 'flat'` with
+  EPSILON for floating-point flat detection. `deltaTone()` resolves
+  good/bad given a `goodDirection` hint (rating ↑ good, response
+  time ↓ good).
+- `queries.ts` — single-pass loader (Ajuste Extra):
+    - `loadReputationDashboardData` is the only function the page
+      calls. It runs the per-card queries in parallel under ONE
+      `dbAs` transaction.
+    - DI bag (`DashboardQueryDeps`) lets tests spy on each per-card
+      query and assert call counts.
+    - `loadReputationDashboardDataWithTx` exposes the same logic
+      against an existing `AnyPgTx` — used by integration tests
+      because production `dbAs` refuses test runs.
+    - Per-card queries: overview (avg / count / response rate),
+      star distribution, sentiment distribution, weekly rating
+      trend, top tags (Ajuste 4: count ≥3, top 10, percent +
+      dominant sentiment), response time stats (avg / p50 / p90),
+      crisis counts (current + previous 72h windows). Overview
+      query uses a LEFT JOIN against a deduplicated
+      `review_responses` subquery instead of `COUNT(*) FILTER (WHERE
+      EXISTS (...))` because the correlated EXISTS form doesn't
+      bind reliably across the pglite + postgres-js pair.
+
+**UI (`components/reputation/`)**
+
+- `kpi-card.tsx` — displays value + caption + delta line.
+  N/A state renders verbatim "datos insuficientes" copy (Ajuste 3).
+- `rating-distribution-chart.tsx` — bar chart with semantic per-bar
+  colors (red→emerald gradient by star count).
+- `sentiment-pie.tsx` — donut chart over positive/neutral/negative/
+  unknown with semantic colors.
+- `rating-trend-line.tsx` — weekly average line chart. Buckets with
+  no reviews render as null so the line skips them rather than
+  collapsing to 0.
+- `top-tags-list.tsx` — table of qualifying tags (count, %,
+  dominant sentiment). When < 5 tags qualify renders the Ajuste-4
+  empty-state copy: "Aún no hay temas frecuentes identificables…"
+- `crisis-alert-banner.tsx` — amber (medium) or red (high) banner
+  with the trigger numbers and a deep link to the first sample
+  review. Renders nothing when `crisis.triggered === false`.
+- `response-time-card.tsx` — avg/p50/p90 KPI strip.
+- `filters-bar.tsx` — preset switcher (30/90/365d). Brand/location/
+  platform pickers land with the cross-module scoping context in
+  Phase 6/7.
+
+**Page**
+
+- `app/(app)/reputation/page.tsx` — replaces the Phase-1 placeholder.
+  Single call to `loadReputationDashboardData`, then renders 11
+  presentational cards/charts. No card fetches anything itself.
+- `app/(app)/reputation/loading.tsx` — skeleton mirroring the grid.
+
+**Tests** (47 new, 394 total — was 347)
+
+- `tests/unit/reputation-deltas.test.ts` (10) — N/A boundary at 3
+  prior reviews, direction up/down/flat, tone resolution for both
+  good directions.
+- `tests/unit/reputation-crisis.test.ts` (9) — every spec case +
+  boundary thresholds (5/1, 5/2, 9/0, 10/0, 4/0, 8/7).
+- `tests/unit/reputation-filters.test.ts` (14) — preset default,
+  malformed / inverted / future / >365d ranges fall back to
+  default, single-bound custom falls back to preset, UUID / platform
+  allow-list, previous-window math.
+- `tests/integration/reputation-queries.test.ts` (13) — seeded org
+  with 10 deterministic reviews + 2 published responses. Exact
+  KPI assertions (reviewCount=10, avg=3.4, responseCount=2,
+  responseRate=20%). Star / sentiment distribution counts. Top-tags
+  filter (servicio=6, limpieza=4 qualify; ruido=2 filtered).
+  Response time p50/p90/avg over the 2-sample set. Tenant isolation.
+  Crisis counts return 0/0 with a quiet seed, 5/0 once an inline
+  cluster is injected.
+- `tests/integration/reputation-loader.test.ts` (1) — spies on
+  every entry in `DashboardQueryDeps`, asserts overview was called
+  twice (current + previous) and every other query exactly once.
+  Sanity checks the returned shape so a card removal forces the
+  test update.
+
+**TODOs**
+
+- `reputation-tags-sql-path` — the Phase-5 top-tags reads
+  `(sentiment, tags)` and aggregates in JS. Phase-11 swap to
+  `jsonb_array_elements_text` + GROUP BY when volumes climb.
+- `crisis-yoy-suppression` — year-over-year severity dampening
+  deferred to Phase 7's `lib/ai/crisis.ts`.
+
 ### Added — Phase 5 / Commit 14 (`/reviews/[reviewId]` · composer · IA stub · approval bidirección)
 
 **Compliance + IA stubs**
