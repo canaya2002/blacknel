@@ -473,3 +473,42 @@ anything until the real connector lands.
 - `lib/connectors/gbp/capabilities.ts`
 
 **Target phase.** Phase 11 (connector cutover).
+
+## publish-job-concurrency-live
+
+**Problem.** `tests/integration/publish-job.test.ts` exercises
+SELECT FOR UPDATE serialization SEQUENTIALLY because pglite is
+single-threaded WASM Postgres — `Promise.all` of two ticks does
+not produce the real concurrency that two production worker
+processes would. The architectural contract (FOR UPDATE +
+conditional update via `transitionPostStatus`) cannot be
+verified against the test runtime.
+
+**Why.** Phase 6 ships against pglite (dev + integration tests).
+The cron runs in-process via `setInterval` so even in dev there
+is only one tick at a time. Production (Phase 11+) runs against
+Supabase Postgres where the queue handoff to multiple workers
+(or a worker plus a manual-retry action) genuinely races on the
+same `posts` row.
+
+**Resolution criteria (Phase 11).** Add
+`tests/integration/publish-job.live.test.ts` (mirror of
+`rls.live.test.ts` shape) that:
+
+1. Opens two real-Postgres transactions concurrently.
+2. Both call `processOneCandidate` against the same scheduled
+   post.
+3. Asserts exactly one transaction acquires the lock + drives
+   `scheduled → publishing`; the other reads the post in
+   `publishing` and silently skips.
+4. Asserts a single `post.publishing.started` audit row is
+   emitted (no double-dispatch).
+
+**Affected files.**
+
+- `tests/integration/publish-job.test.ts` (the sequential test
+  documents the gap).
+- `lib/jobs/publish-post.ts` (`processOneCandidate` is the SUT
+  for the live test).
+
+**Target phase.** Phase 11 (Supabase cutover).

@@ -73,6 +73,15 @@ const envSchema = z.object({
    * (Commit 19) stand up their own posts explicitly anyway.
    */
   BLACKNEL_SEED_PUBLISHING: boolFromString(true),
+  /**
+   * Publish-job cron (Commit 20a). When `true` AND
+   * `NODE_ENV='development'`, `instrumentation.ts` arranca el
+   * `setInterval` que llama `runPublishTick()` cada 60s. Vitest
+   * setup lo fuerza a `false` para no contaminar tests con un
+   * cron lateral. Production (Phase 12 con Inngest Cloud) lo
+   * deshabilita y usa el handler de queue en su lugar.
+   */
+  BLACKNEL_PUBLISH_JOB_ENABLED: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

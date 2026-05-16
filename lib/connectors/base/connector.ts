@@ -75,11 +75,13 @@ export interface Connector {
   publishPost?(
     account: ConnectorAccount,
     draft: { text: string; mediaUrls?: ReadonlyArray<string>; link?: string },
+    options?: { idempotencyKey?: string },
   ): Promise<{ externalId: string }>;
   schedulePost?(
     account: ConnectorAccount,
     draft: { text: string; mediaUrls?: ReadonlyArray<string>; link?: string },
     when: Date,
+    options?: { idempotencyKey?: string },
   ): Promise<{ externalId: string }>;
   deletePost?(
     account: ConnectorAccount,

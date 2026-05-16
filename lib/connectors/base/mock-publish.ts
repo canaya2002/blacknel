@@ -127,12 +127,53 @@ const PLATFORM_PUBLISH_ERROR_CODES: Partial<Record<PlatformCode, string>> = {
 const PUBLISH_ERROR_RATE = 0.1;
 
 /**
+ * Module-level counter for test-driven forced failures (D-20-9).
+ * Tests call `forceFailNext(n)` to make the next N publish calls
+ * fail with a platform error regardless of `emitErrors`. Random
+ * failure (when `emitErrors=true`) stays on the demo path.
+ *
+ * `maybeThrowPublishError` checks this counter FIRST so a test
+ * can force a deterministic retry path without flipping the
+ * random gate. The counter decrements on each forced throw and
+ * is shared across all platforms (the publish-job tests pin a
+ * single target so a global counter is sufficient).
+ */
+const _forceFailState: { remaining: number; errorCode: string } = {
+  remaining: 0,
+  errorCode: 'MOCK_FORCED_FAILURE',
+};
+
+/**
+ * Force the next `n` `publishPost` / `schedulePost` calls (across
+ * any platform) to throw a `PlatformError`. Tests use this to
+ * drive the retry / permanent-fail paths deterministically.
+ *
+ * `errorCode` is the string surfaced on the error message — the
+ * publish-job persists it to `post_targets.error_message` and
+ * the test can assert against it.
+ */
+export function forceFailNext(n: number, errorCode = 'MOCK_FORCED_FAILURE'): void {
+  _forceFailState.remaining = Math.max(0, n);
+  _forceFailState.errorCode = errorCode;
+}
+
+/** Test-only. Clears any pending forced failures. */
+export function resetForcedFailures(): void {
+  _forceFailState.remaining = 0;
+  _forceFailState.errorCode = 'MOCK_FORCED_FAILURE';
+}
+
+/**
  * Roll the dice. Deterministic per call site so a test can pin
  * which call fails by tweaking `account.id` or the call seed.
  *
  * Gated by `BLACKNEL_MOCK_ERRORS` — when off this is a no-op,
  * matching the production happy path. When on, ~10% of calls
  * raise the platform's signature error code.
+ *
+ * **Test override** (D-20-9): `forceFailNext(n)` short-circuits
+ * the random gate so the next N calls fail regardless of
+ * `emitErrors`. Decrements on each forced throw.
  */
 export function maybeThrowPublishError(
   platform: PlatformCode,
@@ -140,6 +181,13 @@ export function maybeThrowPublishError(
   method: string,
   emitErrors: boolean,
 ): void {
+  if (_forceFailState.remaining > 0) {
+    _forceFailState.remaining -= 1;
+    throw new PlatformError(
+      platform,
+      `${_forceFailState.errorCode}: forced by test override.`,
+    );
+  }
   if (!emitErrors) return;
   const r = deterministicChance(`${platform}:${account.id}:${method}:pub-err`);
   if (r >= PUBLISH_ERROR_RATE) return;

@@ -17,8 +17,10 @@ export { MockConnector, declareCapabilities } from './mock-connector';
 export {
   MOCK_IDEMPOTENCY_MAP,
   clearMockIdempotency,
+  forceFailNext,
   mockIdempotencyGet,
   mockIdempotencySet,
+  resetForcedFailures,
 } from './mock-publish';
 
 export {

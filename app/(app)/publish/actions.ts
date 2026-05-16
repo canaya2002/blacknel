@@ -1,9 +1,13 @@
 'use server';
 
+import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { requireUser } from '@/lib/auth/server';
+import { dbAdmin, dbAs } from '@/lib/db/client';
+import { auditEvents, postTargets, posts } from '@/lib/db/schema';
+import { AppError } from '@/lib/errors';
 import { authorize } from '@/lib/permissions/can';
 import { applySchedule } from '@/lib/publish/composer/apply-schedule';
 import { createOrFetchDraft } from '@/lib/publish/composer/new-draft';
@@ -15,7 +19,7 @@ import {
 } from '@/lib/publish/posts';
 import { assertPostsCap } from '@/lib/publish/usage-check';
 import { getOrgPlanCode } from '@/lib/queries/plan';
-import { err, type Result } from '@/lib/types/result';
+import { err, ok, type Result } from '@/lib/types/result';
 
 /**
  * Server Actions for /publish (Commit 17 base). Each wraps the
@@ -317,4 +321,125 @@ export async function createDraftAction(
     revalidatePath('/publish');
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// retryFailedPostAction (Commit 20a — manual retry)
+// ---------------------------------------------------------------------------
+
+const retrySchema = z.object({ postId: z.string().uuid() });
+
+/**
+ * User-driven retry for a `failed` post (Commit 20a).
+ *
+ * Walks every `failed` target attached to the post (including
+ * those with `retry_count >= 3` permanent fails) and resets:
+ *
+ *   - `status = 'pending'`
+ *   - `retry_count = 0`
+ *   - `next_retry_at = null`
+ *   - `error_message = null`
+ *
+ * The post itself transitions back to `'scheduled'` if it had a
+ * `scheduled_at` in the future, otherwise to `'publishing'` so
+ * the next cron tick picks it up immediately.
+ *
+ * Audit: `post.retry.manual` (actor='user').
+ */
+export async function retryFailedPostAction(
+  _prev: unknown,
+  input: z.infer<typeof retrySchema>,
+): Promise<Result<{ postId: string; targetsReset: number }>> {
+  const session = await requireUser();
+  authorize(session.role, 'posts:publish');
+
+  const parsed = retrySchema.safeParse(input);
+  if (!parsed.success) return err('VALIDATION_ERROR', 'ID inválido.');
+
+  const rows = await dbAs<Array<{ status: string; scheduledAt: Date | null }>>(
+    { orgId: session.orgId, userId: session.userId },
+    (tx) =>
+      tx
+        .select({ status: posts.status, scheduledAt: posts.scheduledAt })
+        .from(posts)
+        .where(
+          and(eq(posts.id, parsed.data.postId), eq(posts.organizationId, session.orgId)),
+        )
+        .limit(1),
+  );
+  const post = rows[0];
+  if (!post) return err('NOT_FOUND', 'Post no encontrado.');
+  if (post.status !== 'failed') {
+    return err(
+      'CONFLICT',
+      `El post debe estar en estado 'failed' para reintentar. Actual: ${post.status}.`,
+    );
+  }
+
+  const resetTargets = await dbAs<Array<{ id: string }>>(
+    { orgId: session.orgId, userId: session.userId },
+    (tx) =>
+      tx
+        .update(postTargets)
+        .set({
+          status: 'pending',
+          retryCount: 0,
+          nextRetryAt: null,
+          errorMessage: null,
+        })
+        .where(
+          and(
+            eq(postTargets.postId, parsed.data.postId),
+            eq(postTargets.status, 'failed'),
+          ),
+        )
+        .returning({ id: postTargets.id }),
+  );
+
+  // Post → publishing if no scheduled_at OR scheduled_at in the
+  // past; otherwise → scheduled (cron picks at scheduled_at).
+  const now = new Date();
+  const targetStatus =
+    post.scheduledAt && post.scheduledAt.getTime() > now.getTime()
+      ? 'scheduled'
+      : 'publishing';
+  await dbAs({ orgId: session.orgId, userId: session.userId }, (tx) =>
+    tx
+      .update(posts)
+      .set({ status: targetStatus })
+      .where(
+        and(eq(posts.id, parsed.data.postId), eq(posts.organizationId, session.orgId)),
+      ),
+  );
+
+  try {
+    await dbAdmin(async (tx) =>
+      tx.insert(auditEvents).values({
+        organizationId: session.orgId,
+        userId: session.userId,
+        actorType: 'user',
+        action: 'post.retry.manual',
+        entityType: 'post',
+        entityId: parsed.data.postId,
+        before: { status: 'failed' },
+        after: {
+          status: targetStatus,
+          targetsReset: resetTargets.length,
+        },
+        riskLevel: 'low',
+      }),
+    );
+  } catch (cause) {
+    throw new AppError('INTERNAL_ERROR', 'Failed to audit post.retry.manual.', {
+      cause,
+      meta: { postId: parsed.data.postId },
+    });
+  }
+
+  revalidatePath('/publish');
+  revalidatePath(`/publish/composer/${parsed.data.postId}`);
+  return ok({
+    postId: parsed.data.postId,
+    targetsReset: resetTargets.length,
+  });
 }

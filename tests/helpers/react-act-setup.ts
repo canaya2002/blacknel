@@ -10,3 +10,15 @@
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+/**
+ * Disable the publish-job cron globally during tests (Commit 20a).
+ * `instrumentation.ts` reads `env.BLACKNEL_PUBLISH_JOB_ENABLED` at
+ * Next.js startup; tests never run instrumentation, but a unit
+ * test that imports `lib/jobs/cron-loop.ts` could accidentally
+ * arrancar `setInterval`. Belt-and-suspenders: env says off, the
+ * cron-loop module also gates on it.
+ */
+if (!process.env.BLACKNEL_PUBLISH_JOB_ENABLED) {
+  process.env.BLACKNEL_PUBLISH_JOB_ENABLED = 'false';
+}

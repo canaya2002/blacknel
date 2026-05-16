@@ -89,11 +89,41 @@ export const postTargets = pgTable(
     publishedAt: timestamp('published_at', { withTimezone: true }),
     errorMessage: text('error_message'),
     /**
-     * Number of dispatch attempts so far. Publish-job tops out at
-     * 3 (exponential backoff). Resets on manual retry from the UI.
+     * Legacy attempt counter (Commit 17 — pre-job). Commit 20
+     * uses `retry_count` for the canonical job-retry path. Kept
+     * for backward compatibility; the publish-job does NOT
+     * increment it. Phase 11 cleanup may drop it.
      */
     attemptCount: integer('attempt_count').notNull().default(0),
-    /** See JSDoc on this module — defends against job re-runs. */
+    /**
+     * Retry bookkeeping for the publish-job (Commit 20a, migration
+     * 0009). `retry_count` increments on every transient failure
+     * (publish-job sees the error from the connector). Caps at 3:
+     * `retry_count >= 3` → status stays `'failed'` permanently
+     * until a manual retry resets it (`retryFailedPostAction` →
+     * `retry_count = 0`).
+     */
+    retryCount: integer('retry_count').notNull().default(0),
+    /**
+     * Next instant the cron should reattempt this target. Set to
+     * `now + backoff` after a transient failure (backoff
+     * `[60s, 300s, 900s]` by attempt). `null` when the target is
+     * not currently in retry-wait state (i.e. pending /
+     * publishing / published, OR failed-permanent).
+     */
+    nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
+    /**
+     * Idempotency key passed to the connector to dedupe retries
+     * of the same logical dispatch. **Invariant** (Commit 20a):
+     * MUST be non-null by the time `dispatchOneTarget` runs.
+     * Historical rows are backfilled by migration 0009; fresh
+     * rows are stamped at insert time by `createPost`.
+     *
+     * Defends against job re-runs inserting duplicate dispatches:
+     * the connector's `idempotency_key` table dedupes on its end,
+     * and the partial unique on `(post_id, idempotency_key)`
+     * dedupes on ours.
+     */
     idempotencyKey: text('idempotency_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
