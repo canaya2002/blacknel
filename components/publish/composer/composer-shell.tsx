@@ -26,8 +26,10 @@ import { getPlanLimit } from '@/lib/plans/limits';
 import type { PlanCode } from '@/lib/plans/plans';
 
 import { AccountPicker } from './account-picker';
+import { AICaptionButton } from './ai-caption-button';
 import { CancelButton } from './cancel-button';
 import { CharacterLimitsBar } from './character-limits-bar';
+import { CompliancePill } from './compliance-pill';
 import { MediaUploader } from './media-uploader';
 import { PlatformVariants } from './platform-variants';
 import { PreviewShell } from './previews/preview-shell';
@@ -36,6 +38,7 @@ import {
   type PreviewMedia,
   type PreviewSlice,
 } from './previews/preview-shared';
+import { ScheduleControl, type ScheduleMode } from './schedule-control';
 import { TextEditor } from './text-editor';
 import { UtmBuilder } from './utm-builder';
 
@@ -92,6 +95,12 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
   );
   const [attachedAssets, setAttachedAssets] = useState<ReadonlyArray<AssetListItem>>(
     () => data.attachedAssets,
+  );
+  const [scheduledAt, setScheduledAt] = useState<Date | null>(
+    () => data.postDetail.scheduledAt,
+  );
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(() =>
+    data.postDetail.scheduledAt ? 'schedule' : 'draft',
   );
 
   // ---------------------------------------------------------------
@@ -276,6 +285,10 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
               Sin guardar
             </Badge>
           ) : null}
+          <CompliancePill
+            text={text}
+            brandName={data.brandOptions.find((b) => b.id === data.postDetail.brandId)?.name ?? null}
+          />
         </div>
         <div className="flex items-center gap-2">
           {feedback ? (
@@ -304,6 +317,7 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
       <div className="grid grid-cols-1 gap-4 px-6 pb-6 lg:grid-cols-[1fr_24rem]">
         {/* Left column — editor */}
         <div className="flex flex-col gap-4">
+          <AICaptionButton postId={data.postDetail.id} onAccept={setText} />
           <TextEditor
             value={text}
             onChange={setText}
@@ -339,16 +353,18 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
           />
         </div>
 
-        {/* Right column — previews stack (19c.1) + schedule placeholder (19c.2) */}
+        {/* Right column — previews stack (19c.1) + schedule control (19c.2) */}
         <aside className="flex flex-col gap-4">
           <PreviewShell slices={previewSlices} />
-          <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-            <h3 className="mb-1 text-sm font-semibold text-foreground">Programar</h3>
-            <p>
-              El control de fecha/hora en {data.orgTimezone}, junto con el AI
-              caption stub y el compliance pill, llegan en 19c.2.
-            </p>
-          </div>
+          <ScheduleControl
+            postId={data.postDetail.id}
+            scheduledAtUtc={scheduledAt}
+            mode={scheduleMode}
+            onModeChange={setScheduleMode}
+            timeZone={data.orgTimezone}
+            locale={data.orgLocale}
+            onScheduledAtChange={setScheduledAt}
+          />
         </aside>
       </div>
     </div>

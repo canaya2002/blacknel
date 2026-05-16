@@ -1,9 +1,13 @@
 'use server';
 
+import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { requireUser } from '@/lib/auth/server';
+import { dbAdmin, dbAs } from '@/lib/db/client';
+import { auditEvents, posts } from '@/lib/db/schema';
+import { AppError } from '@/lib/errors';
 import { authorize } from '@/lib/permissions/can';
 import { createOrFetchDraft } from '@/lib/publish/composer/new-draft';
 import {
@@ -13,6 +17,7 @@ import {
   updatePostDraft,
   type CreatePostSuccess,
 } from '@/lib/publish/posts';
+import type { PostStatus } from '@/lib/publish/status-transitions';
 import { assertPostsCap } from '@/lib/publish/usage-check';
 import { getOrgPlanCode } from '@/lib/queries/plan';
 import { err, type Result } from '@/lib/types/result';
@@ -198,19 +203,63 @@ export async function schedulePostAction(
   const parsed = scheduleSchema.safeParse({ postId: formData.get('postId') });
   if (!parsed.success) return err('VALIDATION_ERROR', 'ID inválido.');
 
-  // Plan-cap enforcement at scheduling time. The transition
-  // draft → scheduled commits the org to a publish-budget seat
-  // for the current period.
+  // Plan-cap enforcement. Both branches consume a post-budget
+  // seat — schedule commits future capacity, publish-now consumes
+  // current. Same `checkUsage` path.
   const plan = await getOrgPlanCode(session);
   const gate = await assertPostsCap(session.orgId, plan);
   if (!gate.ok) return gate;
 
+  // Read `posts.scheduled_at` from the DB — NEVER from the client.
+  // A user with a stale tab could otherwise submit "schedule now"
+  // while the row was previously set to a future date. The
+  // persisted value is the only truth.
+  const rows = await dbAs<Array<{ scheduledAt: Date | null }>>(
+    { orgId: session.orgId, userId: session.userId },
+    async (tx) =>
+      tx
+        .select({ scheduledAt: posts.scheduledAt })
+        .from(posts)
+        .where(
+          and(eq(posts.id, parsed.data.postId), eq(posts.organizationId, session.orgId)),
+        )
+        .limit(1),
+  );
+  const persisted = rows[0];
+  if (!persisted) return err('NOT_FOUND', 'Post no encontrado.');
+
+  // Branch on scheduled_at: null → publish now (draft →
+  // published), otherwise → schedule (draft → scheduled).
+  const to: PostStatus = persisted.scheduledAt === null ? 'published' : 'scheduled';
   const result = await transitionPostStatus(
     { orgId: session.orgId, userId: session.userId },
     parsed.data.postId,
-    'scheduled',
+    to,
   );
   if (!result.ok) return result;
+
+  // Spec-named audit row, complementing the generic
+  // `post.status.${to}` row that `transitionPostStatus` already
+  // wrote (see lib/publish/posts.ts).
+  try {
+    await dbAdmin(async (tx) =>
+      tx.insert(auditEvents).values({
+        organizationId: session.orgId,
+        userId: session.userId,
+        actorType: 'user',
+        action: to === 'published' ? 'post.published_immediate' : 'post.scheduled',
+        entityType: 'post',
+        entityId: parsed.data.postId,
+        after: { scheduledAt: persisted.scheduledAt?.toISOString() ?? null },
+        riskLevel: 'low',
+      }),
+    );
+  } catch (cause) {
+    throw new AppError('INTERNAL_ERROR', 'Failed to write schedule audit event.', {
+      cause,
+      meta: { postId: parsed.data.postId, to },
+    });
+  }
 
   revalidatePath('/publish');
   revalidatePath(`/publish/composer/${parsed.data.postId}`);
