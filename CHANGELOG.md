@@ -7,6 +7,116 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 5 / Commit 13 (`/reviews` list · filters · cursor · empty states)
+
+**Filter / cursor primitives (`lib/reviews/`)**
+
+- `filters.ts` — URL-bound filter parser with allow-list semantics
+  (drop-the-whole-filter on any bad value, like Commit 8) for `status`,
+  `rating`, `sentiment`, `platform`, `assignedTo`, plus UUID-validated
+  `brandId` / `locationId` and length-capped `q`. Adds two
+  reviews-specific concerns:
+    - **Plan-gated platforms**: `parseReviewFilters(sp, { plan })`
+      partitions the URL's `platform=` value against the plan's
+      `networks`. Gated entries are stripped from `filters.platform`
+      and returned separately in `gatedPlatforms` so the page can
+      render the banner. Each gated drop logs
+      `reviews.filter.suspicious_input` with `reason: 'gated_platform'`.
+    - **Date range**: `dateFrom` / `dateTo` are ISO-8601, validated
+      pairwise (`from ≤ to`, `to ≤ today`, range ≤ 365 days). Any
+      violation drops *both* bounds together — never half-open. Logs
+      `malformed_date` / `invalid_range` reasons.
+- `cursor.ts` — composite cursor over `(posted_at DESC, id DESC)`
+  using base64url JSON. Fault-tolerant decode (length cap + UUID
+  regex + ISO date parse) returns null on any failure so a malformed
+  URL degrades to "first page" rather than 500. Cursor invalidation
+  on filter / date change is the client's responsibility (the
+  filters bar deletes `cursor` before pushing).
+- `queries.ts` — `listReviews` + `listReviewsWithTx` with the same
+  RLS-through-`dbAs` posture as `lib/inbox/queries.ts`. Projection
+  carries `hasPublishedResponse` (correlated EXISTS on
+  `review_responses`), `canReply` (derived from connector
+  capabilities — `false` for Yelp), `locationName` (LEFT JOIN), and
+  body excerpt. Optional `plan: PlanCode` arg enforces platform
+  gating server-side as defense in depth (master-prompt rule 8):
+  `{ filters: { platform: ['yelp'] }, plan: 'growth' }` short-circuits
+  to an empty page even when the row physically exists.
+- `orgHasAnyReviews` / `orgHasAnyReviewsWithTx` probes drive the
+  empty-state branching.
+
+**UI (`components/reviews/`, `app/(app)/reviews/`)**
+
+- `app/(app)/reviews/page.tsx` — replaces the Phase-1 placeholder.
+  Resolves plan, parses filters, fetches first page + `hasAny`
+  probe in parallel, branches into 4 outcomes (list / no-reviews /
+  no-matches / narrow-slice). `gatedPlatforms` from the parser feeds
+  the banner above the list.
+- `app/(app)/reviews/load-more-action.ts` — Server Action mirroring
+  `inbox/load-more-action.ts`. Re-resolves the plan so cursor
+  pagination keeps the defense-in-depth intersection.
+- `components/reviews/stars.tsx` — `Stars` component using Lucide's
+  `Star` with `fill-current`. Integer ratings only (no half-stars).
+  Container exposes `aria-label="X de 5 estrellas"`; per-star icons
+  are `aria-hidden`. Sizes: `row` (size-4) and `detail` (size-5).
+  Filled stars in `amber-500`, empty in `zinc-300` / `dark:zinc-700`.
+- `components/reviews/review-row.tsx` — row layout with stars,
+  author + platform initials, location label, body excerpt, status
+  pill, sentiment color, response/escalation badges, tags, and a
+  `read-only` hint for platforms without `canReply`.
+- `components/reviews/reviews-list.tsx` — virtualized list with
+  `react-virtuoso` + explicit "Cargar más" footer (same UX shape as
+  inbox).
+- `components/reviews/filters-bar.tsx` — URL-bound multi-filters for
+  status / sentiment + a stars-rendered rating dropdown. **Platform
+  dropdown shows all platforms** (Ajuste 1): the gated ones render
+  with `Lock` icon, dimmed text, and a "Growth/Enterprise" badge;
+  clicking a gated row fires an `fireToast` upgrade nudge and never
+  selects. Date range section has 4 presets (7d / 30d / 90d / "Sin
+  rango") plus a custom from/to picker. Every filter change resets
+  `cursor` in the URL (Ajuste 3).
+- `components/reviews/empty-states.tsx` — three explicit shapes with
+  the approved copy (Ajuste 5):
+    - *No reviews*: "Aún no tienes reseñas. Conecta GBP…" → CTA to
+      `/integrations`.
+    - *No matches*: "No hay reseñas que coincidan con estos filtros."
+      → "Limpiar filtros".
+    - *Narrow slice*: "No hay reseñas {archivadas|spam|de 1 estrella}
+      en este período." → "Ver todas".
+- `components/reviews/gated-platform-banner.tsx` — banner above the
+  list when one or more URL-pasted platforms were dropped for plan
+  reasons. No interactive controls — pure notice.
+- `app/(app)/reviews/loading.tsx` — skeleton mirroring the new
+  layout (header + filters bar + 8 row placeholders).
+
+**Tests** (57 new, 306 total — was 249)
+
+- `tests/unit/reviews-cursor.test.ts` (7) — round-trip; null /
+  garbage / oversize / non-UUID / non-ISO rejects.
+- `tests/unit/reviews-filters.test.ts` (29) — allow-list semantics,
+  rating range, UUID validation, `q` capping, cursor isolation, then
+  the two reviews-specific sets:
+    - **Plan gating**: Yelp on Growth strips to `gatedPlatforms`,
+      logs `reviews.filter.suspicious_input` with
+      `reason: 'gated_platform'`, mixed lists partition correctly,
+      Enterprise keeps Yelp, unknown values still fall back to the
+      whole-filter drop.
+    - **Date range**: valid ranges accepted; malformed / inverted /
+      future / >365d drop both bounds and emit the matching
+      `malformed_date` / `invalid_range` reason.
+  Plus `isNarrowSlice` + `narrowSliceLabel` and round-trip via
+  `encodeReviewFilters`.
+- `tests/integration/reviews-queries.test.ts` (21) — pglite fixture
+  with two orgs (Growth + Enterprise), 10 reviews including a Yelp
+  row. Covers: order, location join, `hasPublishedResponse`,
+  `canReply`-per-platform, filters (rating / sentiment / status /
+  platform / assignee / date range / `q`-ILIKE), cursor pagination
+  (every row exactly once), tenant isolation, and the **Ajuste 4**
+  contract: `listReviewsWithTx({ platform: ['yelp'] })` returns the
+  Yelp row without `plan`, returns *empty* with `plan: 'growth'`,
+  returns the row again with `plan: 'enterprise'`, and a mixed
+  `['facebook','yelp']` list keeps Facebook only on Growth.
+  `orgHasAnyReviewsWithTx` true/false also covered.
+
 ### Added — Phase 3 (Integrations Center · 16 mock connectors)
 
 **Connector foundation (`lib/connectors/base/`)**
