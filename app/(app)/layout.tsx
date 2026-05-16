@@ -2,8 +2,10 @@ import { redirect } from 'next/navigation';
 
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { BrandLocationCookieSync } from '@/components/layout/context-sync';
+import { GlobalShortcutsHost } from '@/components/layout/global-shortcuts-host';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
+import { ToastRegion } from '@/components/common/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { hasOrg } from '@/lib/auth/constants';
 import { requireUser } from '@/lib/auth/server';
@@ -68,6 +70,8 @@ export default async function AppLayout({
         </main>
       </div>
       <BrandLocationCookieSync />
+      <GlobalShortcutsHost />
+      <ToastRegion />
     </div>
   );
 }

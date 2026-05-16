@@ -39,7 +39,10 @@ export type Permission =
   | 'ads:read'
   | 'listening:manage'
   | 'reports:create'
-  | 'reports:export';
+  | 'reports:export'
+  | 'approvals:read'
+  | 'approvals:decide'
+  | 'notes:write';
 
 const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'inbox:read',
@@ -65,6 +68,9 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'listening:manage',
   'reports:create',
   'reports:export',
+  'approvals:read',
+  'approvals:decide',
+  'notes:write',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
@@ -97,6 +103,9 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'listening:manage',
     'reports:create',
     'reports:export',
+    'approvals:read',
+    'approvals:decide',
+    'notes:write',
   ],
 
   // Manager: full operational reach (reply, approve, publish, automate,
@@ -120,6 +129,9 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'listening:manage',
     'reports:create',
     'reports:export',
+    'approvals:read',
+    'approvals:decide',
+    'notes:write',
   ],
 
   // Agent: front-line operator. Reads and replies, drafts posts, uses AI.
@@ -134,6 +146,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'posts:create',
     'ai:use_advanced',
     'reports:create',
+    'notes:write',
   ],
 
   // Viewer: read-only, end-of-pipeline visibility for stakeholders.
@@ -143,5 +156,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'audit:read',
     'ads:read',
     'reports:create',
+    'approvals:read',
   ],
 };

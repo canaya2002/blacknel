@@ -17,6 +17,9 @@ export type AppErrorCode =
   | 'INTEGRATION_DISCONNECTED'
   | 'AI_GENERATION_BLOCKED'
   | 'AI_COMPLIANCE_VIOLATION'
+  | 'UNRESOLVED_PLACEHOLDERS'
+  | 'APPROVAL_ALREADY_DECIDED'
+  | 'NOT_IMPLEMENTED'
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR';
 
@@ -56,10 +59,14 @@ function httpStatusFor(code: AppErrorCode): number {
     case 'NOT_FOUND':
       return 404;
     case 'CONFLICT':
+    case 'APPROVAL_ALREADY_DECIDED':
       return 409;
+    case 'NOT_IMPLEMENTED':
+      return 501;
     case 'VALIDATION_ERROR':
     case 'AI_GENERATION_BLOCKED':
     case 'AI_COMPLIANCE_VIOLATION':
+    case 'UNRESOLVED_PLACEHOLDERS':
     case 'INTEGRATION_DISCONNECTED':
       return 422;
     case 'PLAN_LIMIT_REACHED':

@@ -8,6 +8,7 @@ import {
   organizationMembers,
   organizations,
   plans,
+  savedReplies,
   subscriptions,
   users,
 } from './schema';
@@ -64,6 +65,16 @@ export const SEED_IDS = {
   },
   subscription: {
     demo: '55555555-5555-4555-8555-555555555555',
+  },
+  savedReply: {
+    greetingEs: '66666666-6666-4666-8666-660000000001',
+    greetingEn: '66666666-6666-4666-8666-660000000002',
+    troubleshootingShipping: '66666666-6666-4666-8666-660000000003',
+    troubleshootingHours: '66666666-6666-4666-8666-660000000004',
+    escalationSeniorTeam: '66666666-6666-4666-8666-660000000005',
+    escalationLegalReview: '66666666-6666-4666-8666-660000000006',
+    closingThankYou: '66666666-6666-4666-8666-660000000007',
+    closingFollowupCta: '66666666-6666-4666-8666-660000000008',
   },
 } as const;
 
@@ -253,4 +264,125 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
       target: subscriptions.id,
       set: { planId: sql`EXCLUDED.plan_id`, status: sql`EXCLUDED.status` },
     });
+
+  // --- Saved replies (8 across 4 categories) ---------------------------
+  // The bodies use only whitelisted variables from
+  // `lib/inbox/saved-reply-variables.ts`. Two of them flag
+  // requires_approval=true to ensure the approvals queue has work to do
+  // once the composer wires up in Commit 9.
+  await tx
+    .insert(savedReplies)
+    .values([
+      {
+        id: SEED_IDS.savedReply.greetingEs,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Saludo inicial',
+        category: 'greeting',
+        language: 'es',
+        body: 'Hola {customer_name}, gracias por escribirnos en {location_name}. ¿Cómo podemos ayudarte hoy?',
+        variables: ['customer_name', 'location_name'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp'],
+        requiresApproval: false,
+        createdBy: SEED_IDS.user.owner,
+      },
+      {
+        id: SEED_IDS.savedReply.greetingEn,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Greeting (EN)',
+        category: 'greeting',
+        language: 'en',
+        body: 'Hi {customer_name}, thanks for reaching out to {location_name}. How can we help?',
+        variables: ['customer_name', 'location_name'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp'],
+        requiresApproval: false,
+        createdBy: SEED_IDS.user.owner,
+      },
+      {
+        id: SEED_IDS.savedReply.troubleshootingShipping,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Envío / estado del pedido',
+        category: 'troubleshooting',
+        language: 'es',
+        body: 'Hola {customer_name}, vamos a verificar el estado de tu pedido. ¿Podrías confirmarnos el número de orden? Mientras tanto, te dejamos el enlace de seguimiento: {link}',
+        variables: ['customer_name', 'link'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp'],
+        requiresApproval: false,
+        createdBy: SEED_IDS.user.admin1,
+      },
+      {
+        id: SEED_IDS.savedReply.troubleshootingHours,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Horario de atención',
+        category: 'troubleshooting',
+        language: 'es',
+        body: 'Nuestro horario en {location_name} es {business_hours}. Si necesitas algo urgente, márcanos al {phone}.',
+        variables: ['location_name', 'business_hours', 'phone'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp', 'gbp'],
+        requiresApproval: false,
+        createdBy: SEED_IDS.user.manager,
+      },
+      {
+        id: SEED_IDS.savedReply.escalationSeniorTeam,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Escalada al equipo senior',
+        category: 'escalation',
+        language: 'es',
+        body: 'Hola {customer_name}, lo estoy escalando con nuestro equipo senior para darte una respuesta más completa. Te volvemos a contactar dentro de las próximas 2 horas hábiles.',
+        variables: ['customer_name'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp'],
+        requiresApproval: true,
+        createdBy: SEED_IDS.user.manager,
+      },
+      {
+        id: SEED_IDS.savedReply.escalationLegalReview,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Revisión legal pendiente',
+        category: 'escalation',
+        language: 'es',
+        body: 'Hola {customer_name}, antes de darte una respuesta formal necesitamos consultar con nuestro equipo legal. Te contactaremos en máximo 48h.',
+        variables: ['customer_name'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp'],
+        requiresApproval: true,
+        createdBy: SEED_IDS.user.admin1,
+      },
+      {
+        id: SEED_IDS.savedReply.closingThankYou,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Cierre / agradecimiento',
+        category: 'closing',
+        language: 'es',
+        body: 'Gracias por escribirnos, {customer_name}. Si surge cualquier otra duda, aquí estaremos.',
+        variables: ['customer_name'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp'],
+        requiresApproval: false,
+        createdBy: SEED_IDS.user.agent,
+      },
+      {
+        id: SEED_IDS.savedReply.closingFollowupCta,
+        organizationId: SEED_IDS.org.demo,
+        name: 'Cierre con CTA a reseña',
+        category: 'closing',
+        language: 'es',
+        body: 'Gracias {customer_name}. Si la experiencia te gustó, agradeceríamos una reseña aquí: {link}',
+        variables: ['customer_name', 'link'],
+        platformsAllowed: ['facebook', 'instagram', 'whatsapp', 'gbp'],
+        requiresApproval: false,
+        createdBy: SEED_IDS.user.manager,
+      },
+    ])
+    .onConflictDoNothing({ target: savedReplies.id });
+
+  // --- Inbox threads / messages / contacts ----------------------------
+  // Imported lazily to break the schema → seed-inbox → SEED_IDS cycle
+  // (seed-inbox imports SEED_IDS from this file).
+  const { seedInboxThreads } = await import('./seed-inbox');
+  await seedInboxThreads(tx);
+
+  // --- Approvals queue (depends on seeded threads) --------------------
+  const { seedApprovals } = await import('./seed-approvals');
+  await seedApprovals(tx);
+
+  // --- Reviews + published responses (Phase 5) -----------------------
+  const { seedReviews } = await import('./seed-reviews');
+  await seedReviews(tx);
 }

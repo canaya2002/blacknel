@@ -40,6 +40,13 @@ const config = [
       ],
     },
   },
+  {
+    // CLI scripts (one-shot dev helpers) write to stdout intentionally.
+    files: ['scripts/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
 ];
 
 export default config;
