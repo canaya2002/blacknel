@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Calendar, Loader2, Save, Send } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
@@ -8,6 +8,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { saveDraftAction, setPostTargetsAction } from '@/app/(app)/publish/composer/[id]/actions';
+import { schedulePostAction } from '@/app/(app)/publish/actions';
 import { cn } from '@/lib/utils/cn';
 import type { AssetListItem } from '@/lib/publish/assets/queries';
 import {
@@ -29,7 +30,7 @@ import { AccountPicker } from './account-picker';
 import { AICaptionButton } from './ai-caption-button';
 import { CancelButton } from './cancel-button';
 import { CharacterLimitsBar } from './character-limits-bar';
-import { CompliancePill } from './compliance-pill';
+import { CompliancePill, getComplianceState } from './compliance-pill';
 import { MediaUploader } from './media-uploader';
 import { PlatformVariants } from './platform-variants';
 import { PreviewShell } from './previews/preview-shell';
@@ -70,9 +71,12 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
   const router = useRouter();
   const [savingDraft, startSaveDraft] = useTransition();
   const [savingTargets, startSaveTargets] = useTransition();
+  const [publishing, startPublishing] = useTransition();
   const [feedback, setFeedback] = useState<
     { kind: 'ok' | 'error'; text: string } | null
   >(null);
+
+  void planCode;
 
   // ---------------------------------------------------------------
   // Local editing state
@@ -265,6 +269,91 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
 
   const saving = savingDraft || savingTargets;
 
+  // ---------------------------------------------------------------
+  // Publish / Schedule action (Commit 19c.3 final wire)
+  // ---------------------------------------------------------------
+  const complianceState = useMemo(
+    () =>
+      getComplianceState(text, {
+        brandName:
+          data.brandOptions.find((b) => b.id === data.postDetail.brandId)?.name ?? null,
+      }),
+    [text, data.brandOptions, data.postDetail.brandId],
+  );
+
+  const hasContent = text.trim().length > 0 || attachedAssets.length > 0;
+  const hasAccounts = selectedAccountIds.length > 0;
+  // `scheduledAt` is set via `setScheduledAtAction`, which the
+  // server validates against `validateScheduledAt`. The shell
+  // trusts that contract — we don't re-validate during render
+  // (would call `Date.now()` which is impure per React 19 rules).
+  // Race-condition window: if the user keeps the composer open
+  // for >5min after picking a date, the saved date might fall
+  // inside the 5-min floor. `applySchedule` re-validates on
+  // submit and surfaces the error.
+  const scheduleValid = scheduleMode !== 'schedule' || scheduledAt !== null;
+
+  const publishLabel: string =
+    scheduleMode === 'schedule' ? 'Programar' : 'Publicar';
+  const publishDisabled =
+    publishing ||
+    saving ||
+    scheduleMode === 'draft' ||
+    !hasAccounts ||
+    !hasContent ||
+    complianceState === 'blocked' ||
+    !scheduleValid ||
+    !withinLimits ||
+    dirty;
+  const publishDisabledReason = publishing
+    ? null
+    : !hasContent
+      ? 'Agrega texto o media antes de publicar.'
+      : !hasAccounts
+        ? 'Selecciona al menos una cuenta destino.'
+        : complianceState === 'blocked'
+          ? 'El compliance check bloqueó el contenido.'
+          : scheduleMode === 'draft'
+            ? 'Selecciona "Publicar ahora" o "Programar" para enviar el post.'
+            : !scheduleValid
+              ? 'La fecha programada debe ser al menos 5 min en el futuro.'
+              : !withinLimits
+                ? 'El texto excede el límite de alguna plataforma.'
+                : dirty
+                  ? 'Guarda los cambios pendientes antes de publicar.'
+                  : null;
+
+  const saveDraftDisabled =
+    !dirty || saving || !withinLimits || complianceState === 'blocked';
+  const saveDraftDisabledReason = !dirty
+    ? 'No hay cambios para guardar.'
+    : complianceState === 'blocked'
+      ? 'El compliance check bloqueó el contenido.'
+      : !withinLimits
+        ? 'El texto excede el límite de alguna plataforma.'
+        : null;
+
+  const onPublishOrSchedule = (): void => {
+    setFeedback(null);
+    startPublishing(async () => {
+      const fd = new FormData();
+      fd.set('postId', data.postDetail.id);
+      const result = await schedulePostAction(null, fd);
+      if (!result.ok) {
+        setFeedback({ kind: 'error', text: result.error.message });
+        return;
+      }
+      const verb = result.data.routedToApproval
+        ? 'Enviado a aprobación'
+        : result.data.to === 'published'
+          ? 'Publicado'
+          : 'Programado';
+      setFeedback({ kind: 'ok', text: `${verb}.` });
+      // Navigate back to the calendar — the post has left the editor.
+      router.push('/publish');
+    });
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card/30 px-6 py-3">
@@ -290,28 +379,17 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
             brandName={data.brandOptions.find((b) => b.id === data.postDetail.brandId)?.name ?? null}
           />
         </div>
-        <div className="flex items-center gap-2">
-          {feedback ? (
-            <span
-              role="status"
-              className={cn(
-                'text-xs',
-                feedback.kind === 'ok' ? 'text-emerald-600' : 'text-red-600',
-              )}
-            >
-              {feedback.text}
-            </span>
-          ) : null}
-          <CancelButton dirty={dirty} />
-          <Button onClick={onSaveDraft} disabled={!dirty || saving || !withinLimits}>
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <Save className="h-4 w-4" aria-hidden />
+        {feedback ? (
+          <span
+            role="status"
+            className={cn(
+              'text-xs',
+              feedback.kind === 'ok' ? 'text-emerald-600' : 'text-red-600',
             )}
-            Guardar borrador
-          </Button>
-        </div>
+          >
+            {feedback.text}
+          </span>
+        ) : null}
       </header>
 
       <div className="grid grid-cols-1 gap-4 px-6 pb-6 lg:grid-cols-[1fr_24rem]">
@@ -367,6 +445,42 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
           />
         </aside>
       </div>
+
+      {/* Footer button row (Commit 19c.3 — final wire) */}
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t bg-card/30 px-6 py-3">
+        <CancelButton dirty={dirty} />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={onSaveDraft}
+            disabled={saveDraftDisabled}
+            title={saveDraftDisabledReason ?? 'Guarda los cambios como borrador.'}
+            data-testid="composer-save-draft"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Save className="h-4 w-4" aria-hidden />
+            )}
+            Guardar borrador
+          </Button>
+          <Button
+            onClick={onPublishOrSchedule}
+            disabled={publishDisabled}
+            title={publishDisabledReason ?? `Confirma "${publishLabel}".`}
+            data-testid="composer-publish-or-schedule"
+          >
+            {publishing ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : scheduleMode === 'schedule' ? (
+              <Calendar className="h-4 w-4" aria-hidden />
+            ) : (
+              <Send className="h-4 w-4" aria-hidden />
+            )}
+            {publishLabel}
+          </Button>
+        </div>
+      </footer>
     </div>
   );
 }

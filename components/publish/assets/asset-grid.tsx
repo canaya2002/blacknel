@@ -10,6 +10,7 @@ import type {
 } from '@/lib/publish/assets/queries';
 
 import { AssetDeleteButton } from './asset-delete-button';
+import { AssetDetailDrawer } from './asset-detail-drawer';
 
 interface AssetGridProps {
   page: AssetListPage;
@@ -84,49 +85,59 @@ function AssetTile({ asset }: { asset: AssetListItem }): React.ReactElement {
   const canDelete = asset.usedCount === 0;
   return (
     <div className="group flex flex-col gap-2 rounded-lg border bg-card p-2 transition-shadow hover:shadow-md">
-      <div className="relative aspect-square w-full overflow-hidden rounded-md bg-muted">
-        {isImage ? (
-          // eslint-disable-next-line @next/next/no-img-element -- see media-uploader for rationale
-          <img
-            src={asset.thumbnailUrl ?? asset.url}
-            alt={asset.name}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-            <Icon className="h-10 w-10" aria-hidden />
-          </div>
-        )}
-        <Badge
-          className={cn(
-            'absolute left-2 top-2 border-transparent text-[10px]',
-            KIND_BADGE_STYLES[asset.kind],
-          )}
+      <AssetDetailDrawer asset={asset}>
+        <button
+          type="button"
+          className="flex w-full flex-col gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Ver detalle de ${asset.name}`}
         >
-          {asset.kind.toUpperCase()}
-        </Badge>
-      </div>
-      <div className="flex flex-col gap-1 px-1">
-        <span className="line-clamp-1 text-xs font-medium" title={asset.name}>
-          {asset.name}
-        </span>
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
-          <span>{formatMb(asset.bytes)}</span>
-          <span>
-            {asset.usedCount > 0
-              ? `usado ${asset.usedCount}×`
-              : 'sin uso'}
-          </span>
-        </div>
-        {asset.tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {asset.tags.slice(0, 3).map((t) => (
-              <Badge key={t} variant="muted" className="h-4 px-1 text-[10px]">
-                {t}
-              </Badge>
-            ))}
+          <div className="relative aspect-square w-full overflow-hidden rounded-md bg-muted">
+            {isImage ? (
+              // eslint-disable-next-line @next/next/no-img-element -- see media-uploader for rationale
+              <img
+                src={asset.thumbnailUrl ?? asset.url}
+                alt={asset.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                <Icon className="h-10 w-10" aria-hidden />
+              </div>
+            )}
+            <Badge
+              className={cn(
+                'absolute left-2 top-2 border-transparent text-[10px]',
+                KIND_BADGE_STYLES[asset.kind],
+              )}
+            >
+              {asset.kind.toUpperCase()}
+            </Badge>
           </div>
-        ) : null}
+          <div className="flex flex-col gap-1 px-1">
+            <span className="line-clamp-1 text-xs font-medium" title={asset.name}>
+              {asset.name}
+            </span>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+              <span>{formatMb(asset.bytes)}</span>
+              <span>
+                {asset.usedCount > 0
+                  ? `usado ${asset.usedCount}×`
+                  : 'sin uso'}
+              </span>
+            </div>
+            {asset.tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {asset.tags.slice(0, 3).map((t) => (
+                  <Badge key={t} variant="muted" className="h-4 px-1 text-[10px]">
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </button>
+      </AssetDetailDrawer>
+      <div className="px-1">
         <div className="pt-1">
           <AssetDeleteButton assetId={asset.id} disabled={!canDelete} />
         </div>
