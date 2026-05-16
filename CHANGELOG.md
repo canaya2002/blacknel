@@ -7,6 +7,192 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 6 / Commit 18 (publish dashboard · calendar · tabs · filters)
+
+Lights up `/publish` as the user-facing surface on top of the
+Commit-17 data layer. Single-pass loader, URL-driven tabs and
+calendar layout (Ajuste 1), timezone-aware month grid (Ajuste A),
+defense-in-depth plan cap (Section B), and mobile fallback
+(Ajuste B). The composer, asset library, and publish-job land in
+Commits 19 + 20.
+
+**Page surface (Server Components, single-pass)**
+
+- `app/(app)/publish/page.tsx` — replaces the Phase-1
+  placeholder. `requireUser` → `authorize('posts:read')` →
+  `parsePublishFilters` → one `loadPublishDashboardData` call
+  → orchestrates header / KPIs / tabs / filters / calendar or
+  list. Calendar and list branches share the same `data` slice;
+  no component fetches its own.
+- `app/(app)/publish/loading.tsx` — skeleton mirroring the new
+  layout: header strip + 6 KPI cards + 5 tabs + filter bar + 6×7
+  grid (mobile fallback below `md`).
+
+**Top strip (Server Components)**
+
+- `components/publish/publish-header.tsx` — page header + CTA
+  *or* amber cap-reached banner. `posts:create` gates the CTA;
+  `checkPostsCap.reached` swaps to the banner with a `/billing`
+  link.
+- `components/publish/kpi-cards.tsx` — 6 cards. Five concrete
+  counts derived from the single GROUP BY status query
+  (drafts / pending_approval / scheduled / published / failed)
+  plus a muted "Engagement rate · Fase 8" placeholder that
+  renders `—` instead of inventing a number.
+- `components/publish/view-tabs.tsx` — URL-driven tab strip.
+  `<nav role="tablist" aria-label="Vista de publicaciones">`;
+  each tab is a `<Link>` with `role="tab"`, `aria-selected`, and
+  `aria-current`. No Radix Tabs — the URL is the source of
+  truth, Radix client state would just shadow `filters.view`.
+- `components/publish/cal-layout-toggle.tsx` — Month / List
+  toggle using the same `<Link>` pattern, wired to `?cal=`.
+
+**Filters (Client)**
+
+- `components/publish/filter-bar.tsx` — brand select, campaign
+  select, status multi-select (checkbox dropdown), date range,
+  search. Every interaction calls `router.replace` with a
+  mutated `URLSearchParams`; the page re-runs the loader as a
+  Server Component re-render. `useTransition` surfaces a tiny
+  "Actualizando…" badge while the navigation is pending.
+
+**Calendar (Server + one Client island)**
+
+- `components/publish/calendar-month-header.tsx` — prev/next as
+  `<Link>` writing `?month=YYYY-MM`, "Hoy" jumps to the current
+  month resolved in the org's timezone, month label via
+  `Intl.DateTimeFormat`.
+- `components/publish/calendar-month-grid.tsx` — 6×7 grid.
+  Hidden below `md`; the page renders the calendar list view
+  instead (Ajuste B mobile fallback — 7 columns × 3 posts/cell
+  is illegible on phones).
+- `components/publish/day-cell.tsx` — applies the Ajuste 2
+  rules: max 3 visible posts, sorted by `scheduledAt` asc,
+  status color swatch, left-border accent (red when the day
+  has a failed post, amber when it has a pending_approval —
+  failed wins), today background, opacity-50 for other-month.
+- `components/publish/day-cell-post.tsx` — single row inside a
+  cell. Status taxonomy from master prompt §11.4.
+- `components/publish/day-cell-popover.tsx` (Client) — Radix
+  Popover with the full day list when the cell overflows. When
+  the day has ≥10 posts, surfaces a "Ver todos los posts de
+  este día →" link that navigates to `/publish?view=published&
+  scheduledFrom=YYYY-MM-DD&scheduledTo=YYYY-MM-DD` (cleaner
+  than a giant popover).
+- `components/publish/calendar-list-view.tsx` — chronological
+  list grouped by day; mobile fallback and `?cal=list`.
+
+**List view (Client virtualization)**
+
+- `components/publish/posts-list.tsx` — `react-virtuoso` for
+  the named tabs (drafts / scheduled / published / failed).
+  Cursor pagination defers to Commit 21
+  (TODO.md#polling-scroll-and-url-state); a footer hint
+  appears when `hasMore=true`.
+- `components/publish/post-list-row.tsx` — status badge +
+  brand + campaign + scheduled/published time (in org tz) +
+  target-count + author.
+- `components/publish/empty-states.tsx` — three states:
+  `NoPostsAtAll`, `NoMatches`, `TabClean` (one tab-specific
+  variant per view; "todos al día" for the failed tab).
+
+**Timezone (Ajuste A)**
+
+- `lib/publish/calendar-grid.ts` — pure helpers. `buildMonthGrid`
+  is timezone-agnostic (day-of-week is computed from the
+  abstract Y/M/D label so DST never shifts the grid).
+  `groupPostsByDay` and `dateKeyInZone` use
+  `Intl.DateTimeFormat` with `en-CA` locale (native
+  `YYYY-MM-DD`). `thisMonthIn` resolves "now" inside a
+  caller-supplied IANA tz. No new dependency — `date-fns-tz` is
+  unnecessary for this surface.
+
+**Loader extension (Ajuste 3 single-pass kept intact)**
+
+- `lib/publish/picker-data.ts` — `listBrandOptionsWithTx`,
+  `listCampaignOptionsWithTx`, `getOrgTimezoneWithTx` (returns
+  `{ timezone, locale }` so the calendar header labels honor
+  the org's BCP-47 locale, not a default `'en'`).
+- `lib/publish/dashboard.ts` — `loadPublishDashboardData` now
+  fans out 6 queries under one `Promise.all` inside one
+  `dbAs`. DI bag exposes spies for all of them (test contract).
+
+**Plan-cap gate (Section B)**
+
+- `lib/publish/usage-check.ts` — adds `assertPostsCap` next to
+  the existing `checkPostsCap`. The Server Actions
+  (`createPostAction`, `schedulePostAction`) delegate to the
+  assertion wrapper and return the failure Result directly.
+  Both UI banner and server-side gate share the same
+  `checkPostsCap` source of truth.
+
+**Demo reproducibility (Ajuste C)**
+
+- `scripts/dev-checks/fake-usage-cap.ts` — pins
+  `usage_counters` to an arbitrary value so a demo can show
+  the amber banner without generating 30 posts.
+- Examples:
+  ```pwsh
+  # Pin Blacknel Demo to its Standard cap:
+  pnpm tsx scripts/dev-checks/fake-usage-cap.ts blacknel-demo postsPerMonth 30
+
+  # Reset:
+  pnpm tsx scripts/dev-checks/fake-usage-cap.ts blacknel-demo postsPerMonth 0
+  ```
+
+**A11y**
+
+- `<nav role="tablist">` + `role="tab"` + `aria-selected` +
+  `aria-current="page"` (Ajuste D2).
+- `role="status" aria-live="polite"` on the cap-reached banner.
+- All icon-only nav buttons carry `aria-label`.
+
+**Permissions verified (Section A)**
+
+- `posts:read` (owner/admin/manager/agent/viewer) gates the
+  page surface.
+- `posts:create` (owner/admin/manager/agent) gates the
+  "Nuevo post" CTA — viewers see no CTA.
+- `posts:approve` (owner/admin/manager) and `posts:delete`
+  (owner/admin/manager) remain in place for later commits.
+
+**Tests** (+4 files)
+
+- `tests/unit/publish-filters.test.ts` — defaults, allow-list
+  drops, pairwise + 365-day date-range guard, malformed-month
+  fallback, `statusForTab`, `hasActiveFilters`, encode
+  round-trip.
+- `tests/unit/publish-calendar-grid.test.ts` — 42 cells, Sunday
+  start, Dec→Jan boundary; timezone boundary (`Ajuste A`)
+  cases for `'America/Mexico_City'`, `'Asia/Tokyo'`, `'UTC'`;
+  per-day asc sorting + `hasFailed`/`hasPendingApproval`
+  flags; `publishedAt` fallback when `scheduledAt` is null.
+- `tests/integration/publish-dashboard.test.ts` — single-pass
+  DI spy contract: `calendar` called 1× when `view=calendar`,
+  0× otherwise; every other dep called exactly once; org
+  timezone + locale stitched through.
+- `tests/integration/composer-cap-gating.test.ts` — Section B
+  single explicit case: seed `usage_counters.postsPerMonth` at
+  Standard plan cap, expect `assertPostsCap` → `Result.err`
+  with `PLAN_LIMIT_REACHED` and `{current, cap}` meta.
+
+**UI primitives**
+
+- `components/ui/popover.tsx` — shadcn wrapper of Radix Popover
+  (dep already in package.json from Phase 1; primitive was the
+  missing piece).
+
+**Risks acknowledged**
+
+- `posts-list.tsx` shows the first page only; cursor
+  pagination wires in Commit 21
+  (TODO.md#polling-scroll-and-url-state).
+- The calendar query (`getCalendarMonthWithTx`) still bounds
+  by month from–to. Posts that span into adjacent months stay
+  hidden in those "other-month" dimmed cells; this is
+  intentional for Phase 6, and the user navigates with prev /
+  next month buttons.
+
 ### Added — Phase 6 / Commit 17 (publishing schema · mock publish · seed · Server Actions base)
 
 Opens Phase 6 — Publishing & Calendar. Lands the DB shape,

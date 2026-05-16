@@ -12,7 +12,7 @@ import {
   updatePostDraft,
   type CreatePostSuccess,
 } from '@/lib/publish/posts';
-import { checkPostsCap } from '@/lib/publish/usage-check';
+import { assertPostsCap } from '@/lib/publish/usage-check';
 import { getOrgPlanCode } from '@/lib/queries/plan';
 import { err, type Result } from '@/lib/types/result';
 
@@ -79,14 +79,8 @@ export async function createPostAction(
     parsed.data.initialStatus === 'pending_approval'
   ) {
     const plan = await getOrgPlanCode(session);
-    const cap = await checkPostsCap(session.orgId, plan);
-    if (!cap.ok) {
-      return err(
-        'PLAN_LIMIT_REACHED',
-        'Has usado el cupo mensual de posts para tu plan.',
-        { meta: { current: cap.current, cap: cap.cap } },
-      );
-    }
+    const gate = await assertPostsCap(session.orgId, plan);
+    if (!gate.ok) return gate;
   }
 
   const result = await createPost(
@@ -207,14 +201,8 @@ export async function schedulePostAction(
   // draft → scheduled commits the org to a publish-budget seat
   // for the current period.
   const plan = await getOrgPlanCode(session);
-  const cap = await checkPostsCap(session.orgId, plan);
-  if (!cap.ok) {
-    return err(
-      'PLAN_LIMIT_REACHED',
-      'Has usado el cupo mensual de posts para tu plan.',
-      { meta: { current: cap.current, cap: cap.cap } },
-    );
-  }
+  const gate = await assertPostsCap(session.orgId, plan);
+  if (!gate.ok) return gate;
 
   const result = await transitionPostStatus(
     { orgId: session.orgId, userId: session.userId },

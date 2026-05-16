@@ -4,6 +4,13 @@ import { type AnyPgTx, dbAs } from '../db/client';
 
 import { endOfMonthUtc, type PublishFilters, statusForTab } from './filters';
 import {
+  getOrgTimezoneWithTx,
+  listBrandOptionsWithTx,
+  listCampaignOptionsWithTx,
+  type BrandOption,
+  type CampaignOption,
+} from './picker-data';
+import {
   getCalendarMonthWithTx,
   getPostKpiCountsWithTx,
   listPostsWithTx,
@@ -37,18 +44,32 @@ export interface PublishDashboardData {
    * the user is viewing a non-calendar tab.
    */
   readonly calendarPosts: ReadonlyArray<CalendarPost>;
+  /** IANA timezone for the org — drives day-cell grouping (Ajuste A). */
+  readonly orgTimezone: string;
+  /** BCP-47 locale for month / weekday labels. */
+  readonly orgLocale: string;
+  /** Active brands available for the filter dropdown. */
+  readonly brandOptions: ReadonlyArray<BrandOption>;
+  /** Campaigns available for the filter dropdown. */
+  readonly campaignOptions: ReadonlyArray<CampaignOption>;
 }
 
 export interface PublishDashboardDeps {
   list: typeof listPostsWithTx;
   kpis: typeof getPostKpiCountsWithTx;
   calendar: typeof getCalendarMonthWithTx;
+  orgTimezone: typeof getOrgTimezoneWithTx;
+  brandOptions: typeof listBrandOptionsWithTx;
+  campaignOptions: typeof listCampaignOptionsWithTx;
 }
 
 export const defaultPublishDashboardDeps: PublishDashboardDeps = {
   list: listPostsWithTx,
   kpis: getPostKpiCountsWithTx,
   calendar: getCalendarMonthWithTx,
+  orgTimezone: getOrgTimezoneWithTx,
+  brandOptions: listBrandOptionsWithTx,
+  campaignOptions: listCampaignOptionsWithTx,
 };
 
 export interface LoadDashboardOpts {
@@ -98,34 +119,42 @@ export async function loadPublishDashboardDataWithTx(
   // The calendar slot is `Promise.resolve([])` when the tab isn't
   // calendar — the test asserts `deps.calendar` was called either
   // once (calendar tab) or zero times (any other tab).
-  const [listPage, kpis, calendarPosts] = await Promise.all([
-    deps.list(tx, {
-      orgId: opts.orgId,
-      userId: opts.userId,
-      filters: {
-        ...listFilters,
-        ...(tabStatus ? { status: tabStatus } : {}),
-      },
-      ...(opts.pageSize ? { pageSize: opts.pageSize } : {}),
-    }),
-    deps.kpis(tx, opts.orgId),
-    includeCalendar
-      ? deps.calendar(tx, {
-          orgId: opts.orgId,
-          monthFrom: filters.monthDate,
-          monthTo: endOfMonthUtc(filters.monthDate),
-          ...(filters.brandId ? { brandId: filters.brandId } : {}),
-          ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
-          ...(filters.status?.length ? { status: filters.status } : {}),
-        })
-      : Promise.resolve<ReadonlyArray<CalendarPost>>([]),
-  ]);
+  const [listPage, kpis, calendarPosts, presentation, brandOptions, campaignOptions] =
+    await Promise.all([
+      deps.list(tx, {
+        orgId: opts.orgId,
+        userId: opts.userId,
+        filters: {
+          ...listFilters,
+          ...(tabStatus ? { status: tabStatus } : {}),
+        },
+        ...(opts.pageSize ? { pageSize: opts.pageSize } : {}),
+      }),
+      deps.kpis(tx, opts.orgId),
+      includeCalendar
+        ? deps.calendar(tx, {
+            orgId: opts.orgId,
+            monthFrom: filters.monthDate,
+            monthTo: endOfMonthUtc(filters.monthDate),
+            ...(filters.brandId ? { brandId: filters.brandId } : {}),
+            ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
+            ...(filters.status?.length ? { status: filters.status } : {}),
+          })
+        : Promise.resolve<ReadonlyArray<CalendarPost>>([]),
+      deps.orgTimezone(tx, opts.orgId),
+      deps.brandOptions(tx, opts.orgId),
+      deps.campaignOptions(tx, opts.orgId),
+    ]);
 
   return {
     filters,
     kpis,
     listPage,
     calendarPosts,
+    orgTimezone: presentation.timezone,
+    orgLocale: presentation.locale,
+    brandOptions,
+    campaignOptions,
   };
 }
 
