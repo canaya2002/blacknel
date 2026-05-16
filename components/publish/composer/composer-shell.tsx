@@ -30,6 +30,12 @@ import { CancelButton } from './cancel-button';
 import { CharacterLimitsBar } from './character-limits-bar';
 import { MediaUploader } from './media-uploader';
 import { PlatformVariants } from './platform-variants';
+import { PreviewShell } from './previews/preview-shell';
+import {
+  truncateBody,
+  type PreviewMedia,
+  type PreviewSlice,
+} from './previews/preview-shared';
 import { TextEditor } from './text-editor';
 import { UtmBuilder } from './utm-builder';
 
@@ -174,6 +180,43 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
   );
 
   // ---------------------------------------------------------------
+  // Preview slices — Ajuste 19c.1 rule #2 (derived state in shell)
+  // ---------------------------------------------------------------
+  const previewMedia = useMemo<ReadonlyArray<PreviewMedia>>(
+    () =>
+      attachedAssets.map((a) => ({
+        url: a.url,
+        kind: a.kind,
+        name: a.name,
+      })),
+    [attachedAssets],
+  );
+  const previewSlices = useMemo<ReadonlyArray<PreviewSlice>>(() => {
+    const trimmedLink = link.trim().length === 0 ? null : link.trim();
+    return selectedAccounts.map((account) => {
+      const variant = variants[account.id];
+      const hasOverride = (variant?.length ?? 0) > 0;
+      const effective = hasOverride ? (variant as string) : text;
+      const limits = getPublishLimitsFor(account.platform);
+      const charLimit = limits?.maxTextLength ?? null;
+      const over = charLimit !== null && effective.length > charLimit;
+      return {
+        key: account.id,
+        platform: account.platform,
+        body: truncateBody(effective, charLimit),
+        hasOverride,
+        over,
+        charLimit,
+        length: effective.length,
+        displayName: account.displayName ?? '(sin nombre)',
+        handle: account.handle,
+        link: trimmedLink,
+        media: previewMedia,
+      };
+    });
+  }, [selectedAccounts, variants, text, link, previewMedia]);
+
+  // ---------------------------------------------------------------
   // Action wiring
   // ---------------------------------------------------------------
   const onSaveDraft = (): void => {
@@ -296,20 +339,14 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
           />
         </div>
 
-        {/* Right column — preview placeholder (19c) + schedule placeholder (19c) */}
+        {/* Right column — previews stack (19c.1) + schedule placeholder (19c.2) */}
         <aside className="flex flex-col gap-4">
-          <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-            <h3 className="mb-1 text-sm font-semibold text-foreground">Vista previa</h3>
-            <p>
-              Las previews fieles por plataforma (Facebook, Instagram, GBP) y la
-              versión genérica para el resto llegan en el sub-commit 19c.
-            </p>
-          </div>
+          <PreviewShell slices={previewSlices} />
           <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
             <h3 className="mb-1 text-sm font-semibold text-foreground">Programar</h3>
             <p>
               El control de fecha/hora en {data.orgTimezone}, junto con el AI
-              caption stub y el compliance pill, llegan en 19c.
+              caption stub y el compliance pill, llegan en 19c.2.
             </p>
           </div>
         </aside>
