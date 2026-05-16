@@ -7,6 +7,7 @@ import { ComposerShell } from '@/components/publish/composer/composer-shell';
 import { requireUser } from '@/lib/auth/server';
 import { authorize } from '@/lib/permissions/can';
 import { loadComposerData } from '@/lib/publish/composer/loader';
+import { getOrgPlanCode } from '@/lib/queries/plan';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,11 +45,14 @@ export default async function ComposerEditorPage({
   const parsedId = idSchema.safeParse(id);
   if (!parsedId.success) notFound();
 
-  const data = await loadComposerData({
-    orgId: session.orgId,
-    userId: session.userId,
-    postId: parsedId.data,
-  });
+  const [data, planCode] = await Promise.all([
+    loadComposerData({
+      orgId: session.orgId,
+      userId: session.userId,
+      postId: parsedId.data,
+    }),
+    getOrgPlanCode(session),
+  ]);
   if (!data) notFound();
 
   // Posts in terminal or in-flight states are not editable. We
@@ -60,7 +64,7 @@ export default async function ComposerEditorPage({
   return (
     <div className="flex flex-col">
       {editable ? (
-        <ComposerShell data={data} />
+        <ComposerShell data={data} planCode={planCode} />
       ) : (
         <NonEditableNotice status={data.postDetail.status} />
       )}

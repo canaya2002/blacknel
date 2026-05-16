@@ -32,6 +32,8 @@ export const POINT_IN_TIME_METRICS = [
   'users',
   'socialAccounts',
   'locations',
+  'assetsInLibrary',
+  'storageBytes',
 ] as const satisfies ReadonlyArray<LimitMetric>;
 
 export const WINDOWED_METRICS = [

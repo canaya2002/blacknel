@@ -10,6 +10,7 @@ import {
   type CampaignOption,
   type OrgPresentation,
 } from '@/lib/publish/picker-data';
+import { hydrateAssetsByIds, type AssetListItem } from '@/lib/publish/assets/queries';
 import { getPostDetail, type PostDetail } from '@/lib/publish/queries';
 
 import {
@@ -45,6 +46,13 @@ export interface ComposerData {
   readonly campaignOptions: ReadonlyArray<CampaignOption>;
   readonly orgTimezone: string;
   readonly orgLocale: string;
+  /**
+   * Hydrated metadata for the assets currently attached to the
+   * post (`posts.media_ids` resolved to `content_assets` rows).
+   * Order matches `postDetail.mediaIds`. Missing / cross-tenant
+   * ids are silently dropped.
+   */
+  readonly attachedAssets: ReadonlyArray<AssetListItem>;
 }
 
 export interface LoadComposerDataOpts {
@@ -67,20 +75,30 @@ export async function loadComposerData(
   });
   if (!postDetail) return null;
 
-  const [accounts, brandOptions, campaignOptions, presentation] = await dbAs(
-    { orgId: opts.orgId, userId: opts.userId },
-    async (tx) =>
-      Promise.all([
+  const [accounts, brandOptions, campaignOptions, presentation, attachedAssets] =
+    await Promise.all([
+      dbAs({ orgId: opts.orgId, userId: opts.userId }, (tx) =>
         listPublishCapableAccountsWithTx(tx, {
           orgId: opts.orgId,
           userId: opts.userId,
           ...(postDetail.brandId ? { brandId: postDetail.brandId } : {}),
         }),
+      ),
+      dbAs({ orgId: opts.orgId, userId: opts.userId }, (tx) =>
         listBrandOptionsWithTx(tx, opts.orgId),
+      ),
+      dbAs({ orgId: opts.orgId, userId: opts.userId }, (tx) =>
         listCampaignOptionsWithTx(tx, opts.orgId),
+      ),
+      dbAs({ orgId: opts.orgId, userId: opts.userId }, (tx) =>
         getOrgTimezoneWithTx(tx, opts.orgId),
-      ] as const),
-  );
+      ),
+      hydrateAssetsByIds({
+        orgId: opts.orgId,
+        userId: opts.userId,
+        assetIds: postDetail.mediaIds,
+      }),
+    ]);
 
   const out: ComposerData = {
     postDetail,
@@ -89,6 +107,7 @@ export async function loadComposerData(
     campaignOptions,
     orgTimezone: presentation.timezone,
     orgLocale: presentation.locale,
+    attachedAssets,
   };
   return out;
 }

@@ -9,8 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { saveDraftAction, setPostTargetsAction } from '@/app/(app)/publish/composer/[id]/actions';
 import { cn } from '@/lib/utils/cn';
+import type { AssetListItem } from '@/lib/publish/assets/queries';
 import {
   computeAccountUsages,
+  getPublishLimitsFor,
   isWithinAllLimits,
 } from '@/lib/publish/composer/character-limits';
 import type { ComposerData } from '@/lib/publish/composer/loader';
@@ -20,16 +22,20 @@ import {
   utmDiffers,
   type UtmValues,
 } from '@/lib/publish/composer/utm';
+import { getPlanLimit } from '@/lib/plans/limits';
+import type { PlanCode } from '@/lib/plans/plans';
 
 import { AccountPicker } from './account-picker';
 import { CancelButton } from './cancel-button';
 import { CharacterLimitsBar } from './character-limits-bar';
+import { MediaUploader } from './media-uploader';
 import { PlatformVariants } from './platform-variants';
 import { TextEditor } from './text-editor';
 import { UtmBuilder } from './utm-builder';
 
 interface ComposerShellProps {
   data: ComposerData;
+  planCode: PlanCode;
 }
 
 /**
@@ -51,7 +57,7 @@ interface ComposerShellProps {
  * `beforeunload` + auto-save flow lands in Commit 21
  * (TODO composer-dirty-state-guard).
  */
-export function ComposerShell({ data }: ComposerShellProps): React.ReactElement {
+export function ComposerShell({ data, planCode }: ComposerShellProps): React.ReactElement {
   const router = useRouter();
   const [savingDraft, startSaveDraft] = useTransition();
   const [savingTargets, startSaveTargets] = useTransition();
@@ -77,6 +83,9 @@ export function ComposerShell({ data }: ComposerShellProps): React.ReactElement 
   );
   const [variants, setVariants] = useState<Readonly<Record<string, string | undefined>>>(
     () => initialVariants(data),
+  );
+  const [attachedAssets, setAttachedAssets] = useState<ReadonlyArray<AssetListItem>>(
+    () => data.attachedAssets,
   );
 
   // ---------------------------------------------------------------
@@ -140,8 +149,29 @@ export function ComposerShell({ data }: ComposerShellProps): React.ReactElement 
   const draftDirty =
     text !== data.postDetail.text ||
     link !== (data.postDetail.link ?? '') ||
-    utmDiffers(utm, data.postDetail.utm);
+    utmDiffers(utm, data.postDetail.utm) ||
+    mediaIdsDiffer(attachedAssets, data.postDetail.mediaIds);
   const dirty = draftDirty || accountsDirty;
+
+  // ---------------------------------------------------------------
+  // Media uploader constraints
+  // ---------------------------------------------------------------
+  const maxAttachments = useMemo(() => {
+    if (selectedAccounts.length === 0) return null;
+    let min: number | null = null;
+    for (const account of selectedAccounts) {
+      const limits = getPublishLimitsFor(account.platform);
+      const total =
+        (limits?.maxImages ?? Infinity) + (limits?.maxVideos ?? Infinity);
+      const capped = Number.isFinite(total) ? total : 20;
+      min = min === null ? capped : Math.min(min, capped);
+    }
+    return min;
+  }, [selectedAccounts]);
+  const maxFileSizeBytes = useMemo(
+    () => Math.max(1, getPlanLimit(planCode, 'maxAssetSizeBytes')),
+    [planCode],
+  );
 
   // ---------------------------------------------------------------
   // Action wiring
@@ -155,6 +185,7 @@ export function ComposerShell({ data }: ComposerShellProps): React.ReactElement 
         link: link.trim().length === 0 ? null : link.trim(),
         utm: emitUtm(utm),
         campaignId,
+        mediaIds: attachedAssets.map((a) => a.id),
       });
       if (!result.ok) {
         setFeedback({ kind: 'error', text: result.error.message });
@@ -250,6 +281,13 @@ export function ComposerShell({ data }: ComposerShellProps): React.ReactElement 
             variants={variants}
             onChange={setVariants}
           />
+          <MediaUploader
+            attached={attachedAssets}
+            onChange={setAttachedAssets}
+            maxAttachments={maxAttachments}
+            maxFileSizeBytes={maxFileSizeBytes}
+            brandId={data.postDetail.brandId}
+          />
           <UtmBuilder
             link={link}
             onLinkChange={setLink}
@@ -283,6 +321,17 @@ export function ComposerShell({ data }: ComposerShellProps): React.ReactElement 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+function mediaIdsDiffer(
+  attached: ReadonlyArray<AssetListItem>,
+  persisted: ReadonlyArray<string>,
+): boolean {
+  if (attached.length !== persisted.length) return true;
+  for (let i = 0; i < attached.length; i++) {
+    if (attached[i]?.id !== persisted[i]) return true;
+  }
+  return false;
+}
 
 function initialVariants(data: ComposerData): Readonly<Record<string, string | undefined>> {
   const out: Record<string, string | undefined> = {};

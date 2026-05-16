@@ -7,6 +7,169 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 6 / Commit 19b (media uploader · asset library · storage provider · plan quotas)
+
+Second slice of the composer. Adds the asset pipeline (upload,
+list, delete), the dev filesystem storage provider with a Phase
+11 swap point, the `/api/dev-uploads` route handler with strict
+tenant auth, and the three plan caps that govern asset usage
+(per-file size, library count, total storage bytes).
+
+**Plan + counters (D-19b-1 + D-19b-2)**
+
+- `lib/plans/plans.ts` — `PlanLimits` gains 3 fields:
+  - `maxAssetSizeBytes` (per-upload size cap)
+  - `assetsInLibrary` (count cap, tracked as a counter)
+  - `storageBytes` (total-bytes cap, tracked as a counter)
+- Tier values:
+
+  | Plan       | Per-file | Count | Total       |
+  |------------|----------|-------|-------------|
+  | Standard   | 5 MB     | 100   | 500 MB      |
+  | Growth     | 25 MB    | 500   | 15 GB       |
+  | Enterprise | 100 MB   | -1    | -1          |
+
+- `lib/usage/counters.ts` — `POINT_IN_TIME_METRICS` adds
+  `assetsInLibrary` and `storageBytes`. The metric name doubles
+  as the counter key (`postsPerMonth` precedent), so
+  `checkUsage(tx, orgId, plan, 'storageBytes', delta)` Just
+  Works.
+
+**Storage layer (`lib/storage/`)**
+
+- `types.ts` — `StorageProvider` interface (`upload`, `getUrl`,
+  `delete`, `exists`), `UploadOpts`, `StoredAsset`, `AssetKind`,
+  `ALLOWED_EXTENSIONS`, `STORAGE_HARD_CAP_BYTES`.
+- `dev-filesystem-provider.ts` — `DevFilesystemProvider` writes
+  to `.blacknel/dev-uploads/<orgId>/<assetId>.<ext>`. Three
+  layers of path-traversal defense: UUID regex on orgId +
+  assetId, extension allow-list, post-resolve guard asserting
+  the path stays under `root`.
+- `index.ts` — `getStorageProvider()` factory + Phase 11 swap
+  note. Today always returns the dev provider; future cutover
+  branches on `env.BLACKNEL_USE_MOCKS`.
+
+**Route handler — `/api/dev-uploads/[orgId]/[filename]`**
+
+- GET serves the asset blob from the dev provider.
+- **Defense in depth**:
+  - Not signed in → `401`.
+  - Path `orgId` ≠ `session.orgId` → `404` (no existence
+    reveal — a curious user can't probe other-org keys).
+  - Malformed UUID / filename → `404`.
+  - File missing → `404`.
+- Content-Type derived from extension; anything outside the
+  whitelist falls back to `application/octet-stream`.
+- Short cache (`private, max-age=60`).
+
+**Asset orchestrator + queries (`lib/publish/assets/`)**
+
+- `upload.ts` — `validateUpload`, `generateAssetKey`,
+  `uploadAndRecord` (3-cap enforcement → storage write → DB
+  insert → counters bump → audit). DI seam (`AssetUploadDeps`)
+  for integration tests. Rollback path: storage write is
+  unwound if the DB insert fails. Also exports `deleteAsset`
+  (gated by `usedCount === 0`) and `bumpUsedCount` for attach
+  / detach.
+- `queries.ts` — `listAssetsForOrg` / `listAssetsWithTx` with
+  brand / kind / tag / search filters and three sort modes
+  (recent, mostUsed, name), cursor pagination matching the C18
+  / C13 patterns. `hydrateAssetsByIds` resolves a known id list
+  back to full rows (used by the composer loader). `getAssetById`
+  + `getAssetsCountForOrg` round out the read surface.
+
+**Server Actions (`app/(app)/publish/assets/actions.ts`)**
+
+- `uploadAssetAction` (FormData) — wraps `uploadAndRecord`,
+  parses `brandId` + comma-separated `tags`, revalidates
+  `/publish/assets`.
+- `deleteAssetAction` — soft delete + storage cleanup (Phase 7
+  cron will sweep any orphans).
+- `attachAssetToPostAction` / `detachAssetFromPostAction` —
+  `usedCount` diff. Composer / publish-job call these.
+
+**UI — composer (`components/publish/composer/`)**
+
+- `media-uploader.tsx` (Client) — drag-drop + click-to-select
+  + multi-file uploader. Per-file size + extension + total-
+  count client-side validation with clear inline errors.
+  Thumbnail previews for images / GIFs; icons for video / PDF.
+  Wire-up: when files succeed, the asset list extends; on
+  "Guardar borrador" the parent shell threads `mediaIds`
+  through `saveDraftAction`.
+- `composer-shell.tsx` — adds `attachedAssets` state hydrated
+  from `data.attachedAssets`, mediaIds diff in the dirty flag,
+  per-platform `maxAttachments` derived from
+  `publishLimits.maxImages + maxVideos`, plan-level
+  `maxFileSizeBytes` from `PLANS[planCode].maxAssetSizeBytes`.
+
+**UI — library page (`/publish/assets`)**
+
+- `app/(app)/publish/assets/page.tsx` — Server Component:
+  filters parser + `listAssetsForOrg` + brand options + grid.
+  Cursor pagination via "Cargar más" link.
+- `components/publish/assets/asset-filters.tsx` (Client) —
+  brand / kind / sort + uncontrolled tag + search forms.
+  URL-driven (`router.replace`).
+- `components/publish/assets/asset-grid.tsx` — Server grid with
+  per-kind badges (image/gif/video/pdf), thumbnail previews,
+  bytes + used-count, tag chips, delete CTA.
+- `components/publish/assets/asset-upload-button.tsx` (Client)
+  — header upload entry-point. Drag-drop is composer-only;
+  this is single-click.
+- `components/publish/assets/asset-delete-button.tsx` (Client)
+  — `window.confirm()` + `deleteAssetAction`. Disabled when
+  `usedCount > 0` so live posts don't break.
+
+**UI — /billing**
+
+- `components/billing/storage-usage-card.tsx` (new) — 2 rows:
+  "Assets en biblioteca" + "Almacenamiento total". `formatBytes`
+  surfaces KB / MB / GB depending on magnitude; color escalation
+  mirrors `UsageCard` (amber at ≥80%, destructive at the cap).
+- `app/(app)/billing/page.tsx` — reads the two new counters
+  alongside the existing five and renders `<StorageUsageCard />`
+  below the existing usage card.
+
+**Composer loader extension**
+
+- `lib/publish/composer/loader.ts` — `ComposerData` gains
+  `attachedAssets: AssetListItem[]`. Fans out a 5th
+  `hydrateAssetsByIds` query in the same `Promise.all` so the
+  page still resolves in one round-trip.
+
+**Filename rationale (anti-collision)**
+
+- The composer upload entry is `media-uploader.tsx` (NEW);
+  the library single-click upload is `asset-upload-button.tsx`
+  (NEW). Neither overlaps with the C18 `new-post-cta.tsx`
+  ghost-file name from `c52373e` (already removed).
+
+**Tests (+4 files)**
+
+- `tests/unit/dev-filesystem-provider.test.ts` — happy path
+  (upload / getUrl / exists / delete / read round-trip),
+  path-traversal protection (`..`, absolute paths, non-UUID
+  segments, backslashes, double-dot segments), extension
+  whitelist coverage (8 accepted, 4 rejected). Uses a per-suite
+  temp dir.
+- `tests/unit/media-upload-validation.test.ts` —
+  `validateUpload` happy paths + edge cases (empty file, empty
+  name, no extension, .exe, MIME within-kind leniency,
+  uppercase ext). Plan-level cap invariants (Standard <
+  Growth < Enterprise) + exact-value pins for the 3 caps.
+- `tests/integration/assets-list.test.ts` — RLS tenant
+  isolation (org A vs org B, 9 vs 3 assets), cursor pagination
+  without dupes or gaps (recent sort), filters (brand, kind,
+  tag via jsonb `?`, name ILIKE, AND-combination).
+- `tests/integration/asset-upload-flow.test.ts` — full flow
+  via DI seam + temp-dir provider: file on disk + DB row +
+  audit event + counter bump; tenant isolation (org B sees
+  nothing); plan-cap rejection (6 MB on Standard's 5 MB cap
+  returns `PLAN_LIMIT_REACHED` with no disk artifact).
+
+**`pnpm verify`** — 616 passed + 7 skipped (was 558 + 7).
+
 ### Added — Phase 6 / Commit 19a (composer shell · text editor · account picker · UTM · char limits · idempotent draft)
 
 First slice of the composer. The shell — left-column editor +

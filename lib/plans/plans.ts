@@ -27,6 +27,34 @@ export interface PlanLimits {
    * `checkUsage(...)` before each insert. `-1` is unlimited.
    */
   reviewRequestsPerMonth: number;
+  /**
+   * Maximum size in bytes for a single uploaded asset (Commit 19b).
+   * Enforced at upload time both client-side (early feedback) and
+   * server-side (defense in depth). `-1` would mean unlimited but
+   * no plan declares that today — every tier caps the single-file
+   * size so a runaway upload can't fill storage on its own.
+   */
+  maxAssetSizeBytes: number;
+  /**
+   * Maximum number of assets retained in the org library
+   * (Commit 19b). Point-in-time counter (`assetsInLibrary`),
+   * incremented on upload, decremented on delete. `-1` is
+   * unlimited (Enterprise).
+   */
+  assetsInLibrary: number;
+  /**
+   * Cap (in bytes) on the org's cumulative asset library storage
+   * (Commit 19b). Tracked as a point-in-time counter under the
+   * same key — incremented by file size on upload, decremented
+   * on delete. `-1` is unlimited (Enterprise). When
+   * `assetsInLibrary × maxAssetSizeBytes` would exceed this,
+   * storage becomes the binding constraint.
+   *
+   * Naming follows the established convention (`postsPerMonth`,
+   * `brands`, etc.) — the field name doubles as both the cap key
+   * in PlanLimits and the metric name in `usage_counters`.
+   */
+  storageBytes: number;
 }
 
 /** Granularity that a feature is available at, when not a plain boolean. */
@@ -70,6 +98,9 @@ export const PLANS = {
       locations: 1,
       postsPerMonth: 30,
       reviewRequestsPerMonth: 50,
+      maxAssetSizeBytes: 5_000_000, // 5 MB
+      assetsInLibrary: 100,
+      storageBytes: 500_000_000, // 500 MB total
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp'],
@@ -96,6 +127,9 @@ export const PLANS = {
       locations: 5,
       postsPerMonth: 250,
       reviewRequestsPerMonth: 250,
+      maxAssetSizeBytes: 25_000_000, // 25 MB
+      assetsInLibrary: 500,
+      storageBytes: 15_000_000_000, // 15 GB total
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
@@ -122,6 +156,9 @@ export const PLANS = {
       locations: 25,
       postsPerMonth: -1,
       reviewRequestsPerMonth: -1,
+      maxAssetSizeBytes: 100_000_000, // 100 MB
+      assetsInLibrary: -1,
+      storageBytes: -1, // unlimited
     },
     features: {
       networks: [

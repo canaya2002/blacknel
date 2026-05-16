@@ -2,6 +2,7 @@ import { CreditCard } from 'lucide-react';
 import Link from 'next/link';
 
 import { ChangePlanDialog } from '@/components/billing/change-plan-dialog';
+import { StorageUsageCard } from '@/components/billing/storage-usage-card';
 import { UsageCard } from '@/components/billing/usage-card';
 import { PageHeader } from '@/components/common/page-header';
 import { Button } from '@/components/ui/button';
@@ -24,12 +25,22 @@ export default async function BillingPage(): Promise<React.ReactElement> {
     maximumFractionDigits: 0,
   });
 
-  const [usersUsed, socialUsed, locationsUsed, brandsUsed, postsUsed] = await Promise.all([
+  const [
+    usersUsed,
+    socialUsed,
+    locationsUsed,
+    brandsUsed,
+    postsUsed,
+    assetsUsed,
+    storageUsed,
+  ] = await Promise.all([
     dbAdmin(async (tx) => readUsage(tx, session.orgId, 'users')),
     dbAdmin(async (tx) => readUsage(tx, session.orgId, 'socialAccounts')),
     dbAdmin(async (tx) => readUsage(tx, session.orgId, 'locations')),
     dbAdmin(async (tx) => readUsage(tx, session.orgId, 'brands')),
     dbAdmin(async (tx) => readUsage(tx, session.orgId, 'postsPerMonth')),
+    dbAdmin(async (tx) => readUsage(tx, session.orgId, 'assetsInLibrary')),
+    dbAdmin(async (tx) => readUsage(tx, session.orgId, 'storageBytes')),
   ]);
 
   const canManageBilling = sessionCan(session, 'billing:manage');
@@ -107,6 +118,13 @@ export default async function BillingPage(): Promise<React.ReactElement> {
           { metric: 'brands', label: 'Marcas', current: brandsUsed },
           { metric: 'postsPerMonth', label: 'Posts este mes', current: postsUsed },
         ]}
+      />
+
+      <StorageUsageCard
+        assetsCount={assetsUsed}
+        assetsCap={plan.limits.assetsInLibrary}
+        storageBytesUsed={storageUsed}
+        storageBytesCap={plan.limits.storageBytes}
       />
 
       <Card className="bg-muted/20">

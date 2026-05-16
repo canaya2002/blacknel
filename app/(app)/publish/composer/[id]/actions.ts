@@ -42,6 +42,7 @@ const saveDraftSchema = z
     link: z.string().url().nullable().optional(),
     utm: utmSchema.optional(),
     campaignId: z.string().uuid().nullable().optional(),
+    mediaIds: z.array(z.string().uuid()).max(20).optional(),
   })
   .strict();
 
@@ -72,6 +73,9 @@ export async function saveDraftAction(
         : {}),
       ...(parsed.data.campaignId !== undefined
         ? { campaignId: parsed.data.campaignId }
+        : {}),
+      ...(parsed.data.mediaIds !== undefined
+        ? { mediaIds: parsed.data.mediaIds }
         : {}),
     },
   );
