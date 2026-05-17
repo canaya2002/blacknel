@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireUser } from '@/lib/auth/server';
-import { suggestReviewResponse } from '@/lib/ai/reviews-stub';
+import { suggestReviewReply } from '@/lib/ai/skills/review-response';
 import { dbAs } from '@/lib/db/client';
 import { brands, locations, reviews } from '@/lib/db/schema';
 import { authorize } from '@/lib/permissions/can';
@@ -47,6 +47,7 @@ export async function suggestResponseAction(
     Array<{
       id: string;
       rating: number;
+      body: string;
       authorName: string | null;
       brandName: string | null;
       locationName: string | null;
@@ -56,6 +57,7 @@ export async function suggestResponseAction(
       .select({
         id: reviews.id,
         rating: reviews.rating,
+        body: reviews.body,
         authorName: reviews.authorName,
         brandName: brands.name,
         locationName: locations.name,
@@ -74,12 +76,27 @@ export async function suggestResponseAction(
   if (rows.length === 0) return err('NOT_FOUND', 'Review no encontrada.');
   const row = rows[0]!;
 
-  const suggestion = suggestReviewResponse({
-    reviewId: row.id,
-    rating: row.rating,
-    authorName: row.authorName,
-    brandName: row.brandName,
-    locationName: row.locationName,
+  // Commit 24 — async through aiClient. AiContext.entityId is
+  // ROOT reviews.id (Ajuste 2), NEVER review_responses.id. A
+  // single review may spawn multiple draft / suggested /
+  // edited / approved response rows; all generations tied to it
+  // should join on the review root.
+  const suggestion = await suggestReviewReply({
+    input: {
+      reviewId: row.id,
+      rating: row.rating,
+      authorName: row.authorName,
+      brandName: row.brandName,
+      locationName: row.locationName,
+    },
+    reviewBody: row.body,
+    context: {
+      orgId: session.orgId,
+      userId: session.userId,
+      actorType: 'user',
+      entityType: 'review',
+      entityId: row.id,
+    },
   });
 
   return ok({

@@ -1,17 +1,44 @@
 /**
  * Stopword-based language detection for the inbox composer.
  *
- * NOT AI — this is a static rules module. We tokenise the last
- * inbound message (first 500 chars), count how many whitelisted
- * stopwords appear per language, and return whichever language wins.
- * Ties or counts below the confidence threshold return `'unknown'`,
- * so the composer can show "Idioma no detectado" without forcing a
- * potentially-wrong default.
+ * ════════════════════════════════════════════════════════════════
+ *  REGLA BLACKNEL — AI-FEEDBACK PATTERN (dual API, formalized in Commit 24)
+ * ════════════════════════════════════════════════════════════════
  *
- * In Phase 7 the body of `detectLanguage()` is replaced with a Claude
- * Haiku call (cached system prompt + structured output). The signature
- * and the four-language whitelist stay the same — callers are
- * insulated from the swap.
+ * This module exposes TWO entry points with the same goal but
+ * different latency / precision tradeoffs:
+ *
+ *   - **`detectLanguage` (sync)** — stopword heuristic. For render
+ *     hot paths where latency wins over marginal precision. Used
+ *     in `components/inbox/composer.tsx` to drive the language
+ *     pill while the user types.
+ *
+ *   - **`detectLanguageAi` (async, in `lib/ai/skills/language-detect.ts`)**
+ *     — Haiku call via `aiClient`. For authoritative gates where
+ *     precision wins over latency. Used in
+ *     `lib/inbox/send-reply.ts` at submit time, anchored to the
+ *     last-inbound `inbox_messages.id` (Commit 24 / Ajuste 2).
+ *
+ * **General principle.** When a skill has both a typing-time use
+ * and a submission-time use, the pattern is: sync heuristic for
+ * render, async AI for the gate. Precedent:
+ * `complianceHint` (sync) + `checkCompliance` (async) — Commit 22.
+ *
+ * **Phase 11 cutover.** The async version becomes a real Anthropic
+ * Haiku call (prompt-cached system prompt). The sync version
+ * stays as the deterministic fallback for degraded paths
+ * (rate_limit, timeout, schema_violation surfaced by `withFallback`).
+ *
+ * ════════════════════════════════════════════════════════════════
+ *
+ * Implementation notes for the sync path:
+ *   - Tokenises the input (first 500 chars), counts whitelisted
+ *     stopwords per language, returns the winner.
+ *   - Ties or counts below `MIN_MATCHES` return `'unknown'` so
+ *     the composer can show "Idioma no detectado" without
+ *     forcing a potentially-wrong default.
+ *   - The four-language whitelist (es / en / pt / fr) is the
+ *     same set the async path supports.
  */
 
 export const SUPPORTED_LANGUAGES = ['es', 'en', 'pt', 'fr'] as const;

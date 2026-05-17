@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { checkCompliance } from '../ai/skills/compliance';
+import { detectLanguageAi } from '../ai/skills/language-detect';
 import { type AnyPgTx, dbAdmin, dbAs } from '../db/client';
 import {
   approvals,
@@ -13,7 +14,7 @@ import {
 import { AppError } from '../errors';
 import { err, ok, type Result } from '../types/result';
 
-import { detectLanguage, type DetectedLanguage } from './detect-language';
+import { type DetectedLanguage } from './detect-language';
 import { findUnresolvedPlaceholders } from './saved-reply-variables';
 
 /**
@@ -128,8 +129,56 @@ export async function sendReplyToThread(
     );
   }
 
-  // ---- 3. Compliance check (Commit 23 — async via aiClient + cascade) ----
-  const detected = input.language ?? detectLanguage(trimmed);
+  // ---- 3a. Language detection (Commit 24 — async via aiClient) ----
+  // We detect the language of the LAST INBOUND message so the
+  // outgoing reply matches the customer's language. Per Ajuste 2
+  // the ai_generations row anchors on that inbound message's id
+  // (entityType='inbox_message') so "show me every AI generation
+  // tied to this customer turn" remains a single FK lookup.
+  //
+  // `input.language` is an explicit override (composer override
+  // surface); when present it short-circuits the AI call entirely.
+  let detected: DetectedLanguage;
+  if (input.language) {
+    detected = input.language;
+  } else {
+    const lastInboundRows = await deps.asUser<
+      Array<{ id: string; body: string }>
+    >({ orgId: ctx.orgId, userId: ctx.userId }, (tx) =>
+      tx
+        .select({ id: inboxMessages.id, body: inboxMessages.body })
+        .from(inboxMessages)
+        .where(
+          and(
+            eq(inboxMessages.threadId, input.threadId),
+            eq(inboxMessages.direction, 'inbound'),
+          ),
+        )
+        .orderBy(desc(inboxMessages.sentAt))
+        .limit(1),
+    );
+    const lastInbound = lastInboundRows[0];
+    if (lastInbound) {
+      const langResult = await detectLanguageAi({
+        text: lastInbound.body,
+        context: {
+          orgId: ctx.orgId,
+          userId: ctx.userId,
+          actorType: 'user',
+          entityType: 'inbox_message',
+          entityId: lastInbound.id,
+        },
+      });
+      detected = langResult.language;
+    } else {
+      // No inbound message yet (thread initiated outbound, edge
+      // case). Default to 'unknown' — composer leaves the pill
+      // empty rather than guessing.
+      detected = 'unknown';
+    }
+  }
+
+  // ---- 3b. Compliance check (Commit 23 — async via aiClient + cascade) ----
   const complianceResponse = await checkCompliance({
     text: trimmed,
     context: {

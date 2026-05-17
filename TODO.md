@@ -759,3 +759,62 @@ Add per-skill cost ranking.
 - `components/audit-ai/ai-generations-daily-chart.tsx` (new)
 
 **Target phase.** Phase 11 polish (once real costs flow in).
+
+## ai-stubs-shim-retirement
+
+**Problem.** After Commit 24, the 4 original AI stub files are
+re-export shims:
+
+  - `lib/ai/compliance-stub.ts` — body still hosts the keyword
+    heuristic; re-exported as `complianceHint` (sync) and
+    consumed by `mock-bodies/compliance.ts`.
+  - `lib/ai/caption-stub.ts` — body hosts the FNV1a bucket
+    logic; consumed by `mock-bodies/caption.ts`.
+  - `lib/ai/reviews-stub.ts` — body hosts the variant table;
+    consumed by `mock-bodies/review-response.ts`.
+  - `lib/inbox/detect-language.ts` — body hosts the stopword
+    classifier; re-exported as the sync render-path entry
+    (REGLA BLACKNEL AI-FEEDBACK PATTERN) AND consumed by
+    `mock-bodies/language-detect.ts`.
+
+Every PRODUCTION caller now imports through `lib/ai/skills/*`
+or (for sync render paths) through the explicit hint name
+(`complianceHint`, `detectLanguage`). The stub files exist
+mostly because their bodies are still the source of truth for
+the keyword/heuristic logic.
+
+**Resolution criteria.** When the Phase-11 real adapter lands
+and replaces the mock-body content, evaluate three paths:
+
+  (a) **Delete the 4 stub files outright.** Move the
+      synchronous keyword bodies into either `mock-bodies/`
+      or dedicated `lib/ai/heuristics/` modules. Update
+      every test that still imports from the stub paths.
+      Break-change for any out-of-tree consumer. *Cleanest.*
+
+  (b) **Mark @deprecated on each export.** Lets callers
+      migrate at their own pace; the deprecation surfaces
+      via the TS LSP. Phase 12 closes the door.
+
+  (c) **Keep indefinitely as BC.** Lowest risk, highest
+      tech-debt cost.
+
+**Recommendation.** **(a)** in Phase 12 polish, alongside the
+other breaking refactors (`composer-edit-modal-post-kind`,
+`composer-readonly-bypass`, etc.). Single PR, single
+deprecation cycle.
+
+**Affected files.**
+
+- `lib/ai/compliance-stub.ts` (delete)
+- `lib/ai/caption-stub.ts` (delete)
+- `lib/ai/reviews-stub.ts` (delete)
+- `lib/inbox/detect-language.ts` (delete OR move sync body
+  into `lib/ai/heuristics/language.ts`)
+- `lib/ai/compliance-hint.ts` (move body here)
+- `lib/ai/mock-bodies/*.ts` (inline the moved heuristic
+  bodies)
+- Every test under `tests/unit/` and `tests/integration/`
+  that imports from the stub paths.
+
+**Target phase.** Phase 12 (polish).

@@ -7,6 +7,107 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 7 / Commit 24 (caption / review-response / language-detect caller migration · closes the stub→adapter migration path)
+
+Last commit of the "callers migrate from sync stubs to async
+adapter" pass. After this, every production code path that
+needed AI inference goes through `lib/ai/skills/*` → `aiClient`
+→ adapter → `ai_generations`. The 4 original stub files
+(`compliance-stub.ts`, `caption-stub.ts`, `reviews-stub.ts`,
+`inbox/detect-language.ts`) are now **pure re-export shims** —
+their bodies still host the heuristic logic that the
+mock-bodies depend on, but no production caller imports
+directly from them. Phase-12 cleanup tracked under
+`ai-stubs-shim-retirement`.
+
+**Callers migrated**
+
+- `app/(app)/publish/composer/[id]/actions.ts` —
+  `suggestCaptionAction` now awaits `suggestCaption({ input,
+  context })` from `lib/ai/skills/caption.ts`. AiContext
+  anchors on `entityType='post'` + `entityId = posts.id`
+  (Ajuste 2 — ROOT id, never a derived sub-row).
+
+- `app/(app)/reviews/[reviewId]/suggest-action.ts` —
+  `suggestResponseAction` now awaits `suggestReviewReply({
+  input, reviewBody, context })`. AiContext anchors on
+  `entityType='review'` + `entityId = reviews.id` (never
+  `review_responses.id`, even though a review may spawn
+  multiple draft / suggested / edited / approved
+  `review_responses` rows; all generations should join on the
+  review root for the "show me every AI generation for this
+  review" query).
+
+- `lib/inbox/send-reply.ts` — server path now awaits
+  `detectLanguageAi` on the **last inbound message body**
+  (not the outgoing draft text — a small semantic improvement
+  bundled with the migration: reply should match what the
+  customer wrote). AiContext anchors on
+  `entityType='inbox_message'` + `entityId = lastInbound.id`.
+  When the composer's explicit `input.language` override is
+  provided, the AI call is short-circuited — the user's
+  choice always wins.
+
+**Render-hot-path stays sync (Ajuste 1 + REGLA BLACKNEL AI-FEEDBACK PATTERN)**
+
+- `components/inbox/composer.tsx` keeps using `detectLanguage`
+  (sync stopword) for the typing-time pill. No AI call, no
+  ms-of-latency penalty per keystroke.
+- `lib/inbox/detect-language.ts` JSDoc formalized the dual-API
+  pattern, mirroring `lib/ai/compliance-hint.ts`:
+
+  > Cuando una skill tenga uso en render + uso en submission,
+  > el patrón es: sync para render, async para gate. Precedente:
+  > `complianceHint` vs `checkCompliance` (Commit 22).
+
+  And the Phase-11 cutover note: "la sync queda como fallback
+  determinístico para casos de degradación (rate_limit,
+  timeout)".
+
+**EntityId discipline (Ajuste 2)**
+
+Each migration test explicitly asserts the
+`ai_generations.entity_id` value:
+
+  - caption rows → `posts.id` (never `post_targets.id` or a
+    draft text hash).
+  - review-response rows → `reviews.id` (never
+    `review_responses.id`).
+  - language_detect rows → `inbox_messages.id` (the **last
+    inbound** message, not the thread, not the outgoing draft).
+
+Reason: future "show me every AI generation for this
+{review/post/customer-message}" queries are single FK lookups.
+Anchoring on derived rows would explode into JOIN bushes.
+
+**TODO entry — ai-stubs-shim-retirement (Ajuste 3)**
+
+Documented in `TODO.md`. After Commit 24, the 4 original stub
+files exist mostly because their bodies are still the
+source-of-truth for the heuristic logic that the mock-bodies
+re-export. Phase 12 polish evaluates three paths:
+
+  (a) Delete outright + move heuristics into
+      `lib/ai/heuristics/`. **Recommended.**
+  (b) Mark @deprecated.
+  (c) Keep indefinitely as BC.
+
+Single PR, single deprecation cycle, alongside the other
+Phase-12 breaking refactors.
+
+**Tests (+9 cases / +3 files)**
+
+- `tests/integration/caption-suggest-migration.test.ts` (3) —
+  row written with skill='caption' + model=Haiku, entityId is
+  ROOT post.id (Ajuste 2), tenant isolation via RLS.
+- `tests/integration/review-suggest-migration.test.ts` (3) —
+  same shape for reviews.
+- `tests/integration/inbox-language-detect-migration.test.ts`
+  (3) — server path writes row anchored on last inbound
+  `inbox_messages.id`; explicit `input.language` short-circuits
+  the adapter call; sync `detectLanguage` produces no DB
+  write (proves the dual-API actually separates).
+
 ### Added — Phase 7 / Commit 23 (compliance dual-model cascade + caller migration + dashboard cascade-aware)
 
 Phase 7's first real-feature commit. Wires the dual-model

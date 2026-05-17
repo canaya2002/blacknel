@@ -7,10 +7,10 @@ import { z } from 'zod';
 import { requireUser } from '@/lib/auth/server';
 import {
   normalizeTone,
-  suggestCaptionStub,
   type CampaignGoal,
   type SuggestCaptionOutput,
 } from '@/lib/ai/caption-stub';
+import { suggestCaption } from '@/lib/ai/skills/caption';
 import { dbAdmin, dbAs } from '@/lib/db/client';
 import { auditEvents, brands, brandVoices, campaigns, locations, posts } from '@/lib/db/schema';
 import { AppError } from '@/lib/errors';
@@ -303,15 +303,28 @@ export async function suggestCaptionAction(
   const ctx = captionContext[0];
   if (!ctx) return err('NOT_FOUND', 'Post no encontrado.');
 
-  const out: SuggestCaptionOutput = suggestCaptionStub({
-    postId: ctx.postId,
-    brandId: ctx.brandId,
-    brandName: ctx.brandName,
-    locationName: ctx.locationName,
-    productHint: null,
-    goal: (ctx.campaignGoal as CampaignGoal | null) ?? 'evergreen',
-    tone: normalizeTone(ctx.brandVoiceTone),
-    index: parsed.data.regenerateIndex,
+  // Commit 24 — async path through aiClient. AiContext.entityId
+  // is the ROOT posts.id (Ajuste 2) so future joins like "all AI
+  // generations for this post" land on the right anchor regardless
+  // of how many drafts / regenerate cycles produced them.
+  const out: SuggestCaptionOutput = await suggestCaption({
+    input: {
+      postId: ctx.postId,
+      brandId: ctx.brandId,
+      brandName: ctx.brandName,
+      locationName: ctx.locationName,
+      productHint: null,
+      goal: (ctx.campaignGoal as CampaignGoal | null) ?? 'evergreen',
+      tone: normalizeTone(ctx.brandVoiceTone),
+      index: parsed.data.regenerateIndex,
+    },
+    context: {
+      orgId: session.orgId,
+      userId: session.userId,
+      actorType: 'user',
+      entityType: 'post',
+      entityId: parsed.data.postId,
+    },
   });
 
   try {
