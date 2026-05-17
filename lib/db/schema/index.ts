@@ -54,3 +54,5 @@ export * from './scheduled-reports';
 export * from './scheduled-report-runs';
 export * from './role-permissions';
 export * from './custom-roles';
+export * from './audit-retention-policies';
+export * from './audit-anomalies';

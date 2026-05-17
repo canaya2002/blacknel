@@ -7,6 +7,111 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 10 / Commit 37 (Advanced Audit · SOC 2 ready · anomaly detection · retention policies · mass export)
+
+Promotes the Phase-7 audit table to Enterprise-grade. Adds 4
+capabilities:
+
+1. **Per-row tamper detection** via `event_hash` (SHA-256, D-37-2 a).
+2. **Per-org retention policies** with overlap-aware precedence
+   (Ajuste 2) + daily purge cron.
+3. **Heuristic anomaly detector** (D-37-1 a conservative —
+   3 kinds: off_hours_access, new_ip, mass_export) + hourly cron.
+4. **Mass CSV export** dual-enforced + ≥100K row block (Ajuste 3).
+
+**Charter touches (Phase 1, 2, 7, 9 infrastructure)**
+
+| File | Phase | Change |
+|---|---|---|
+| `lib/db/schema/audit-events.ts` | 7 | `event_hash text` nullable column |
+| `lib/db/schema/_enums.ts` | 1 | +2 enums (`audit_anomaly_kind`, `audit_anomaly_status`) |
+| `lib/db/schema/index.ts` | 1 | re-export 2 new tables |
+| `lib/env.ts` | 1 | +2 env vars (`AUDIT_ANOMALY_JOB_ENABLED`, `AUDIT_RETENTION_JOB_ENABLED`) |
+| `lib/jobs/cron-loop.ts` | 7 | +2 timers (8vo anomaly 60min, 9no retention 24h) |
+| `lib/plans/plans.ts` | 1 | `PlanFeatures.auditAdvanced` + `PlanLimits.auditRetentionDaysMax` (Standard=30, Growth=180, Enterprise=-1) |
+| `lib/plans/gates.ts` | 9 (C31) | `'audit_advanced'` PlanFeature |
+| `app/(app)/audit/page.tsx` | 1 (stub) | replaced — now uses `components/billing/upgrade-prompt` |
+| `tests/helpers/react-act-setup.ts` | — | +2 env gates for the new crons |
+
+All aditive. Cero modificaciones a rows históricas de Phase 7 —
+`event_hash` es nullable, pre-C37 rows quedan exemptas de tamper
+detection.
+
+**D-37-1..5 confirmadas**
+
+- D-37-1 (a) — 3 kinds conservadores. `audit_anomaly_kind` enum
+  carries only `off_hours_access | new_ip | mass_export`. Phase
+  11+ extends if false-positive feedback is OK.
+- D-37-2 (a) — per-row SHA-256, NOT chained. Stable JSON
+  serialization for hash inputs (test `audit-hash.test.ts` #3).
+  Phase 11 candidate: full chain.
+- D-37-3 (a) — hard DELETE on retention purge. Audit-of-audit
+  records the purge itself (`audit.retention.purged`).
+- D-37-4 — 1000-row threshold for `mass=true` requirement is
+  reused from `doc/PATTERNS.md`. 100K is the hard ceiling per
+  Ajuste 3.
+- D-37-5 (b) — per-actor timeline includes ALL events with
+  `userId`, not just entity-level. Implemented in
+  `loadUserTimelineWithTx` via `searchAuditEventsWithTx` with
+  `userId` filter only.
+
+**Ajuste 1 — `decided_reason` required on dismissal**
+
+DB `CHECK` enforces `status = 'pending' OR (decided_reason IS
+NOT NULL AND length(btrim(decided_reason)) >= 10)`. Zod
+`dismissAnomalySchema` mirrors at the app boundary. Tests:
+4 cases in `audit-anomalies-decided-reason.test.ts`.
+
+**Ajuste 2 — Retention policy precedence**
+
+`lib/audit-advanced/retention.ts → resolveRetentionPolicy`:
+
+```
+1. Exact match (e.g. `billing.charge`) > prefix (`billing.*`) > `'all'`.
+2. On specificity tie, longer retention wins.
+```
+
+Verified in `audit-retention-precedence.test.ts` (4 cases) +
+`audit-retention-purge.test.ts` (end-to-end cron behavior).
+
+**Ajuste 3 — Mass export count guard**
+
+`exportAuditCsvAction` calls `countAuditEventsWithTx` BEFORE
+streaming. If count > 100,000 → `VALIDATION_ERROR` returned and
+`audit.exported.blocked.too_large` audit event written. For
+1,000 < count ≤ 100,000 the action requires `mass=true` AND
+dual-enforces `reports:export` via
+`assertPermissionInDb(session, 'reports:export')`.
+
+**Code surface**
+
+- Migration `0019_audit_advanced.sql` — 2 enums + ALTER
+  audit_events + 2 new tables + RLS + CHECK constraints.
+- Schemas: `lib/db/schema/{audit-retention-policies,audit-anomalies}.ts`.
+- Domain: `lib/audit-advanced/{retention,validate,hash,queries,
+  anomaly-detector}.ts`.
+- Cron: `lib/jobs/{audit-anomaly-scan,audit-retention-purge}.ts`.
+- Server Actions: `app/(app)/audit/actions.ts` (4 actions —
+  export / create policy / remove policy / dismiss anomaly).
+- App UI: `app/(app)/audit/page.tsx` (replaced),
+  `/audit/timeline/[userId]`, `/audit/anomalies`,
+  `/audit/retention`.
+- Components: `components/audit/{anomaly-card, retention-policy-form}.tsx`.
+- Tests: 7 new files, +32 cases.
+
+**Verification**
+
+- `pnpm verify` ✅ **1184 tests pass** (+32 vs C36b baseline 1152).
+- `pnpm build` ✅ clean on first invocation with webpack.
+
+**Bug caught during development**
+
+Anomaly scan initial implementation included the current
+60-min window inside the 90-day IP history query, which made
+new IPs appear as already-known. Fix: history query now uses
+`lt(createdAt, windowStart)` to exclude the window. Test
+caught it on the first run.
+
 ### Added — Phase 10 / Commit 36b (Custom Roles UI + Server Actions + Turbopack escalation)
 
 Exposes the C36a RBAC core via Server Actions + UI. Five

@@ -63,6 +63,14 @@ export interface PlanLimits {
    * Plus (future) → 100; Enterprise White-label (future) → -1.
    */
   maxCustomRoles: number;
+  /**
+   * Phase 10 / Commit 37 — Audit retention cap in days. The
+   * `audit_retention_policies` Server Action rejects values
+   * higher than this cap. Standard=30, Growth=180,
+   * Enterprise=-1 (unlimited). When `-1`, the action accepts
+   * any positive integer up to the DB CHECK ceiling (3650).
+   */
+  auditRetentionDaysMax: number;
 }
 
 /** Granularity that a feature is available at, when not a plain boolean. */
@@ -87,6 +95,13 @@ export interface PlanFeatures {
    * 'custom_roles')` is the gate. Cap lives on `PlanLimits.maxCustomRoles`.
    */
   customRoles: boolean;
+  /**
+   * Phase 10 / Commit 37 — Advanced Audit Enterprise feature.
+   * Includes SOC 2 mass exports, per-actor timeline, anomaly
+   * detection, retention policies. Standard / Growth: false.
+   * Enterprise: true.
+   */
+  auditAdvanced: boolean;
 }
 
 export interface PlanDefinition {
@@ -116,6 +131,7 @@ export const PLANS = {
       assetsInLibrary: 100,
       storageBytes: 500_000_000, // 500 MB total
       maxCustomRoles: 0,
+      auditRetentionDaysMax: 30,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp'],
@@ -130,6 +146,7 @@ export const PLANS = {
       crisis: false,
       reportBuilder: false,
       customRoles: false,
+      auditAdvanced: false,
     },
   },
   growth: {
@@ -147,6 +164,7 @@ export const PLANS = {
       assetsInLibrary: 500,
       storageBytes: 15_000_000_000, // 15 GB total
       maxCustomRoles: 0,
+      auditRetentionDaysMax: 180,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
@@ -161,6 +179,7 @@ export const PLANS = {
       crisis: 'basic',
       reportBuilder: false,
       customRoles: false,
+      auditAdvanced: false,
     },
   },
   enterprise: {
@@ -178,6 +197,7 @@ export const PLANS = {
       assetsInLibrary: -1,
       storageBytes: -1, // unlimited
       maxCustomRoles: 25,
+      auditRetentionDaysMax: -1,
     },
     features: {
       networks: [
@@ -208,6 +228,7 @@ export const PLANS = {
       crisis: 'advanced',
       reportBuilder: true,
       customRoles: true,
+      auditAdvanced: true,
     },
   },
 } as const satisfies Record<PlanCode, PlanDefinition>;

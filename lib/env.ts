@@ -150,6 +150,18 @@ const envSchema = z.object({
    * weekly scheduled report. Default `true`.
    */
   BLACKNEL_SEED_COMPETITORS_REPORTS: boolFromString(true),
+  /**
+   * Audit anomaly detection cron (Phase 10 / Commit 37). 60-min
+   * cadence scans last 1h of audit_events + per-user 90d IP
+   * history. Vitest forces off.
+   */
+  BLACKNEL_AUDIT_ANOMALY_JOB_ENABLED: boolFromString(true),
+  /**
+   * Audit retention purge cron (Phase 10 / Commit 37). 24h
+   * cadence applies per-org `audit_retention_policies`. Bounded
+   * delete (5000 rows/tick) for safety. Vitest forces off.
+   */
+  BLACKNEL_AUDIT_RETENTION_JOB_ENABLED: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

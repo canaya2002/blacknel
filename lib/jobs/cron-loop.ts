@@ -5,6 +5,8 @@ import { log } from '@/lib/log';
 
 import { runAdsAlertsScanTick } from './ads-alerts-scan';
 import { runAdsSyncTick } from './ads-sync';
+import { runAuditAnomalyScanTickEntry } from './audit-anomaly-scan';
+import { runAuditRetentionPurgeTickEntry } from './audit-retention-purge';
 import { runCrisisScanTick } from './crisis-scan';
 import { runListeningScanTickEntry } from './listening-scan';
 import { runNpsScanTick } from './nps-scan';
@@ -91,6 +93,20 @@ const LISTENING_TICK_INTERVAL_MS = 60 * 60_000;
  * thousands of schedules.
  */
 const SCHEDULED_REPORTS_TICK_INTERVAL_MS = 15 * 60_000;
+/**
+ * Audit anomaly detection tick — 60 minutes (Phase 10 / Commit 37).
+ * Scans last 1h audit_events + 90d IP history per org. Heuristic
+ * is conservative (3 kinds: off_hours_access, new_ip, mass_export)
+ * so the hourly cadence keeps noise low.
+ */
+const AUDIT_ANOMALY_TICK_INTERVAL_MS = 60 * 60_000;
+/**
+ * Audit retention purge tick — 24 hours (Phase 10 / Commit 37).
+ * Bounded delete (5000 rows/tick) protects against runaway purges.
+ * Daily is plenty — retention thresholds are days-to-years, not
+ * minutes.
+ */
+const AUDIT_RETENTION_TICK_INTERVAL_MS = 24 * 60 * 60_000;
 
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -113,6 +129,12 @@ let listeningTickInFlight = false;
 
 let scheduledReportsTimer: ReturnType<typeof setInterval> | null = null;
 let scheduledReportsTickInFlight = false;
+
+let auditAnomalyTimer: ReturnType<typeof setInterval> | null = null;
+let auditAnomalyTickInFlight = false;
+
+let auditRetentionTimer: ReturnType<typeof setInterval> | null = null;
+let auditRetentionTickInFlight = false;
 
 export function startPublishCron(): void {
   if (started) {
@@ -286,6 +308,50 @@ export function startPublishCron(): void {
       'scheduled-reports cron — disabled via BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED=false',
     );
   }
+
+  // Phase 10 / Commit 37 — audit anomaly detection tick.
+  if (env.BLACKNEL_AUDIT_ANOMALY_JOB_ENABLED) {
+    void auditAnomalyTickSafe();
+    auditAnomalyTimer = setInterval(() => {
+      void auditAnomalyTickSafe();
+    }, AUDIT_ANOMALY_TICK_INTERVAL_MS);
+    if (
+      auditAnomalyTimer &&
+      typeof (auditAnomalyTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (auditAnomalyTimer as unknown as { unref: () => void }).unref();
+    }
+    log.info(
+      { tickIntervalMs: AUDIT_ANOMALY_TICK_INTERVAL_MS },
+      'audit-anomaly cron — started',
+    );
+  } else {
+    log.info(
+      'audit-anomaly cron — disabled via BLACKNEL_AUDIT_ANOMALY_JOB_ENABLED=false',
+    );
+  }
+
+  // Phase 10 / Commit 37 — audit retention purge tick.
+  if (env.BLACKNEL_AUDIT_RETENTION_JOB_ENABLED) {
+    void auditRetentionTickSafe();
+    auditRetentionTimer = setInterval(() => {
+      void auditRetentionTickSafe();
+    }, AUDIT_RETENTION_TICK_INTERVAL_MS);
+    if (
+      auditRetentionTimer &&
+      typeof (auditRetentionTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (auditRetentionTimer as unknown as { unref: () => void }).unref();
+    }
+    log.info(
+      { tickIntervalMs: AUDIT_RETENTION_TICK_INTERVAL_MS },
+      'audit-retention cron — started',
+    );
+  } else {
+    log.info(
+      'audit-retention cron — disabled via BLACKNEL_AUDIT_RETENTION_JOB_ENABLED=false',
+    );
+  }
 }
 
 /**
@@ -324,6 +390,14 @@ export function stopPublishCron(): void {
     clearInterval(scheduledReportsTimer);
     scheduledReportsTimer = null;
   }
+  if (auditAnomalyTimer) {
+    clearInterval(auditAnomalyTimer);
+    auditAnomalyTimer = null;
+  }
+  if (auditRetentionTimer) {
+    clearInterval(auditRetentionTimer);
+    auditRetentionTimer = null;
+  }
   started = false;
   tickInFlight = false;
   crisisTickInFlight = false;
@@ -332,6 +406,8 @@ export function stopPublishCron(): void {
   npsTickInFlight = false;
   listeningTickInFlight = false;
   scheduledReportsTickInFlight = false;
+  auditAnomalyTickInFlight = false;
+  auditRetentionTickInFlight = false;
 }
 
 /** True when the singleton is currently running. Used by tests. */
@@ -510,5 +586,56 @@ async function scheduledReportsTickSafe(): Promise<void> {
     );
   } finally {
     scheduledReportsTickInFlight = false;
+  }
+}
+
+async function auditAnomalyTickSafe(): Promise<void> {
+  if (auditAnomalyTickInFlight) {
+    log.debug('audit-anomaly cron — tick still in-flight, skipping turn');
+    return;
+  }
+  auditAnomalyTickInFlight = true;
+  try {
+    const result = await runAuditAnomalyScanTickEntry();
+    if (!result.ok) {
+      log.error({ err: result.error.message }, 'audit-anomaly cron — tick failed');
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'audit-anomaly cron — tick threw',
+    );
+  } finally {
+    auditAnomalyTickInFlight = false;
+  }
+}
+
+async function auditRetentionTickSafe(): Promise<void> {
+  if (auditRetentionTickInFlight) {
+    log.debug('audit-retention cron — tick still in-flight, skipping turn');
+    return;
+  }
+  auditRetentionTickInFlight = true;
+  try {
+    const result = await runAuditRetentionPurgeTickEntry();
+    if (!result.ok) {
+      log.error(
+        { err: result.error.message },
+        'audit-retention cron — tick failed',
+      );
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'audit-retention cron — tick threw',
+    );
+  } finally {
+    auditRetentionTickInFlight = false;
   }
 }

@@ -47,7 +47,8 @@ export type PlanFeature =
   | 'competitors_tracking'
   | 'scheduled_report_emails'
   | 'ads_intelligence'
-  | 'custom_roles';
+  | 'custom_roles'
+  | 'audit_advanced';
 
 // Map each named feature to its underlying gating predicate.
 function evaluate(plan: PlanCode, feature: PlanFeature): boolean {
@@ -71,6 +72,8 @@ function evaluate(plan: PlanCode, feature: PlanFeature): boolean {
       return plan === 'growth' || plan === 'enterprise';
     case 'custom_roles':
       return planAllowsFeature(plan, 'customRoles');
+    case 'audit_advanced':
+      return planAllowsFeature(plan, 'auditAdvanced');
   }
 }
 
@@ -119,6 +122,9 @@ export function requirePlanFeature(
       return;
     case 'custom_roles':
       requireFeature(plan, 'customRoles');
+      return;
+    case 'audit_advanced':
+      requireFeature(plan, 'auditAdvanced');
       return;
   }
 }

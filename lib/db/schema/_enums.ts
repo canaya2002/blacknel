@@ -543,3 +543,20 @@ export const customRoleStatusEnum = pgEnum('custom_role_status', [
   'active',
   'archived',
 ]);
+
+// ---------------------------------------------------------------------------
+// Advanced Audit (Phase 10 / Commit 37) — Enterprise-tier anomaly
+// detection lifecycle. D-37-1 (a) conservative — only 3 kinds.
+// ---------------------------------------------------------------------------
+
+export const auditAnomalyKindEnum = pgEnum('audit_anomaly_kind', [
+  'off_hours_access',
+  'new_ip',
+  'mass_export',
+]);
+
+export const auditAnomalyStatusEnum = pgEnum('audit_anomaly_status', [
+  'pending',
+  'dismissed',
+  'accepted',
+]);

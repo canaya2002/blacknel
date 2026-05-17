@@ -30,6 +30,14 @@ export const auditEvents = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     riskLevel: text('risk_level'),
+    /**
+     * Per-row tamper-detection hash (Phase 10 / Commit 37, D-37-2 a).
+     * Computed at insert time by app code from
+     * (org_id, user_id, action, entity_type, entity_id, before,
+     * after, created_at). NULLABLE for pre-C37 rows. Phase 11 may
+     * back-fill via a one-shot script.
+     */
+    eventHash: text('event_hash'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
