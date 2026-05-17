@@ -31,3 +31,9 @@ if (!process.env.BLACKNEL_ADS_ALERTS_ENABLED) {
 if (!process.env.BLACKNEL_SEED_WHATSAPP) {
   process.env.BLACKNEL_SEED_WHATSAPP = 'false';
 }
+if (!process.env.BLACKNEL_NPS_JOB_ENABLED) {
+  process.env.BLACKNEL_NPS_JOB_ENABLED = 'false';
+}
+if (!process.env.BLACKNEL_SEED_NPS) {
+  process.env.BLACKNEL_SEED_NPS = 'false';
+}

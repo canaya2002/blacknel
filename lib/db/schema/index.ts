@@ -43,3 +43,6 @@ export * from './ads-spend-daily';
 export * from './ads-alerts';
 export * from './whatsapp-accounts';
 export * from './whatsapp-templates';
+export * from './nps-surveys';
+export * from './nps-invitations';
+export * from './nps-responses';

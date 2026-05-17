@@ -6,6 +6,7 @@ import { log } from '@/lib/log';
 import { runAdsAlertsScanTick } from './ads-alerts-scan';
 import { runAdsSyncTick } from './ads-sync';
 import { runCrisisScanTick } from './crisis-scan';
+import { runNpsScanTick } from './nps-scan';
 import { runPublishTick } from './publish-post';
 
 /**
@@ -62,6 +63,14 @@ const ADS_SYNC_TICK_INTERVAL_MS = 24 * 60 * 60_000;
  * and you avoid alert-flood on volatile accounts.
  */
 const ADS_ALERTS_TICK_INTERVAL_MS = 12 * 60 * 60_000;
+/**
+ * NPS post-resolution tick — 30 minutes (Phase 9 / Commit 32). The
+ * producer scans threads closed in the last 24h, so a half-hour
+ * cadence catches new closures with at most ~30 min lag — fast
+ * enough for the NPS prompt to land while the experience is fresh,
+ * slow enough to avoid burning resources on idle orgs.
+ */
+const NPS_TICK_INTERVAL_MS = 30 * 60_000;
 
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -75,6 +84,9 @@ let adsSyncTickInFlight = false;
 
 let adsAlertsTimer: ReturnType<typeof setInterval> | null = null;
 let adsAlertsTickInFlight = false;
+
+let npsTimer: ReturnType<typeof setInterval> | null = null;
+let npsTickInFlight = false;
 
 export function startPublishCron(): void {
   if (started) {
@@ -175,6 +187,28 @@ export function startPublishCron(): void {
   } else {
     log.info('ads-alerts cron — disabled via BLACKNEL_ADS_ALERTS_ENABLED=false');
   }
+
+  // Phase 9 / Commit 32 — NPS post-resolution tick. 30 min cadence;
+  // gated by BLACKNEL_NPS_JOB_ENABLED so a noisy test environment
+  // can disable just this loop without touching the others.
+  if (env.BLACKNEL_NPS_JOB_ENABLED) {
+    void npsTickSafe();
+    npsTimer = setInterval(() => {
+      void npsTickSafe();
+    }, NPS_TICK_INTERVAL_MS);
+    if (
+      npsTimer &&
+      typeof (npsTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (npsTimer as unknown as { unref: () => void }).unref();
+    }
+    log.info(
+      { tickIntervalMs: NPS_TICK_INTERVAL_MS },
+      'nps cron — started',
+    );
+  } else {
+    log.info('nps cron — disabled via BLACKNEL_NPS_JOB_ENABLED=false');
+  }
 }
 
 /**
@@ -201,11 +235,16 @@ export function stopPublishCron(): void {
     clearInterval(adsAlertsTimer);
     adsAlertsTimer = null;
   }
+  if (npsTimer) {
+    clearInterval(npsTimer);
+    npsTimer = null;
+  }
   started = false;
   tickInFlight = false;
   crisisTickInFlight = false;
   adsSyncTickInFlight = false;
   adsAlertsTickInFlight = false;
+  npsTickInFlight = false;
 }
 
 /** True when the singleton is currently running. Used by tests. */
@@ -309,5 +348,29 @@ async function adsAlertsTickSafe(): Promise<void> {
     );
   } finally {
     adsAlertsTickInFlight = false;
+  }
+}
+
+async function npsTickSafe(): Promise<void> {
+  if (npsTickInFlight) {
+    log.debug('nps cron — tick still in-flight, skipping turn');
+    return;
+  }
+  npsTickInFlight = true;
+  try {
+    const result = await runNpsScanTick();
+    if (!result.ok) {
+      log.error({ err: result.error.message }, 'nps cron — tick failed');
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'nps cron — tick threw',
+    );
+  } finally {
+    npsTickInFlight = false;
   }
 }

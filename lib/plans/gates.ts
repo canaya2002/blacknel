@@ -26,7 +26,7 @@
 
 import { AppError } from '../errors';
 
-import { type FeatureKey, type PlanCode } from './plans';
+import { type PlanCode } from './plans';
 import { planAllowsFeature, planAllowsPlatform, requireFeature, requirePlatform } from './gating';
 
 /**
@@ -54,13 +54,13 @@ function evaluate(plan: PlanCode, feature: PlanFeature): boolean {
     case 'whatsapp_business':
       return planAllowsPlatform(plan, 'whatsapp');
     case 'nps_surveys':
-      return planAllowsFeature(plan, 'nps' as FeatureKey);
+      return planAllowsFeature(plan, 'nps');
     case 'listening_mentions':
-      return planAllowsFeature(plan, 'listening' as FeatureKey);
+      return planAllowsFeature(plan, 'listening');
     case 'competitors_tracking':
-      return planAllowsFeature(plan, 'competitors' as FeatureKey);
+      return planAllowsFeature(plan, 'competitors');
     case 'ads_intelligence':
-      return planAllowsFeature(plan, 'ads' as FeatureKey);
+      return planAllowsFeature(plan, 'ads');
     case 'scheduled_report_emails':
       // Phase-9-introduced concept that has no current
       // `PlanFeatures` key. Available on Growth+; Standard
@@ -92,16 +92,16 @@ export function requirePlanFeature(
       requirePlatform(plan, 'whatsapp');
       return;
     case 'nps_surveys':
-      requireFeature(plan, 'nps' as FeatureKey);
+      requireFeature(plan, 'nps');
       return;
     case 'listening_mentions':
-      requireFeature(plan, 'listening' as FeatureKey);
+      requireFeature(plan, 'listening');
       return;
     case 'competitors_tracking':
-      requireFeature(plan, 'competitors' as FeatureKey);
+      requireFeature(plan, 'competitors');
       return;
     case 'ads_intelligence':
-      requireFeature(plan, 'ads' as FeatureKey);
+      requireFeature(plan, 'ads');
       return;
     case 'scheduled_report_emails':
       if (!evaluate(plan, feature)) {

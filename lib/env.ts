@@ -106,6 +106,21 @@ const envSchema = z.object({
    * via `tests/helpers/react-act-setup.ts`.
    */
   BLACKNEL_SEED_WHATSAPP: boolFromString(true),
+  /**
+   * NPS post-resolution cron (Phase 9 / Commit 32). Same lifecycle as
+   * ads-sync: only fires when `NODE_ENV='development'` AND this flag
+   * is true. Vitest setup forces it off so tests never trigger a
+   * cross-tenant scan from a lateral cron.
+   */
+  BLACKNEL_NPS_JOB_ENABLED: boolFromString(true),
+  /**
+   * Whether `seedDatabase()` seeds NPS demo data (Phase 9 / Commit
+   * 32, Ajuste J). 2 surveys per demo org + 50 invitations with
+   * mixed-bucket responses (50% promoter / 25% passive / 25%
+   * detractor). Default `true` so the /nps Analytics tab has real
+   * numbers out of the box.
+   */
+  BLACKNEL_SEED_NPS: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

@@ -837,3 +837,44 @@ deprecation cycle.
   that imports from the stub paths.
 
 **Target phase.** Phase 12 (polish).
+
+## turbopack-windows-segfault-flake
+
+**Problem.** `pnpm build` (Next.js 16.2.6 with Turbopack) on
+Windows occasionally crashes with exit code `3221225477` —
+`STATUS_ACCESS_VIOLATION` (0xC0000005). Observed during the
+Commit 31 audit (`6e9141d`): first invocation crashed before
+emitting any route output; immediate retry produced a clean
+build with full route tree. `pnpm verify` (lint + typecheck +
+vitest) is unaffected — the flake is isolated to Turbopack's
+production-build path on Windows.
+
+**Why.** Likely a known transient inside Turbopack's native
+addon on Windows; the access violation comes from outside V8
+(otherwise we'd see a JS stack). No code change repros it;
+no code change fixes it. Not a regression — the flake landed
+quietly when we moved to Turbopack-by-default in an earlier
+Next minor.
+
+**Resolution criteria.** Revisit if either:
+
+1. The flake starts repeating in eventual CI (Phase 11+),
+   especially blocking PRs on retry-once. At that point,
+   options are:
+   - Pin Turbopack to a known-good patch in `package.json`
+     overrides.
+   - Fall back to webpack for the build step only
+     (`next build --no-turbo`) while keeping Turbopack for
+     dev (HMR is the bigger Turbopack win anyway).
+   - File upstream with a minimal repro.
+2. We hit the same access-violation pattern in another
+   Next.js subsystem (proxy/middleware, dev server) — would
+   suggest a deeper Node-on-Windows issue worth investigating
+   before Phase 11 cutover.
+
+**Affected files.** None — environmental, no code touches
+needed today. This anchor exists so future failures can
+reference `TODO.md#turbopack-windows-segfault-flake` instead
+of relitigating diagnosis.
+
+**Target phase.** Phase 11 or 12, only if it recurs in CI.

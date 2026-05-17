@@ -423,4 +423,14 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
     const { seedWhatsapp } = await import('./seed-whatsapp');
     await seedWhatsapp(tx);
   }
+
+  // --- NPS demo (Phase 9 / Commit 32, Ajuste J) ---
+  // 2 surveys + 50 invitations + 35 responses (50/25/25 mix) so
+  // the /nps Analytics tab has real numbers out of the box.
+  // Gated by env; tests turn it off to keep their seeded worlds
+  // minimal.
+  if (env.BLACKNEL_SEED_NPS) {
+    const { seedNps } = await import('./seed-nps');
+    await seedNps(tx);
+  }
 }

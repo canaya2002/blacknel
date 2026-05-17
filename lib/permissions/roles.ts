@@ -54,7 +54,9 @@ export type Permission =
   | 'crisis:read'
   | 'crisis:decide'
   | 'brand_voice:manage'
-  | 'whatsapp:manage_templates';
+  | 'whatsapp:manage_templates'
+  | 'nps:read'
+  | 'nps:manage';
 
 const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'inbox:read',
@@ -95,6 +97,8 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'crisis:decide',
   'brand_voice:manage',
   'whatsapp:manage_templates',
+  'nps:read',
+  'nps:manage',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
@@ -142,6 +146,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'crisis:decide',
     'brand_voice:manage',
     'whatsapp:manage_templates',
+    'nps:read',
+    'nps:manage',
   ],
 
   // Manager: full operational reach (reply, approve, publish, automate,
@@ -179,6 +185,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'crisis:decide',
     'brand_voice:manage',
     'whatsapp:manage_templates',
+    'nps:read',
+    'nps:manage',
   ],
 
   // Agent: front-line operator. Reads and replies, drafts and
@@ -204,6 +212,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'campaigns:create',
     'crisis:read',
     'ads_alerts:read',
+    'nps:read',
   ],
 
   // Viewer: read-only, end-of-pipeline visibility for stakeholders.
@@ -218,5 +227,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'approvals:read',
     'campaigns:read',
     'crisis:read',
+    'nps:read',
   ],
 };

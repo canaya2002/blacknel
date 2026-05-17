@@ -425,3 +425,39 @@ export const whatsappTemplateCategoryEnum = pgEnum(
   'whatsapp_template_category',
   ['utility', 'marketing', 'authentication'],
 );
+
+// ---------------------------------------------------------------------------
+// NPS surveys (Phase 9 / Commit 32) — Growth-tier feature.
+// `nps_survey_trigger` lists every kick-off source the connector can
+// recognize; only `post_resolution` + `manual` are wired in Commit 32.
+// `nps_survey_channel` keeps `sms_reserved` as a placeholder so Phase
+// 11 can add SMS without an `ALTER TYPE`. `nps_response_category` is
+// derived from `score` by a GENERATED column — the enum exists so app
+// code can speak the bucket names.
+// ---------------------------------------------------------------------------
+
+export const npsSurveyTriggerEnum = pgEnum('nps_survey_trigger', [
+  'post_purchase',
+  'post_resolution',
+  'periodic',
+  'manual',
+]);
+
+export const npsSurveyChannelEnum = pgEnum('nps_survey_channel', [
+  'email',
+  'whatsapp',
+  'sms_reserved',
+]);
+
+export const npsResponseCategoryEnum = pgEnum('nps_response_category', [
+  'promoter',
+  'passive',
+  'detractor',
+]);
+
+export const npsSurveyStatusEnum = pgEnum('nps_survey_status', [
+  'draft',
+  'active',
+  'paused',
+  'archived',
+]);

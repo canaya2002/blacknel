@@ -7,6 +7,128 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 9 / Commit 32 (NPS surveys · public landing · post-resolution cron · CSV export)
+
+Second Growth-tier feature for Phase 9. Net Promoter Score surveys
+with the full lifecycle: configure → trigger → send → public submit
+→ aggregate → CSV export. Plan-gated on Growth+. The Standard plan
+sees the `<UpgradePrompt />` overlay carrying NPS-specific value
+bullets.
+
+**Charter — no Phase 1-7 schema or Phase-8 surface touched.** All
+three tables are new. Touches to earlier code are aditive:
+
+- `lib/permissions/roles.ts` — adds `nps:read` / `nps:manage` to
+  the matrix (owner/admin/manager/agent/viewer columns updated).
+- `lib/jobs/cron-loop.ts` — extends the 5-timer singleton with a
+  5th `npsTimer` (30 min cadence). Mechanically identical to the
+  Phase-8 `ads-sync` / `ads-alerts` timers — no refactor.
+- `lib/env.ts` — adds `BLACKNEL_NPS_JOB_ENABLED` (default true) +
+  `BLACKNEL_SEED_NPS` (default true). Tests force off via
+  `tests/helpers/react-act-setup.ts`.
+- `lib/plans/gates.ts` — drops the provisional `as FeatureKey` cast
+  that Commit 31 left as a marker. `'nps'` is now resolved
+  directly against the `PlanFeatures` matrix.
+
+**R-32-1 outcome — GENERATED ALWAYS AS STORED works in pglite.**
+
+The `category` column on `nps_responses` derives declaratively from
+`score` (≥9 promoter, 7-8 passive, ≤6 detractor) — same pattern as
+`inbox_messages.search_tsv` (Phase 4). Boundary verification lives
+in `tests/unit/nps-score-category.test.ts`: INSERT rows at each
+boundary (0, 6, 7, 8, 9, 10) + read `category` back. The Drizzle
+type uses `.generatedAlwaysAs(sql\`…\`)` (0.36+) so `$inferInsert`
+omits the column — callers cannot mistakenly pass it. **No trigger
+fallback needed.**
+
+**R-32-2 outcome — columna generada + unique index, NOT functional index.**
+
+The per-day uniqueness constraint per `(org, survey, contact)`
+runs against a STORED generated column `sent_on_date date
+GENERATED ALWAYS AS ((sent_at AT TIME ZONE 'UTC')::date) STORED`,
+NOT a functional unique index on `(sent_at::date)`. The cast
+`timestamptz::date` is STABLE (depends on session timezone) and
+Postgres refuses STABLE expressions in index expressions. The
+explicit `AT TIME ZONE 'UTC'` cast is IMMUTABLE and the generated
+column makes the timezone-stable bucket explicit. App code never
+reads or writes `sent_on_date` directly — same pattern as Phase 4
+`search_tsv` — so it stays out of the Drizzle row type and lives
+SQL-only.
+
+**Decisions D-32-1..8 confirmed**
+
+- D-32-1 (a) — bilingual ES/EN. `nps_surveys.locale` per-row
+  (defaults from `organizations.locale`).
+- D-32-2 (a) — email path reuses the existing `lib/emails/dev-outbox`
+  via `sendEmail({ kind: 'nps_prompt', … })`. The `nps_prompt`
+  `EmailKind` already existed pre-Commit-32 — no new infra.
+- D-32-3 (a) — detractor (score ≤ 6) must include a comment.
+  Enforced in 3 layers: UI (button stays disabled), Server Action
+  (returns `VALIDATION_ERROR`), and DB (`nps_responses_detractor_
+  comment CHECK`). Defense in depth.
+- D-32-4 — `idempotency_key` is a dedicated nullable column with
+  a partial unique `(org, idempotency_key) WHERE NOT NULL`, NOT a
+  `metadata->>'idempotency_key'` jsonb lookup. Same anti-Drupal
+  rationale as Commit 31 Sub-1.
+- D-32-5 — generated column over functional index (see R-32-2).
+- D-32-6 — `category` GENERATED column over trigger (see R-32-1).
+- D-32-7 — NPS-via-WhatsApp seed integration: skipped silently
+  when no WhatsApp account exists on the seeded org. Seed is
+  independent — no coupling between `seed-nps.ts` and
+  `seed-whatsapp.ts`.
+- D-32-8 — Analytics trend "rolling 90d sparkline" stubbed with a
+  static note pointing at Fase 10. KPI cards still reflect real
+  rolling-90d aggregates.
+
+**Ajuste A — CSV export**
+
+`exportNpsResponsesCsvAction` (Server Action) + `<NpsExportButton />`
+(client trigger). Audit row uses the same `reports.csv.exported`
+event the Phase-8 exports do, with `section: 'nps'`. Reuses the
+identical `csvEscape` helper pattern as the ads/inbox/publishing
+exports.
+
+**Ajuste J — seed**
+
+`lib/db/seed-nps.ts` lands 2 surveys per demo org (one active
+post_resolution, one draft periodic) + 50 deterministic invitations
+spread over the last 85 days + 35 responses with a 50/25/25 mix.
+Detractor seed rows carry comments to satisfy the DB-side CHECK.
+Gated by `BLACKNEL_SEED_NPS`. Idempotent via `ON CONFLICT DO NOTHING`.
+
+**Code surface**
+
+- Migration `0015_nps_surveys.sql` — 4 enums + 3 tables + RLS +
+  indexes + CHECK constraints + generated columns.
+- Schemas: `lib/db/schema/nps-surveys.ts`,
+  `lib/db/schema/nps-invitations.ts`, `lib/db/schema/nps-responses.ts`.
+- Domain layer: `lib/nps/{tokens,validate,queries,sender,triggers,
+  public-response}.ts`.
+- Cron: `lib/jobs/nps-scan.ts` + extension of `lib/jobs/cron-loop.ts`
+  (5th timer, 30 min cadence, env-gated).
+- Server Actions: `app/(app)/nps/actions.ts` — 6 actions (create /
+  update / archive / sendManual / listResponses / exportCsv) each
+  with plan-gate + RBAC + audit.
+- Public landing: `app/(public)/nps/[token]/{page,response-form,
+  submit-action}.ts(x)` — mirror of Phase-5 `/feedback/[token]`
+  with `bnf_nps_` prefixed tokens (distinct from review tokens).
+- App UI: `app/(app)/nps/page.tsx` (tabs: Surveys / Respuestas /
+  Analytics, all URL-driven), `surveys/new`, `surveys/[id]`,
+  `surveys/[id]/edit`. Components: `category-badge`, `kpi-cards`,
+  `nps-export-button`, `survey-form`.
+- Seed: `lib/db/seed-nps.ts` wired in `seed.ts` after WhatsApp.
+- Tests: 8 archivos, +28 cases (`nps-score-category`, `nps-aggregate`,
+  `nps-surveys-crud`, `nps-invitation-send`, `nps-response-submit`,
+  `nps-cron-resolution`, `nps-export-csv`, `upgrade-prompt-nps`).
+
+**Verification**
+
+- `pnpm verify` ✅ 1045 tests pass (+28 vs Commit 31 baseline 1017).
+- `pnpm build` ✅ — first invocation hit the same Turbopack /
+  Windows `STATUS_ACCESS_VIOLATION` flake documented in
+  `TODO.md#turbopack-windows-segfault-flake`; retry produced a
+  clean build with all NPS routes registered.
+
 ### Added — Phase 9 / Commit 31 (OPENS PHASE 9 · WhatsApp Business connector + plan-gating layer + reusable UpgradePrompt)
 
 Opens Phase 9 (Growth-tier features). Lands the most visible
