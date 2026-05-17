@@ -358,7 +358,11 @@ describe('approveWithEdits — dispatches the edited body', () => {
 });
 
 describe('dispatch contract for non-inbox entity tables', () => {
-  it('post entity_table throws NOT_IMPLEMENTED', async () => {
+  it('post entity_table with an invalid proposed_payload throws VALIDATION_ERROR', async () => {
+    // Commit 20b wires the post dispatcher. The "lands in Phase 6"
+    // NOT_IMPLEMENTED message is gone; an empty proposed_payload is
+    // now rejected as a malformed approval (same pattern as
+    // review_responses).
     const fakeApproval = {
       id: '44444444-4444-4444-8444-fe0000000099',
       organizationId: orgA,
@@ -372,7 +376,7 @@ describe('dispatch contract for non-inbox entity tables', () => {
         { orgId: orgA, userId: userMod },
         async (tx) => dispatchApproved(tx, fakeApproval, userMod),
       ),
-    ).rejects.toThrow(/Post dispatch lands in Phase 6/);
+    ).rejects.toThrow(/no es un payload de post válido/);
   });
 
   it('review_responses with an invalid proposed_payload throws VALIDATION_ERROR', async () => {

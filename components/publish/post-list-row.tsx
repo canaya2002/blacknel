@@ -1,7 +1,9 @@
 import Link from 'next/link';
-import { CalendarClock, Megaphone, Send, Tag, UserSquare2 } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Megaphone, Send, Tag, UserSquare2 } from 'lucide-react';
 
+import { RetryButton } from '@/components/publish/retry-button';
 import { Badge } from '@/components/ui/badge';
+import { MAX_RETRY_COUNT } from '@/lib/jobs/publish-target';
 import { cn } from '@/lib/utils/cn';
 import type { PostListItem } from '@/lib/publish/queries';
 
@@ -47,6 +49,8 @@ const STATUS_BADGE: Readonly<
   },
 };
 
+const ERROR_PREVIEW_MAX = 80;
+
 export function PostListRow({
   post,
   timeZone,
@@ -55,6 +59,7 @@ export function PostListRow({
   const badge = STATUS_BADGE[post.status];
   const when = post.publishedAt ?? post.scheduledAt;
   const whenLabel = when ? formatWhen(when, timeZone, locale) : null;
+  const isFailed = post.status === 'failed';
 
   return (
     <Link
@@ -89,17 +94,37 @@ export function PostListRow({
             <Send className="h-3 w-3" aria-hidden />
             {post.publishedTargetCount}/{post.targetCount} destinos
           </span>
+          {isFailed ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-red-700 dark:bg-red-950/40 dark:text-red-200">
+              <AlertTriangle className="h-3 w-3" aria-hidden />
+              intentos {post.maxRetryCount}/{MAX_RETRY_COUNT}
+            </span>
+          ) : null}
         </div>
         <p className="line-clamp-2 text-sm text-foreground">{post.text}</p>
+        {isFailed && post.lastErrorMessage ? (
+          <p className="line-clamp-1 text-[11px] text-red-700/90 dark:text-red-300/90">
+            <span className="font-medium">Error:</span>{' '}
+            {truncateError(post.lastErrorMessage)}
+          </p>
+        ) : null}
       </div>
-      {post.authorName ? (
-        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-          <Tag className="h-3 w-3" aria-hidden />
-          {post.authorName}
-        </span>
-      ) : null}
+      <div className="flex shrink-0 flex-col items-end gap-2">
+        {post.authorName ? (
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Tag className="h-3 w-3" aria-hidden />
+            {post.authorName}
+          </span>
+        ) : null}
+        {isFailed ? <RetryButton postId={post.id} variant="row" /> : null}
+      </div>
     </Link>
   );
+}
+
+function truncateError(s: string): string {
+  if (s.length <= ERROR_PREVIEW_MAX) return s;
+  return s.slice(0, ERROR_PREVIEW_MAX - 1) + '…';
 }
 
 function formatWhen(d: Date, timeZone: string, locale: string): string {

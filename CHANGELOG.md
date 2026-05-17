@@ -7,6 +7,169 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 6 / Commit 20 (publish-job + retries + post-approval dispatch + bidir UI)
+
+End-to-end publishing pipeline. Sub-commit 20a (`03afebe`)
+landed the cron-driven job + retry bookkeeping + idempotency
+contract; sub-commit 20b lands the post side of the approval
+dispatcher + bidirectional composer/queue UI + the failed-post
+retry surface.
+
+**Sub-commit 20a — publish-job + retries + idempotency + cron singleton**
+
+- `lib/jobs/publish-target.ts` — per-target dispatch with
+  `SELECT FOR UPDATE` on the target row, idempotency-key
+  contract (non-null at dispatch), connector call, and the
+  `[60s, 300s, 900s]` backoff schedule (`BACKOFF_MS`). Caps at
+  `MAX_RETRY_COUNT=3`. Returns `Result<DispatchOutcome>`.
+- `lib/jobs/publish-post.ts` — `runPublishTick()` orchestrator.
+  Set A = `posts.status='scheduled' AND scheduled_at <= now`;
+  Set B = `posts.status='publishing' AND target retry-due`.
+  Per-post: locks, transitions `scheduled → publishing`, dispatches
+  every actionable target, computes terminal status (`published`
+  / `failed` / `published.partial`) and bumps `postsPerMonth`.
+- `lib/jobs/cron-loop.ts` — in-process singleton. Gated by
+  `env.BLACKNEL_PUBLISH_JOB_ENABLED` + `NODE_ENV='development'`
+  + `started` flag. `setInterval` with `.unref()` so vitest
+  teardown doesn't hang. `tickInFlight` guard skips overlapping
+  ticks. Stoppable via `stopPublishCron()` (test-only).
+- `instrumentation.ts` — Next.js 16 register hook arrancs the
+  cron on Node.js runtime only (edge no-op).
+- `lib/db/migrations/0009_publishing_retries.sql` —
+  `post_targets.retry_count` + `next_retry_at` columns, a
+  partial index on `(status='failed' AND retry_count<3)`, and a
+  backfill that gen-uuids missing `idempotency_key` values so
+  the C20a invariant holds against historical rows.
+- `lib/connectors/base/mock-publish.ts` — `forceFailNext(n,
+  errorCode?)` + `resetForcedFailures()` test override so the
+  retry tests are deterministic. Audit events for the system
+  path use `actorType='system'` + `userId=NULL` (audit FK is
+  `ON DELETE SET NULL`).
+- `app/(app)/publish/actions.ts` — `retryFailedPostAction`
+  resets every failed target on a post (status=pending,
+  retry_count=0, next_retry_at=null, error_message=null) and
+  transitions the parent to `'scheduled'` or `'publishing'`
+  depending on whether `scheduled_at` is still in the future.
+
+**Sub-commit 20b — post approval dispatcher + bidir UI + failed UX**
+
+- `lib/approvals/dispatchers/post.ts` — `dispatchPostApproval` +
+  `dispatchPostRejection` mirror the inbox / review-response
+  pattern. Three approve branches:
+  - `scheduled_at != null` → `posts.status='scheduled'` (cron's
+    Set A handles it).
+  - `scheduled_at == null` → `posts.status='publishing'` AND
+    flags `needsSyncDispatch=true`. The caller invokes
+    `runPublishTick()` post-commit; Set B's C20b extension picks
+    up the post via `target.status='pending'` and drains its
+    targets sync (sub-minute publish for "publish now" approval).
+  - `approveWithEdits` — applies `editedText` to `posts.text`
+    BEFORE the transition, same branch as plain approve.
+  - Reject → `posts.status='cancelled'`. Targets stay where
+    they are.
+- `lib/approvals/dispatch.ts` — `DispatchResult` gains
+  `postId`, `postToStatus`, `postNeedsSyncDispatch`,
+  `postScheduledAtIso`, `postTextEdited`. The `'posts'` case
+  in both `dispatchApproved` and `dispatchRejection` now
+  delegates to the new dispatcher (no more NOT_IMPLEMENTED).
+- `app/(app)/approvals/actions.ts` — `approveAction` /
+  `approveWithEditsAction` / `rejectAction` carry the post
+  fields through `TxOutcome`. After the txn commits, the
+  action writes `post.approved` / `post.approved.edited` /
+  `post.cancelled` audits and revalidates `/publish` +
+  `/publish/composer/[id]`. When `postNeedsSyncDispatch=true`,
+  it dynamically imports `runPublishTick` and runs the tick
+  inline; failure surfaces in the console + lets the cron's
+  next pass retry via Set B.
+- `lib/jobs/publish-post.ts` — Set B selector extends to also
+  catch `posts.status='publishing' AND target.status='pending'`
+  (the state the post-approval sync path leaves behind). The
+  retry-due branch is unchanged; both cases live under one
+  `or(...)` predicate.
+- `lib/approvals/queries.ts` — `pendingApprovalForPost(orgId,
+  userId, postId)` returns the active (`pending` /
+  `escalated`) approval row for a post. Drives the composer's
+  PendingApprovalBanner deep-link.
+- `components/publish/composer/composer-status-banners.tsx` —
+  Server-Component `PendingApprovalBanner` (deep-links to
+  `/approvals/[id]` + risk chip + "edición bloqueada"
+  notice) and `FailedPostBanner` (truncated last error +
+  retry-count chip + `<RetryButton variant='banner' />`).
+- `components/publish/composer/composer-shell.tsx` — single
+  change: wraps the entire subtree in
+  `<fieldset disabled={readOnly}>`. Native cascade disables
+  every input/textarea/button/select; no subcomponent prop
+  propagation. Subcomponents that bypass the cascade (Server
+  Action buttons mounted outside the form tree, Radix
+  dialogs) tracked at `TODO composer-readonly-bypass` for
+  Phase 12 polish.
+- `app/(app)/publish/composer/[id]/page.tsx` — branches on
+  `post.status`: `draft` → editable, `pending_approval` /
+  `failed` → read-only composer + appropriate banner, other
+  states → existing NonEditableNotice.
+- `app/(app)/approvals/[approvalId]/page.tsx` — adds
+  `PostApprovalPanel` for `kind='post'` showing scheduled_at,
+  target platforms, campaign goal, approval reason
+  (`brand_rule` / `platform_rule` / `campaign_rule`) and a
+  deep-link back to the composer.
+- `components/publish/retry-button.tsx` — Client component
+  invoking `retryFailedPostAction`. Two variants: `'row'`
+  (compact, used in `<PostListRow />`) and `'banner'`
+  (composer banner). Stops Link click propagation so the row
+  surface doesn't navigate while retrying.
+- `components/publish/post-list-row.tsx` — `status='failed'`
+  rows now render the retry-count chip + truncated last
+  error + the Row variant of `<RetryButton />`. The data
+  comes from two new subqueries in `listPostsForOrg`
+  (`maxRetryCount`, `lastErrorMessage`); `PostListItem` and
+  `PostTargetView` gained `retryCount` / `nextRetryAt`.
+
+**Tests**
+
+- `tests/integration/publish-job.test.ts` — happy path,
+  full-failure-across-3-ticks → `post.failed`, mix path →
+  `post.published.partial`, plus the `postsPerMonth`
+  increment contract (sub-commit 20a).
+- `tests/integration/publish-job-retry.test.ts` — retry
+  bookkeeping: backoff times for each attempt, retry-count
+  cap returns `skipped`, manual reset unlocks dispatch,
+  partial-index slice sanity.
+- `tests/integration/post-approval-dispatch.test.ts` (new in
+  20b, 6 cases):
+  - approve + scheduled_at → status='scheduled'.
+  - approve sin scheduled_at → status='publishing' + runPublishTick
+    drives to terminal 'published'.
+  - reject → status='cancelled'.
+  - approveWithEdits → posts.text updated + status transition.
+  - sequential concurrency → second approve receives
+    APPROVAL_ALREADY_DECIDED.
+  - drift guard: when posts.status moved out of pending_approval
+    out-of-band, the dispatcher raises CONFLICT.
+- `tests/integration/approvals-flows.test.ts` — the "posts
+  case throws NOT_IMPLEMENTED" assertion flipped to the
+  malformed-payload VALIDATION_ERROR now that the dispatcher
+  is live.
+
+**TODOs added**
+
+- `publish-job-concurrency-live` (Phase 11) — pglite is
+  single-connection so the two-tx concurrency test can't run
+  in real-time. Re-test on live Postgres before the Phase 11
+  cutover.
+- `composer-readonly-bypass` (Phase 12 polish) — audit
+  subcomponents that mount outside the `<fieldset>` cascade
+  (Server-Action buttons, Radix dialogs) and add an explicit
+  `readOnly` prop where the native cascade doesn't reach.
+- `composer-edit-modal-post-kind` (Phase 12 polish) —
+  `EditModal` only supports the inbox_reply `messageBody`
+  field today. Add post `editedText` and review_response
+  `body` fields so the queue UI can drive approveWithEdits
+  for every entity kind.
+- `audit-events-atomicity` (Phase 11) — same caveat as the
+  rest of the audit-writes: the post-approval audit fires
+  outside the dispatch txn, so an audit-write crash is
+  recoverable but visible as a missing audit row.
+
 ### Added — Phase 6 / Commit 19b (media uploader · asset library · storage provider · plan quotas)
 
 Second slice of the composer. Adds the asset pipeline (upload,

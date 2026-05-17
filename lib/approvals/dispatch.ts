@@ -8,6 +8,11 @@ import {
   type InboxApprovalRow,
 } from './dispatchers/inbox-reply';
 import {
+  dispatchPostApproval,
+  dispatchPostRejection,
+  type PostApprovalRow,
+} from './dispatchers/post';
+import {
   dispatchReviewResponseApproval,
   dispatchReviewResponseRejection,
   type ReviewResponseApprovalRow,
@@ -45,6 +50,23 @@ export interface DispatchResult {
   readonly reviewResponseId?: string;
   /** Set when the dispatched approval transitioned a review_response. */
   readonly reviewId?: string;
+  /** Set when the dispatched approval transitioned a post (Commit 20b). */
+  readonly postId?: string;
+  /**
+   * Terminal status the post landed in — `'scheduled'` (cron picks up at
+   * `scheduled_at`) or `'publishing'` (caller should kick the cron sync).
+   */
+  readonly postToStatus?: 'scheduled' | 'publishing' | 'cancelled';
+  /**
+   * `true` when the caller should invoke `runPublishTick()` after the
+   * txn commits to drain the post's pending targets sync. False when
+   * the post landed in `'scheduled'` (the cron's normal Set A handles it).
+   */
+  readonly postNeedsSyncDispatch?: boolean;
+  /** ISO `scheduled_at` from the proposed_payload, for revalidation context. */
+  readonly postScheduledAtIso?: string | null;
+  /** True when an `editedText` override was applied to `posts.text`. */
+  readonly postTextEdited?: boolean;
 }
 
 export async function dispatchApproved(
@@ -65,12 +87,20 @@ export async function dispatchApproved(
       );
       return { reviewResponseId, reviewId };
     }
-    case 'posts':
-      throw new AppError(
-        'NOT_IMPLEMENTED',
-        'Post dispatch lands in Phase 6 (Publishing).',
-        { meta: { entityTable: approval.entityTable } },
+    case 'posts': {
+      const result = await dispatchPostApproval(
+        tx,
+        approval as PostApprovalRow,
+        actorUserId,
       );
+      return {
+        postId: result.postId,
+        postToStatus: result.toStatus as 'scheduled' | 'publishing',
+        postNeedsSyncDispatch: result.needsSyncDispatch,
+        postScheduledAtIso: result.scheduledAtIso,
+        postTextEdited: result.textEdited,
+      };
+    }
     default:
       throw new AppError(
         'INTERNAL_ERROR',
@@ -99,8 +129,14 @@ export async function dispatchRejection(
       );
       return { reviewResponseId };
     }
+    case 'posts': {
+      const { postId } = await dispatchPostRejection(
+        tx,
+        approval as PostApprovalRow,
+      );
+      return { postId, postToStatus: 'cancelled' };
+    }
     case 'inbox_messages':
-    case 'posts':
       // No outbound effect to undo on reject — the row was never created.
       return {};
     default:

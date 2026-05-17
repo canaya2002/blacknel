@@ -4,9 +4,15 @@ import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
 import { ComposerShell } from '@/components/publish/composer/composer-shell';
+import {
+  FailedPostBanner,
+  PendingApprovalBanner,
+} from '@/components/publish/composer/composer-status-banners';
 import { requireUser } from '@/lib/auth/server';
+import { pendingApprovalForPost } from '@/lib/approvals/queries';
 import { authorize } from '@/lib/permissions/can';
 import { loadComposerData } from '@/lib/publish/composer/loader';
+import { MAX_RETRY_COUNT } from '@/lib/jobs/publish-target';
 import { getOrgPlanCode } from '@/lib/queries/plan';
 
 export const dynamic = 'force-dynamic';
@@ -18,22 +24,17 @@ interface ComposerPageProps {
 const idSchema = z.string().uuid();
 
 /**
- * /publish/composer/[id] — Commit 19a.
+ * /publish/composer/[id] — Commit 20b update.
  *
- * Composer editor for a single post draft. Renders the shell with
- * pre-loaded data; the editor itself is a Client component (see
- * `<ComposerShell />`). Subsequent commits add:
+ * Render branches by `post.status`:
  *
- *   - 19b: media uploader + storage provider + asset library
- *   - 19c: previews (FB / IG / GBP fieles + generic), schedule
- *          control, compliance pill, AI caption stub, approval
- *          rule integration
- *
- * State persistence is currently per-action:
- *   - text / link / utm / campaignId → `saveDraftAction` (idle
- *     auto-save lands in 19c)
- *   - account picker selection       → `setPostTargetsAction`
- *   - schedule transition            → `schedulePostAction` (C18)
+ *   - `draft`               → editable composer, no banner.
+ *   - `pending_approval`    → read-only composer + PendingApprovalBanner
+ *                             with deep-link to /approvals/[id].
+ *   - `failed`              → read-only composer + FailedPostBanner
+ *                             with last error + RetryButton.
+ *   - any other terminal /  → NonEditableNotice (calendar back-link).
+ *     in-flight status
  */
 export default async function ComposerEditorPage({
   params,
@@ -55,19 +56,67 @@ export default async function ComposerEditorPage({
   ]);
   if (!data) notFound();
 
-  // Posts in terminal or in-flight states are not editable. We
-  // render a read-only banner pointing back to the calendar.
-  const editable =
-    data.postDetail.status === 'draft' ||
-    data.postDetail.status === 'pending_approval';
+  const status = data.postDetail.status;
+  const isReadOnlyComposer =
+    status === 'pending_approval' || status === 'failed';
+  const isEditable = status === 'draft';
+  const showComposer = isEditable || isReadOnlyComposer;
+
+  if (!showComposer) {
+    return (
+      <div className="flex flex-col">
+        <NonEditableNotice status={status} />
+      </div>
+    );
+  }
+
+  // Pending approval — fetch the active approval row so the banner
+  // can deep-link. There is at most one (apply-schedule.ts only
+  // inserts one approval per post).
+  const approval =
+    status === 'pending_approval'
+      ? await pendingApprovalForPost({
+          orgId: session.orgId,
+          userId: session.userId,
+          postId: parsedId.data,
+        })
+      : null;
+
+  // Failed — surface the most recent target error + the max
+  // retry_count for the chip. Reads from the post detail we
+  // already loaded (no extra round-trip).
+  const failedTargets = data.postDetail.targets.filter(
+    (t) => t.status === 'failed',
+  );
+  const lastError =
+    failedTargets.find((t) => t.errorMessage)?.errorMessage ?? null;
+  const maxRetryCountForRow = failedTargets.reduce(
+    (acc, t) => Math.max(acc, t.retryCount),
+    0,
+  );
 
   return (
     <div className="flex flex-col">
-      {editable ? (
-        <ComposerShell data={data} planCode={planCode} />
-      ) : (
-        <NonEditableNotice status={data.postDetail.status} />
-      )}
+      {status === 'pending_approval' && approval ? (
+        <PendingApprovalBanner
+          approvalId={approval.id}
+          riskLevel={approval.riskLevel}
+          createdAt={approval.createdAt}
+        />
+      ) : null}
+      {status === 'failed' ? (
+        <FailedPostBanner
+          postId={data.postDetail.id}
+          lastError={lastError}
+          retryCount={maxRetryCountForRow}
+          maxRetryCount={MAX_RETRY_COUNT}
+        />
+      ) : null}
+      <ComposerShell
+        data={data}
+        planCode={planCode}
+        readOnly={isReadOnlyComposer}
+      />
     </div>
   );
 }

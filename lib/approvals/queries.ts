@@ -327,3 +327,43 @@ export async function pendingApprovalsForReview(opts: {
         .limit(5),
   );
 }
+
+/**
+ * Return the active (pending / escalated) approval row tied to a
+ * post, if any. Drives the bidirectional banner on the composer:
+ *
+ *   "Este post está en aprobación → /approvals/[id]"
+ *
+ * Matched via `approvals.entity_table='posts' AND entity_id=postId`.
+ * Returns at most one row — the schema doesn't enforce uniqueness
+ * but `apply-schedule.ts` only ever inserts one approval per post.
+ */
+export async function pendingApprovalForPost(opts: {
+  orgId: string;
+  userId: string;
+  postId: string;
+}): Promise<{ id: string; createdAt: Date; riskLevel: string } | null> {
+  const rows = await dbAs<Array<{ id: string; createdAt: Date; riskLevel: string }>>(
+    { orgId: opts.orgId, userId: opts.userId },
+    async (tx) =>
+      tx
+        .select({
+          id: approvals.id,
+          createdAt: approvals.createdAt,
+          riskLevel: approvals.riskLevel,
+        })
+        .from(approvals)
+        .where(
+          and(
+            eq(approvals.organizationId, opts.orgId),
+            eq(approvals.entityTable, 'posts'),
+            eq(approvals.entityId, opts.postId),
+            inArray(approvals.status, ['pending', 'escalated'] as const),
+          ),
+        )
+        .orderBy(desc(approvals.createdAt))
+        .limit(1),
+  );
+  return rows[0] ?? null;
+}
+

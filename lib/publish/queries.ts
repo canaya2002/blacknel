@@ -61,6 +61,21 @@ export interface PostListItem {
   readonly targetCount: number;
   /** Number of targets currently in `published` status. */
   readonly publishedTargetCount: number;
+  /**
+   * For `status='failed'` rows: the max `retry_count` across the
+   * post's failed targets. Drives the "1/3" label on the
+   * post-list-row retry UI (Commit 20b). Zero when no failed
+   * targets (i.e., the row isn't actually failed at the target
+   * level — the post-level status came from an upstream signal).
+   */
+  readonly maxRetryCount: number;
+  /**
+   * For `status='failed'` rows: the most recent (DESC by
+   * `published_at` / fallback id) non-null `error_message` from a
+   * failed target. Renders truncated in the row; the composer
+   * banner shows it full.
+   */
+  readonly lastErrorMessage: string | null;
 }
 
 export interface PostListPage {
@@ -144,6 +159,8 @@ export async function listPostsWithTx(
     createdAt: Date;
     targetCount: string | number;
     publishedTargetCount: string | number;
+    maxRetryCount: string | number | null;
+    lastErrorMessage: string | null;
   };
 
   const rows: Row[] = await tx
@@ -167,6 +184,18 @@ export async function listPostsWithTx(
         SELECT COUNT(*)::int FROM post_targets pt
         WHERE pt.post_id = ${posts.id} AND pt.status = 'published'
       )`.as('published_target_count'),
+      maxRetryCount: sql<string | number | null>`(
+        SELECT COALESCE(MAX(pt.retry_count), 0)::int FROM post_targets pt
+        WHERE pt.post_id = ${posts.id} AND pt.status = 'failed'
+      )`.as('max_retry_count'),
+      lastErrorMessage: sql<string | null>`(
+        SELECT pt.error_message FROM post_targets pt
+        WHERE pt.post_id = ${posts.id}
+          AND pt.status = 'failed'
+          AND pt.error_message IS NOT NULL
+        ORDER BY pt.id DESC
+        LIMIT 1
+      )`.as('last_error_message'),
     })
     .from(posts)
     .leftJoin(brands, eq(brands.id, posts.brandId))
@@ -195,6 +224,8 @@ export async function listPostsWithTx(
       createdAt: r.createdAt,
       targetCount: toNum(r.targetCount) ?? 0,
       publishedTargetCount: toNum(r.publishedTargetCount) ?? 0,
+      maxRetryCount: toNum(r.maxRetryCount) ?? 0,
+      lastErrorMessage: r.lastErrorMessage,
     })),
     // Cursor pagination wires in Commit 18 when the list view
     // lands. Phase-6 Commit-17 surface is server-side only.
@@ -216,6 +247,9 @@ export interface PostTargetView {
   readonly publishedAt: Date | null;
   readonly errorMessage: string | null;
   readonly attemptCount: number;
+  /** Commit 20a publish-job retry bookkeeping. */
+  readonly retryCount: number;
+  readonly nextRetryAt: Date | null;
   readonly platformVariant: Record<string, unknown>;
 }
 
@@ -297,6 +331,8 @@ export async function getPostDetail(opts: {
           publishedAt: postTargets.publishedAt,
           errorMessage: postTargets.errorMessage,
           attemptCount: postTargets.attemptCount,
+          retryCount: postTargets.retryCount,
+          nextRetryAt: postTargets.nextRetryAt,
           platformVariant: postTargets.platformVariant,
         })
         .from(postTargets)

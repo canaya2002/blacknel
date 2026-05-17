@@ -185,8 +185,19 @@ async function findCandidates(deps: PublishTickDeps): Promise<PostCandidate[]> {
       .limit(50),
   );
 
-  // Set B: publishing posts with retry-due targets. We do a
-  // distinct-by-post join into post_targets.
+  // Set B: publishing posts with actionable targets. Two cases:
+  //
+  //   (a) `target.status='pending'` — used by the post-approval
+  //       sync dispatch path (Commit 20b). When an approver clicks
+  //       "Approve" with no scheduled_at, the dispatcher transitions
+  //       the post `pending_approval → publishing`. Targets stay
+  //       'pending'. Set B picks them up on the next tick (or the
+  //       sync `runPublishTick()` call from `approveAction`).
+  //
+  //   (b) `target.status='failed' AND retry_count<MAX AND next_retry_at<=now`
+  //       — the original retry-due path from Commit 20a.
+  //
+  // Single distinct-by-post join into post_targets covers both.
   const setB = await deps.asAdmin<Row[]>((tx) =>
     tx
       .selectDistinct({ postId: posts.id, orgId: posts.organizationId })
@@ -195,9 +206,14 @@ async function findCandidates(deps: PublishTickDeps): Promise<PostCandidate[]> {
       .where(
         and(
           eq(posts.status, 'publishing'),
-          eq(postTargets.status, 'failed'),
-          sql`${postTargets.retryCount} < ${MAX_RETRY_COUNT}`,
-          lte(postTargets.nextRetryAt, now),
+          or(
+            eq(postTargets.status, 'pending'),
+            and(
+              eq(postTargets.status, 'failed'),
+              sql`${postTargets.retryCount} < ${MAX_RETRY_COUNT}`,
+              lte(postTargets.nextRetryAt, now),
+            ),
+          ),
         ),
       )
       .limit(50),
@@ -529,4 +545,3 @@ function emptyReport(): CandidateReport {
 // surfaces here rather than as a silent broken contract.
 void inArray;
 void ne;
-void or;

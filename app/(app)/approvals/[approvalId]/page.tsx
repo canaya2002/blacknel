@@ -1,4 +1,12 @@
-import { ArrowLeft, AlertTriangle, MessageSquare, Star } from 'lucide-react';
+import {
+  ArrowLeft,
+  AlertTriangle,
+  CalendarClock,
+  MessageSquare,
+  Star,
+  Tag,
+  Target,
+} from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
@@ -39,6 +47,12 @@ export default async function ApprovalDetailPage({
     typeof detail.proposedPayload.reviewId === 'string'
       ? (detail.proposedPayload.reviewId as string)
       : null;
+  const postId =
+    detail.kind === 'post' &&
+    typeof detail.proposedPayload.postId === 'string'
+      ? (detail.proposedPayload.postId as string)
+      : null;
+  const postPayload = detail.kind === 'post' ? extractPostPayload(detail.proposedPayload) : null;
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -85,6 +99,10 @@ export default async function ApprovalDetailPage({
           <Star className="h-3.5 w-3.5" />
           Review origen → /reviews/{reviewId.slice(0, 8)}…
         </Link>
+      ) : null}
+
+      {detail.kind === 'post' && postId ? (
+        <PostApprovalPanel postId={postId} payload={postPayload} />
       ) : null}
 
       {detail.aiRiskFlags.length > 0 ? (
@@ -183,6 +201,126 @@ function RiskBadge({ riskLevel }: { riskLevel: string }): React.ReactElement {
   return (
     <span className={`text-[10px] uppercase ${tone}`}>{`risk: ${riskLevel}`}</span>
   );
+}
+
+interface PostPayloadSummary {
+  scheduledAtIso: string | null;
+  targetPlatforms: ReadonlyArray<string>;
+  campaignGoal: string | null;
+  approvalReason: string | null;
+  matchedPlatforms: ReadonlyArray<string>;
+  matchedCampaignGoal: string | null;
+}
+
+function extractPostPayload(payload: Record<string, unknown>): PostPayloadSummary {
+  const scheduledAtIso =
+    typeof payload.scheduledAtIso === 'string' ? payload.scheduledAtIso : null;
+  const targetPlatforms = Array.isArray(payload.targetPlatforms)
+    ? (payload.targetPlatforms.filter((p) => typeof p === 'string') as string[])
+    : [];
+  const campaignGoal =
+    typeof payload.campaignGoal === 'string' ? payload.campaignGoal : null;
+  const approvalReason =
+    typeof payload.approvalReason === 'string' ? payload.approvalReason : null;
+  const matchedPlatforms = Array.isArray(payload.matchedPlatforms)
+    ? (payload.matchedPlatforms.filter((p) => typeof p === 'string') as string[])
+    : [];
+  const matchedCampaignGoal =
+    typeof payload.matchedCampaignGoal === 'string'
+      ? payload.matchedCampaignGoal
+      : null;
+  return {
+    scheduledAtIso,
+    targetPlatforms,
+    campaignGoal,
+    approvalReason,
+    matchedPlatforms,
+    matchedCampaignGoal,
+  };
+}
+
+interface PostApprovalPanelProps {
+  postId: string;
+  payload: PostPayloadSummary | null;
+}
+
+function PostApprovalPanel({
+  postId,
+  payload,
+}: PostApprovalPanelProps): React.ReactElement {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Resumen del post</CardTitle>
+        <CardDescription>
+          Plataformas, schedule y razón por la que esta publicación requiere
+          aprobación. El diff de payload de abajo trae el cuerpo del texto.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CalendarClock className="h-3.5 w-3.5" aria-hidden />
+            {payload?.scheduledAtIso
+              ? new Date(payload.scheduledAtIso).toLocaleString()
+              : 'Publicar inmediatamente al aprobar'}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Target className="h-3.5 w-3.5" aria-hidden />
+            {payload?.targetPlatforms.length
+              ? payload.targetPlatforms.join(', ')
+              : 'sin plataformas registradas'}
+          </span>
+          {payload?.campaignGoal ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Tag className="h-3.5 w-3.5" aria-hidden />
+              {payload.campaignGoal}
+            </span>
+          ) : null}
+        </div>
+        {payload?.approvalReason ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Razón
+            </span>
+            <span className="text-xs">{humanReason(payload.approvalReason)}</span>
+            {payload.matchedPlatforms.length > 0 ? (
+              <span className="text-[11px] text-muted-foreground">
+                Plataformas que dispararon la regla:{' '}
+                {payload.matchedPlatforms.join(', ')}
+              </span>
+            ) : null}
+            {payload.matchedCampaignGoal ? (
+              <span className="text-[11px] text-muted-foreground">
+                Goal de campaña: {payload.matchedCampaignGoal}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <Link
+          href={`/publish/composer/${postId}` as `/publish/composer/${string}`}
+          prefetch={false}
+          className="inline-flex w-fit items-center gap-1.5 text-xs text-foreground hover:underline"
+        >
+          <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+          Ver post en composer → /publish/composer/{postId.slice(0, 8)}…
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+function humanReason(reason: string): string {
+  switch (reason) {
+    case 'brand_rule':
+      return 'La marca exige aprobación para todos los posts.';
+    case 'platform_rule':
+      return 'Una o más plataformas requieren aprobación según la voz de marca.';
+    case 'campaign_rule':
+      return 'El goal de la campaña activa la regla de aprobación.';
+    default:
+      return reason;
+  }
 }
 
 function StatusBadge({ status }: { status: string }): React.ReactElement {

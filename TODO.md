@@ -512,3 +512,86 @@ same `posts` row.
   for the live test).
 
 **Target phase.** Phase 11 (Supabase cutover).
+
+## composer-readonly-bypass
+
+**Problem.** `components/publish/composer/composer-shell.tsx`
+wraps its subtree in `<fieldset disabled={readOnly}>` for the
+Commit-20b read-only modes (`pending_approval`, `failed`). The
+native `disabled` cascade covers inputs / textareas / buttons /
+selects but NOT:
+
+- Server-Action buttons mounted outside the form tree (the
+  cancel button uses a form-action wrapper).
+- Radix portal-mounted dialogs (Dialog content renders outside
+  the `<fieldset>` DOM subtree, so its buttons stay enabled).
+- `<Link href>` anchors (`<a>` is not affected by `disabled`).
+
+If a user under `readOnly=true` clicks one of these, the
+Server Action still fires. Today the backing Server Actions
+reject mutations on `pending_approval` / `failed` posts via
+their own status gates, so the UX outcome is an error toast —
+not data corruption — but the affordance is misleading.
+
+**Why deferred.** Commit 20b held a strict "single change in
+composer-shell" rule (`<fieldset>` wrap, NO subcomponent
+refactor). Auditing every subcomponent + propagating a
+`readOnly` prop is a non-trivial follow-up and the safety net
+(action-level gates) already prevents drift.
+
+**Resolution criteria.** Audit each subcomponent under
+`components/publish/composer/`:
+
+1. List which ones bypass the `<fieldset>` cascade.
+2. Add a `readOnly?: boolean` prop where needed (cancel-button,
+   ai-caption-button, media-uploader's dialog launchers).
+3. Render disabled visual state (cursor-not-allowed, opacity).
+4. Add a Vitest case that mounts ComposerShell with
+   `readOnly=true` and asserts the cancel-button + ai-caption
+   dialog trigger are `aria-disabled` / `pointer-events-none`.
+
+**Affected files.**
+
+- `components/publish/composer/composer-shell.tsx`
+- `components/publish/composer/cancel-button.tsx`
+- `components/publish/composer/ai-caption-button.tsx`
+- `components/publish/composer/media-uploader.tsx`
+
+**Target phase.** Phase 12 (polish).
+
+## composer-edit-modal-post-kind
+
+**Problem.** `components/approvals/edit-modal.tsx` only exposes
+a textarea bound to `messageBody` — the inbox_reply payload
+field. The dispatchers for review_response (`body`) and post
+(`editedText`, Commit 20b) both honor their respective fields,
+but the queue UI can't drive an approveWithEdits for those kinds
+end-to-end. Tests cover the dispatcher contract directly via
+`runAs` + manual editedPayload construction (see
+`reviews-approval-dispatch.test.ts` and
+`post-approval-dispatch.test.ts`).
+
+**Why deferred.** Commit 20b lands the dispatcher only; the
+modal extension is a follow-up to keep the diff scoped. The
+operational workaround is to reject + ask the author to edit
+the draft, then re-route to approval.
+
+**Resolution criteria.** Extend `EditModal` to:
+
+1. Detect kind via `initialPayload.kind`.
+2. For `kind='post'`, render a textarea bound to `editedText`
+   (multi-line, 8 000 char max).
+3. For `kind='review_response'`, render a textarea bound to
+   `body`.
+4. For `kind='inbox_reply'`, keep the existing `messageBody`
+   path.
+5. Add a Vitest case per branch asserting the resulting
+   editedPayload shape is what each dispatcher consumes.
+
+**Affected files.**
+
+- `components/approvals/edit-modal.tsx`
+- `tests/integration/approvals-flows.test.ts` (or a new file
+  if the existing one becomes unwieldy).
+
+**Target phase.** Phase 12 (polish).

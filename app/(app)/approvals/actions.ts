@@ -72,6 +72,12 @@ type TxOutcome =
       /** Phase-5 review-response dispatch products. */
       reviewResponseId?: string;
       reviewId?: string;
+      /** Phase-6 post dispatch products (Commit 20b). */
+      postId?: string;
+      postToStatus?: 'scheduled' | 'publishing' | 'cancelled';
+      postNeedsSyncDispatch?: boolean;
+      postScheduledAtIso?: string | null;
+      postTextEdited?: boolean;
       /** Carries through the entity_table of the approval so audit emits the right event. */
       entityTable?: string;
     }
@@ -168,6 +174,12 @@ export async function approveAction(
       if (dispatch.reviewId) {
         result.reviewId = dispatch.reviewId;
       }
+      if (dispatch.postId) {
+        result.postId = dispatch.postId;
+        result.postToStatus = dispatch.postToStatus;
+        result.postNeedsSyncDispatch = dispatch.postNeedsSyncDispatch;
+        result.postScheduledAtIso = dispatch.postScheduledAtIso;
+      }
       return result;
     },
   );
@@ -191,6 +203,7 @@ export async function approveAction(
   const dispatchedMessageId = outcome.messageId;
   const dispatchedResponseId = outcome.reviewResponseId;
   const dispatchedReviewId = outcome.reviewId;
+  const dispatchedPostId = outcome.postId;
 
   // Audit. `approval.approved` always fires; the per-entity audit
   // emits afterward so observability dashboards can group by
@@ -207,6 +220,7 @@ export async function approveAction(
       ...(parsed.data.decisionReason ? { decisionReason: parsed.data.decisionReason } : {}),
       ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}),
       ...(dispatchedResponseId ? { reviewResponseId: dispatchedResponseId } : {}),
+      ...(dispatchedPostId ? { postId: dispatchedPostId, postToStatus: outcome.postToStatus } : {}),
     },
   );
   if (dispatchedMessageId) {
@@ -233,12 +247,45 @@ export async function approveAction(
       },
     );
   }
+  if (dispatchedPostId) {
+    await writeAudit(
+      session.orgId,
+      session.userId,
+      'post.approved',
+      dispatchedPostId,
+      null,
+      {
+        approvalId: parsed.data.approvalId,
+        toStatus: outcome.postToStatus,
+        scheduledAt: outcome.postScheduledAtIso ?? null,
+        via: 'approval_dispatch',
+      },
+    );
+    // Sync dispatch — the dispatcher transitioned the post to
+    // 'publishing' with pending targets; runPublishTick's extended
+    // Set B picks it up immediately and dispatches each target.
+    if (outcome.postNeedsSyncDispatch) {
+      try {
+        const { runPublishTick } = await import('@/lib/jobs/publish-post');
+        await runPublishTick();
+      } catch (cause) {
+        // Sync-dispatch failures don't roll back the approval — the
+        // cron's next tick will retry via Set B. We log + continue.
+        // (See lib/jobs/publish-post.ts for the retry contract.)
+        console.error('approval.post.sync_dispatch.failed', cause);
+      }
+    }
+  }
 
   revalidatePath('/approvals');
   revalidatePath(`/approvals/${parsed.data.approvalId}`);
   if (dispatchedReviewId) {
     revalidatePath('/reviews');
     revalidatePath(`/reviews/${dispatchedReviewId}`);
+  }
+  if (dispatchedPostId) {
+    revalidatePath('/publish');
+    revalidatePath(`/publish/composer/${dispatchedPostId}`);
   }
   return ok({
     approvalId: parsed.data.approvalId,
@@ -344,6 +391,13 @@ export async function approveWithEditsAction(
       if (dispatch.reviewId) {
         result.reviewId = dispatch.reviewId;
       }
+      if (dispatch.postId) {
+        result.postId = dispatch.postId;
+        result.postToStatus = dispatch.postToStatus;
+        result.postNeedsSyncDispatch = dispatch.postNeedsSyncDispatch;
+        result.postScheduledAtIso = dispatch.postScheduledAtIso;
+        result.postTextEdited = dispatch.postTextEdited;
+      }
       return result;
     },
   );
@@ -367,6 +421,7 @@ export async function approveWithEditsAction(
   const dispatchedMessageId = outcome.messageId;
   const dispatchedResponseId = outcome.reviewResponseId;
   const dispatchedReviewId = outcome.reviewId;
+  const dispatchedPostId = outcome.postId;
 
   await writeAudit(
     session.orgId,
@@ -381,6 +436,13 @@ export async function approveWithEditsAction(
       ...(parsed.data.decisionReason ? { decisionReason: parsed.data.decisionReason } : {}),
       ...(dispatchedMessageId ? { messageId: dispatchedMessageId } : {}),
       ...(dispatchedResponseId ? { reviewResponseId: dispatchedResponseId } : {}),
+      ...(dispatchedPostId
+        ? {
+            postId: dispatchedPostId,
+            postToStatus: outcome.postToStatus,
+            textEdited: outcome.postTextEdited ?? false,
+          }
+        : {}),
     },
   );
   if (dispatchedMessageId) {
@@ -410,12 +472,40 @@ export async function approveWithEditsAction(
       },
     );
   }
+  if (dispatchedPostId) {
+    await writeAudit(
+      session.orgId,
+      session.userId,
+      'post.approved.edited',
+      dispatchedPostId,
+      null,
+      {
+        approvalId: parsed.data.approvalId,
+        toStatus: outcome.postToStatus,
+        scheduledAt: outcome.postScheduledAtIso ?? null,
+        textEdited: outcome.postTextEdited ?? false,
+        via: 'approval_dispatch_edited',
+      },
+    );
+    if (outcome.postNeedsSyncDispatch) {
+      try {
+        const { runPublishTick } = await import('@/lib/jobs/publish-post');
+        await runPublishTick();
+      } catch (cause) {
+        console.error('approval.post.sync_dispatch.failed', cause);
+      }
+    }
+  }
 
   revalidatePath('/approvals');
   revalidatePath(`/approvals/${parsed.data.approvalId}`);
   if (dispatchedReviewId) {
     revalidatePath('/reviews');
     revalidatePath(`/reviews/${dispatchedReviewId}`);
+  }
+  if (dispatchedPostId) {
+    revalidatePath('/publish');
+    revalidatePath(`/publish/composer/${dispatchedPostId}`);
   }
   return ok({
     approvalId: parsed.data.approvalId,
@@ -499,6 +589,10 @@ export async function rejectAction(
       if (dispatch.reviewResponseId) {
         result.reviewResponseId = dispatch.reviewResponseId;
       }
+      if (dispatch.postId) {
+        result.postId = dispatch.postId;
+        result.postToStatus = 'cancelled';
+      }
       // Extract reviewId from proposed_payload for revalidation +
       // audit context. The dispatcher doesn't return it on reject.
       if (
@@ -542,6 +636,7 @@ export async function rejectAction(
       ...(outcome.reviewResponseId
         ? { reviewResponseId: outcome.reviewResponseId }
         : {}),
+      ...(outcome.postId ? { postId: outcome.postId } : {}),
     },
   );
   if (outcome.reviewResponseId) {
@@ -558,12 +653,30 @@ export async function rejectAction(
       },
     );
   }
+  if (outcome.postId) {
+    await writeAudit(
+      session.orgId,
+      session.userId,
+      'post.cancelled',
+      outcome.postId,
+      null,
+      {
+        approvalId: parsed.data.approvalId,
+        decisionReason: parsed.data.decisionReason,
+        via: 'approval_dispatch_rejected',
+      },
+    );
+  }
 
   revalidatePath('/approvals');
   revalidatePath(`/approvals/${parsed.data.approvalId}`);
   if (outcome.reviewId) {
     revalidatePath('/reviews');
     revalidatePath(`/reviews/${outcome.reviewId}`);
+  }
+  if (outcome.postId) {
+    revalidatePath('/publish');
+    revalidatePath(`/publish/composer/${outcome.postId}`);
   }
   return ok({ approvalId: parsed.data.approvalId });
 }

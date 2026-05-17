@@ -46,6 +46,19 @@ import { UtmBuilder } from './utm-builder';
 interface ComposerShellProps {
   data: ComposerData;
   planCode: PlanCode;
+  /**
+   * When true (Commit 20b — bidir UI), the composer renders the
+   * editor read-only by wrapping the entire subtree in a
+   * `<fieldset disabled>`. Used for `pending_approval` and
+   * `failed` posts where the page shows a banner above. No
+   * subcomponent prop propagation — the native `disabled` cascade
+   * handles every input, textarea, button, select inside.
+   *
+   * Subcomponents that bypass the cascade (Server Action buttons
+   * dispatched outside the fieldset, dialogs that mount outside
+   * the form tree) are tracked at TODO composer-readonly-bypass.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -67,7 +80,11 @@ interface ComposerShellProps {
  * `beforeunload` + auto-save flow lands in Commit 21
  * (TODO composer-dirty-state-guard).
  */
-export function ComposerShell({ data, planCode }: ComposerShellProps): React.ReactElement {
+export function ComposerShell({
+  data,
+  planCode,
+  readOnly = false,
+}: ComposerShellProps): React.ReactElement {
   const router = useRouter();
   const [savingDraft, startSaveDraft] = useTransition();
   const [savingTargets, startSaveTargets] = useTransition();
@@ -355,7 +372,7 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <fieldset disabled={readOnly} className="flex flex-col gap-4 disabled:opacity-90">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card/30 px-6 py-3">
         <div className="flex items-center gap-2">
           <Button asChild size="icon" variant="ghost" className="h-8 w-8">
@@ -481,7 +498,7 @@ export function ComposerShell({ data, planCode }: ComposerShellProps): React.Rea
           </Button>
         </div>
       </footer>
-    </div>
+    </fieldset>
   );
 }
 
