@@ -878,3 +878,121 @@ reference `TODO.md#turbopack-windows-segfault-flake` instead
 of relitigating diagnosis.
 
 **Target phase.** Phase 11 or 12, only if it recurs in CI.
+
+## nps-analytics-sparkline
+
+**Problem.** D-32-8 deferred. The `/nps` Analytics tab and
+`/nps/surveys/[id]` detail today render a static "Trend rolling
+90d sparkline aterriza en Fase 10" placeholder. Functional KPI
+cards exist; what's missing is the time-series visualization.
+
+**Why deferred.** Sparklines aren't critical for the demo. The
+KPI bucket math is correct (verified in
+`tests/unit/nps-aggregate.test.ts`); the placeholder is honest
+about what's coming.
+
+**Resolution criteria.** Phase 10 — add a tiny inline SVG
+helper (`<Sparkline points={[...]} />`) that takes a 90-day
+buckets array and renders a single-color path. Do NOT pull a
+chart library; keep email-compatible if the same component
+ends up in `lib/scheduled-reports/report-builder.ts`.
+
+**Target phase.** Phase 10.
+
+## competitor-detail-trend-sparkline
+
+**Problem.** Same shape as `nps-analytics-sparkline`. The
+`/competitors/[id]` page renders a coarse 30-day bar cluster
+inline today. Functional but unpolished.
+
+**Resolution criteria.** Reuse the Phase-10 `<Sparkline />`
+helper from `nps-analytics-sparkline`.
+
+**Target phase.** Phase 10.
+
+## listening-mention-detail-page
+
+**Problem.** `/listening` lists mentions but there's no detail
+page per mention. The natural symmetry with
+`/nps/surveys/[id]` and `/competitors/[id]` would be a
+`/listening/mentions/[id]` page showing the full mention body,
+author profile, sentiment + confidence breakdown, and a linked
+inbox thread if the mention was promoted.
+
+**Resolution criteria.** Phase 10 page following
+`doc/PATTERNS.md#detail-page-template`. Reuse `MentionCard`
+content + add an author-profile sidebar.
+
+**Target phase.** Phase 10.
+
+## whatsapp-meta-real
+
+**Problem.** `lib/connectors/whatsapp/templates-mock.ts`
+auto-approves templates synchronously. Real Meta WABA API has
+async approval (minutes → hours) via webhook.
+
+**Resolution criteria.** Phase 11 swap. Add a real API client
+behind the same interface; template approval state flips via
+webhook → cron poll → status update. Tests stay green because
+the mock interface is the contract.
+
+**Target phase.** Phase 11.
+
+## listening-brand24
+
+**Problem.** `lib/connectors/listening/mock.ts` produces
+deterministic mock mentions. Phase 11 swap candidates:
+Brand24, Mention.com, Google Alerts (RSS fallback).
+
+**Resolution criteria.** Same shape as `whatsapp-meta-real` —
+swap the connector body, keep the `ListeningMockMention`
+contract stable so `lib/listening/persist.ts` (AI sentiment
++ intent pipeline) doesn't change.
+
+**Target phase.** Phase 11.
+
+## competitors-brand24-similarweb
+
+**Problem.** `lib/connectors/competitors/mock.ts` →
+Brand24/SimilarWeb. Same shape as `listening-brand24`.
+
+**Target phase.** Phase 11.
+
+## scheduled-reports-resend
+
+**Problem.** `lib/emails/send.ts` pushes to the dev outbox.
+Phase 11 swaps the body to call Resend with both the `text`
+and `html` fields (already lined up per R-34-2).
+
+**Resolution criteria.** Single-file swap in
+`lib/emails/send.ts`; 0 call sites change. Add Resend API
+key handling in `lib/env.ts`.
+
+**Target phase.** Phase 11.
+
+## scheduled-reports-cron-5
+
+**Problem.** `lib/scheduled-reports/schedule.ts` accepts only
+weekly (`<dow> HH:MM`) and monthly (`<1-28> HH:MM`) schedule
+expressions. The `custom` kind is documented as "weekly or
+monthly form" — a real cron-5 parser is deferred.
+
+**Resolution criteria.** Phase 11 with Inngest swap — Inngest's
+own scheduling primitives replace the probe-based next-run
+computer. Custom kind accepts standard cron-5.
+
+**Target phase.** Phase 11.
+
+## dev-outbox-html-preview-ui
+
+**Problem.** The dev outbox now stores `html` (R-34-2) but
+there's no UI to preview rendered HTML emails. Useful for
+debugging scheduled-reports output without opening Postgres
+or reading raw HTML in logs.
+
+**Resolution criteria.** `/settings/dev-outbox` page (or
+`/dev/outbox`) listing captured emails with an iframe
+sandboxed HTML preview.
+
+**Target phase.** Phase 10 or 11 — whichever lands `/settings`
+expansion first.

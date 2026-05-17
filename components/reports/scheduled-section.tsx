@@ -71,7 +71,12 @@ export function ScheduledSection({
             data-testid={`scheduled-report-${r.id}`}
           >
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-semibold">{r.name}</span>
+              <Link
+                href={`/reports/scheduled/${r.id}`}
+                className="text-sm font-semibold hover:underline"
+              >
+                {r.name}
+              </Link>
               <span className="text-xs text-muted-foreground">
                 {r.brandName ?? 'Todas las brands'} ·{' '}
                 <code className="rounded bg-muted/60 px-1 font-mono">

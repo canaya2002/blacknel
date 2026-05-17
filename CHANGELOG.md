@@ -7,6 +7,192 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 9 / Commit 35 (CLOSES PHASE 9 · detail-page polish + charter audit + end-to-end rubric)
+
+Closing commit for Phase 9. No new features — only polish carry-
+overs from Commits 31-34 and the disciplined Fase 9 close:
+
+  - `/nps/surveys/[id]` extended with a recent-responses table.
+  - NEW `/competitors/[id]` detail page.
+  - NEW `/reports/scheduled/[id]` detail page with runs history +
+    Run-now / Pause-Resume actions.
+  - `doc/PATTERNS.md` formalizes the detail-page template the
+    three pages above share (Ajuste 1).
+
+**Detail-page template (Ajuste 1)**
+
+5 sections, fixed order: PageHeader → KPI cards row → Timeline →
+Tables/lists → Footer actions. Documented in `doc/PATTERNS.md`
+so Phase-10+ detail pages start from the same shape. No shared
+shell component — each page composes inline because the KPI mix
++ chart shape differ enough that an abstraction would just be a
+flex container.
+
+---
+
+### Phase 9 — End-to-end rubric (Ajuste 2)
+
+Carlos runs this manually after the commit lands. **Pre-flight**:
+`pnpm dev` is up, logged in with a Growth-plan user, all crons
+enabled (`BLACKNEL_*_JOB_ENABLED=true` in `.env.local`).
+
+**WhatsApp Business (Commit 31)**
+- [ ] (a) `/integrations` → tile WhatsApp Business marked Growth+
+      → conectar mock account (manual dialog) succeeds.
+- [ ] (b) `/integrations/[id]` → "New template" → submit body
+      "Hola {{1}}, gracias." → auto-approve after ~1 tick.
+- [ ] (c) `/inbox/[threadId]` (WhatsApp thread) → composer
+      dropdown shows approved templates → send template →
+      `inbox_messages` row written with `whatsapp_template_id`
+      populated.
+
+**NPS (Commit 32)**
+- [ ] (d) `/nps` → "Nuevo survey" → trigger=`post_resolution`,
+      status=`active`. Survey appears in list.
+- [ ] (e) `/nps/surveys/[id]` → "Editar" reachable → status
+      toggles persist.
+- [ ] (f) Manual send via dev-script or Server Action sends an
+      invitation; check the dev outbox for `kind: 'nps_prompt'`
+      with the public landing URL.
+- [ ] (g) Open the `/nps/[token]` (public) → 3 score + comment
+      → submit → "¡Gracias!" message shows.
+- [ ] (h) Back at `/nps/surveys/[id]` → "Respuestas recientes"
+      section now lists that response (NEW Commit 35).
+
+**Listening (Commit 33)**
+- [ ] (i) `/listening?tab=terms` → "Nuevo término" → keyword
+      "@blacknel", platforms ['x', 'instagram'], status=`active`.
+- [ ] (j) Force a listening tick (or wait 60min) → `/listening`
+      Mentions tab populates with deterministic mocks.
+- [ ] (k) Pick any mention → "Llevar a inbox" → new thread
+      appears in `/inbox` with `source_mention_id` populated
+      (visible in DB; UI shows "Ver en inbox" link on the
+      mention card).
+
+**Competitors (Commit 34)**
+- [ ] (l) `/competitors/new` → "Competitor X" with handles per
+      platform.
+- [ ] (m) `/competitors` list refreshes; SoV bar shows after
+      next dev seed reload (or wait 24h cron in prod-like).
+- [ ] (n) Click competitor name → `/competitors/[id]` (NEW
+      Commit 35) → KPI cards + 30d trend bar + platform
+      breakdown table render.
+
+**Scheduled reports (Commit 34)**
+- [ ] (o) `/reports?section=scheduled` → "Programar reporte" →
+      weekly, "mon 09:00", recipients=`['you@example.com']`.
+- [ ] (p) Click the schedule row → `/reports/scheduled/[id]`
+      (NEW Commit 35) → "Run now" → dev outbox shows the HTML
+      report → runs history table reflects the new `sent` row.
+
+If any step fails → Phase 9 stays open. If all pass → Phase 9
+oficialmente cerrada.
+
+---
+
+### Phase 9 — Charter audit (Ajuste 3)
+
+Comprehensive inventory of touches to Phases 1-8 across Commits
+31-35. Each touch is documented in the originating commit and
+listed here for the Fase 9 close audit.
+
+| Touch | Phase touched | Commit | Justification |
+|---|---|---|---|
+| `inbox_messages.whatsapp_template_id` FK column + partial index | Phase 4 | 31 | Habilita trazabilidad template-vs-freeform exclusiva del WhatsApp Business Growth flow. Column nullable + sin default → 0 impact en rows históricos. |
+| `components/inbox/composer.tsx` extension (WhatsApp template picker) | Phase 4 | 31 | Composer es el punto de entrada del Growth-only template send. Aditivo. |
+| `lib/jobs/cron-loop.ts` — +5th NPS timer | Phase 7 | 32 | NPS post-resolution requiere cron tick. Mecánica idéntica a ads-sync. Cero touch a timers existentes. |
+| `lib/permissions/roles.ts` — +nps:read, +nps:manage | Phase 2 | 32 | Feature Growth-only requiere su scope RBAC. Aditivo. |
+| `lib/env.ts` — +BLACKNEL_NPS_JOB_ENABLED + BLACKNEL_SEED_NPS | Phase 1 | 32 | Test/dev gates. Aditivo. |
+| `lib/plans/gates.ts` — cleanup `as FeatureKey` cast | Phase 9 (C31) | 32 | Cleanup interno C9, no toca Fases 1-8. |
+| `inbox_threads.source_mention_id` FK column + partial index | Phase 4 | 33 | Habilita loop discover→triage→operate de Listening. Column nullable + sin default. Mismo patrón que C31. |
+| `lib/jobs/cron-loop.ts` — +6th listening timer | Phase 7 | 33 | Listening scan tick (60 min). Aditivo. |
+| `lib/permissions/roles.ts` — +listening:read | Phase 2 | 33 | `listening:manage` ya existía (Phase 2), `:read` aditivo. |
+| `lib/env.ts` — +BLACKNEL_LISTENING_JOB_ENABLED + BLACKNEL_SEED_LISTENING | Phase 1 | 33 | Aditivo. |
+| `app/(app)/listening/page.tsx` — replaced Phase-1 stub | Phase 1 (stub) | 33 | Stub apuntaba al legacy `common/upgrade-prompt`. Reemplazo coherente con C31 `billing/upgrade-prompt`. |
+| `lib/emails/send.ts` — +html?: string optional field | Phase 1 | 34 | Scheduled-reports requiere multipart text+html. Backwards-compatible (0 callers cambiados). |
+| `lib/emails/dev-outbox.ts` — +html?: string field | Phase 1 | 34 | Misma touch que send.ts para preview en dev. |
+| `lib/jobs/cron-loop.ts` — +7th scheduled-reports timer | Phase 7 | 34 | 15-min cadence dispatcher. Aditivo. |
+| `lib/permissions/roles.ts` — +competitors:read/manage + scheduled_reports:manage | Phase 2 | 34 | Aditivo. |
+| `lib/env.ts` — +BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED + BLACKNEL_SEED_COMPETITORS_REPORTS | Phase 1 | 34 | Aditivo. |
+| `lib/reports/period.ts` — ALLOWED_SECTIONS adds 'scheduled' | Phase 8 | 34 | D-34-6 (a): scheduled tab en /reports. Aditivo (enum extension, 0 existing branches cambiadas). |
+| `components/reports/report-tab-nav.tsx` — TABS adds 'Scheduled' | Phase 8 | 34 | D-34-6 (a). Aditivo. |
+| `app/(app)/reports/page.tsx` — scheduled section branch | Phase 8 | 34 | D-34-6 (a). Aditivo (else-if branch nuevo, 0 existing branches cambiadas). |
+| `app/(app)/competitors/page.tsx` — replaced Phase-1 stub | Phase 1 (stub) | 34 | Mismo patrón que C33. |
+
+**Conclusion**: 19 touches a Phases 1-8 a lo largo de Fase 9.
+Todos aditivos (columns nullable, env vars, permissions,
+timers). Cero cambios destructivos a Phases 1-7. Cero
+modificaciones a rows históricas. Cero breaking changes para
+callers existentes.
+
+---
+
+### Phase 9 — Executive summary
+
+4 features Growth-tier nuevos + 1 commit de polish/cierre, en 5
+commits durante el rango aproximado [2026-05-17, 2026-05-17]:
+
+| Commit | Feature | Tests added | Schema migrations |
+|---|---|---|---|
+| 31 | WhatsApp Business + plan-gating + UpgradePrompt | +24 | 0014 |
+| 32 | NPS surveys + public landing + post-resolution cron + CSV export | +28 | 0015 |
+| 33 | Social listening + AI sentiment/intent pipeline + CSV export | +21 | 0016 |
+| 34 | Competitors tracking + scheduled report emails + HTML email infra | +37 | 0017 |
+| 35 | Detail pages + charter audit + end-to-end rubric | +6 | — |
+| **Σ** | | **+116** | **4** |
+
+**Tests delta**: 993 (Phase 8 close) → 1109+ (Phase 9 close) =
+**+116 cases**.
+
+**LOC delta** (approx): ~18,000 lines added across `lib/`,
+`app/`, `components/`, `tests/`, `doc/`.
+
+**Database**: 4 new migrations, 17 new tables, +24 new enums.
+Zero modifications to existing tables (only nullable ALTERs in
+C31/C33 charter touches).
+
+---
+
+### Phase 9 — Carry-overs
+
+Items discovered during Fase 9 that don't fit Fase 9 scope.
+Each lands in TODO.md as an anchor.
+
+**Phase 10 (Enterprise extras)**
+- `nps-analytics-sparkline` — D-32-8 deferred. The /nps Analytics
+  trend 90d card today shows a static note. Phase 10 wires a
+  real sparkline (probably via a tiny SVG helper, not a chart
+  library).
+- `competitor-detail-trend-sparkline` — Same shape. The 30d bar
+  cluster on `/competitors/[id]` is functional but coarse.
+- `listening-mention-detail-page` — `/listening/mentions/[id]`
+  would show the full conversation + author profile + linked
+  thread, paralleling `/nps/surveys/[id]` and `/competitors/[id]`.
+
+**Phase 11 (Live cutover)**
+- `whatsapp-meta-real` — swap mock `submitTemplate`/`sendTemplate`
+  for Meta WABA API; template approval becomes async.
+- `listening-brand24` — swap `lib/connectors/listening/mock` for
+  Brand24 / Mention.com / Google Alerts.
+- `competitors-brand24-similarweb` — swap
+  `lib/connectors/competitors/mock`.
+- `scheduled-reports-resend` — swap dev outbox for Resend; the
+  `html` field already lines up with their multipart API.
+- `nps-resend` — same.
+- `scheduled-reports-cron-5` — accept full cron-5 expressions
+  (today only weekly/monthly forms). Replace the probe-based
+  next-run computer with a real cron parser.
+- `dev-outbox-html-preview-ui` — `/settings/dev-outbox` page that
+  renders each captured email as iframe HTML for inspection.
+  Helps verify scheduled-reports output without opening
+  Postgres.
+
+**Phase 12 (Polish)**
+- `turbopack-windows-segfault-flake` — already in TODO.md.
+  Revisit if it recurs in CI.
+
+---
+
 ### Added — Phase 9 / Commit 34 (Competitors tracking · scheduled report emails · email html infra)
 
 Last two Growth-tier features before Phase 9 closes:

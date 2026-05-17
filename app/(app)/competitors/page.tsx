@@ -122,7 +122,12 @@ async function CompetitorsBody({
             data-testid={`competitor-${c.id}`}
           >
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-semibold">{c.name}</span>
+              <Link
+                href={`/competitors/${c.id}`}
+                className="text-sm font-semibold hover:underline"
+              >
+                {c.name}
+              </Link>
               <span className="text-xs text-muted-foreground">
                 {c.brandName ?? 'Todas las brands'} · {c.platforms.join(', ')}
               </span>

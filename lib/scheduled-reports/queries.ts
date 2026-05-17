@@ -140,6 +140,76 @@ export interface RunRow {
   readonly errorCode: string | null;
 }
 
+export async function getScheduledReportByIdWithTx(
+  tx: AnyPgTx,
+  orgId: string,
+  scheduledReportId: string,
+): Promise<ScheduledReportRow | null> {
+  const rows: Array<{
+    report: ScheduledReport;
+    brandName: string | null;
+    runsCount: number;
+  }> = await tx
+    .select({
+      report: scheduledReports,
+      brandName: brands.name,
+      runsCount: sql<number>`COALESCE((
+        SELECT COUNT(*)::int FROM ${scheduledReportRuns}
+        WHERE ${scheduledReportRuns}.scheduled_report_id = ${scheduledReports}.id
+      ), 0)`,
+    })
+    .from(scheduledReports)
+    .leftJoin(brands, eq(brands.id, scheduledReports.brandId))
+    .where(
+      and(
+        eq(scheduledReports.organizationId, orgId),
+        eq(scheduledReports.id, scheduledReportId),
+      ),
+    )
+    .limit(1);
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: r.report.id,
+    brandId: r.report.brandId,
+    brandName: r.brandName,
+    name: r.report.name,
+    kind: r.report.kind,
+    scheduleExpr: r.report.scheduleExpr,
+    recipients: r.report.recipients,
+    status: r.report.status,
+    nextRunAt: r.report.nextRunAt,
+    lastRunAt: r.report.lastRunAt,
+    runsCount: r.runsCount,
+  };
+}
+
+export async function getScheduledReportById(ctx: {
+  orgId: string;
+  userId: string;
+  scheduledReportId: string;
+}): Promise<ScheduledReportRow | null> {
+  return dbAs({ orgId: ctx.orgId, userId: ctx.userId }, (tx) =>
+    getScheduledReportByIdWithTx(tx, ctx.orgId, ctx.scheduledReportId),
+  );
+}
+
+export async function listRunsForReport(ctx: {
+  orgId: string;
+  userId: string;
+  scheduledReportId: string;
+  limit?: number;
+}): Promise<RunRow[]> {
+  return dbAs({ orgId: ctx.orgId, userId: ctx.userId }, (tx) =>
+    listRunsForReportWithTx(
+      tx,
+      ctx.orgId,
+      ctx.scheduledReportId,
+      ctx.limit ?? 20,
+    ),
+  );
+}
+
 export async function listRunsForReportWithTx(
   tx: AnyPgTx,
   orgId: string,
