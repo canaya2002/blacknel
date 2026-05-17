@@ -4,6 +4,7 @@ import { PreviewFacebook } from './preview-facebook';
 import { PreviewGBP } from './preview-gbp';
 import { PreviewGeneric } from './preview-generic';
 import { PreviewInstagram } from './preview-instagram';
+import { PreviewLinkedIn } from './preview-linkedin';
 import type { PreviewSlice } from './preview-shared';
 
 interface PreviewShellProps {
@@ -14,9 +15,18 @@ interface PreviewShellProps {
  * Orchestrator for the composer preview column. Receives an array
  * of pre-computed `PreviewSlice` objects from the shell and
  * dispatches each to the matching fiel component. Anything not in
- * the fiel allow-list (Facebook, Instagram, GBP) falls through to
- * `<PreviewGeneric />` — the Commit 21 polish pass replaces those
- * one-by-one without touching this dispatch.
+ * the fiel allow-list (Facebook, Instagram, GBP, LinkedIn — added
+ * in Commit 21) falls through to `<PreviewGeneric />`.
+ *
+ * Remaining platforms on the generic path (Phase 12 polish):
+ *
+ *   - x          — rate limits / policy churn means Phase-11
+ *                  connector cutover is the right time to validate.
+ *   - tiktok     — visual-heavy; needs more asset variety to
+ *                  justify the fidelity.
+ *   - pinterest  — same as tiktok.
+ *   - youtube    — preview value is low for a 60s short, high for
+ *                  the long-form embed. Decide post-connector.
  *
  * Stack scrolls independently when there are >3 previews (max
  * viewport-height with overflow-y).
@@ -55,6 +65,8 @@ function PreviewForPlatform({ slice }: { slice: PreviewSlice }): React.ReactElem
       return <PreviewInstagram slice={slice} />;
     case 'gbp':
       return <PreviewGBP slice={slice} />;
+    case 'linkedin':
+      return <PreviewLinkedIn slice={slice} />;
     default:
       return <PreviewGeneric slice={slice} />;
   }

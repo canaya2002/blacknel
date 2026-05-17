@@ -7,6 +7,7 @@ import {
   CreditCard,
   Headphones,
   Inbox,
+  Layers,
   LayoutDashboard,
   MapPin,
   Megaphone,
@@ -72,6 +73,7 @@ export const SIDEBAR_SECTIONS: SidebarSection[] = [
     label: 'Contenido',
     items: [
       { label: 'Publish', href: '/publish', icon: Send },
+      { label: 'Campaigns', href: '/publish/campaigns', icon: Layers },
       { label: 'AI Studio', href: '/ai-studio', icon: Sparkles },
     ],
   },

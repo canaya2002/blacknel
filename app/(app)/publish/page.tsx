@@ -3,6 +3,7 @@ import { can } from '@/lib/permissions/can';
 import { authorize } from '@/lib/permissions/can';
 import { parsePublishFilters, hasActiveFilters } from '@/lib/publish/filters';
 import { loadPublishDashboardData } from '@/lib/publish/dashboard';
+import { decodePostCursor } from '@/lib/publish/cursor';
 import { checkPostsCap } from '@/lib/publish/usage-check';
 import { getOrgPlanCode } from '@/lib/queries/plan';
 
@@ -62,6 +63,7 @@ export default async function PublishPage({
   const sp = await searchParams;
   const now = new Date();
   const filters = parsePublishFilters(sp, { now });
+  const cursor = decodePostCursor(typeof sp.cursor === 'string' ? sp.cursor : undefined);
 
   const plan = await getOrgPlanCode(session);
   const [data, cap] = await Promise.all([
@@ -69,6 +71,7 @@ export default async function PublishPage({
       orgId: session.orgId,
       userId: session.userId,
       filters,
+      cursor,
     }),
     checkPostsCap(session.orgId, plan),
   ]);
@@ -103,7 +106,7 @@ export default async function PublishPage({
         <ListSection
           filters={data.filters}
           posts={data.listPage.posts}
-          hasMore={data.listPage.nextCursor !== null}
+          nextCursor={data.listPage.nextCursor}
           timeZone={data.orgTimezone}
           locale={data.orgLocale}
           filtersActive={filtersActive}
@@ -175,14 +178,14 @@ function CalendarSection({
 function ListSection({
   filters,
   posts,
-  hasMore,
+  nextCursor,
   timeZone,
   locale,
   filtersActive,
 }: {
   filters: ReturnType<typeof parsePublishFilters>;
   posts: Awaited<ReturnType<typeof loadPublishDashboardData>>['listPage']['posts'];
-  hasMore: boolean;
+  nextCursor: string | null;
   timeZone: string;
   locale: string;
   filtersActive: boolean;
@@ -197,7 +200,7 @@ function ListSection({
       posts={posts}
       timeZone={timeZone}
       locale={locale}
-      hasMore={hasMore}
+      nextCursor={nextCursor}
     />
   );
 }

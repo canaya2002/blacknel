@@ -1,7 +1,12 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { useTransition } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 
+import { Button } from '@/components/ui/button';
 import type { PostListItem } from '@/lib/publish/queries';
 
 import { PostListRow } from './post-list-row';
@@ -10,26 +15,39 @@ interface PostsListProps {
   posts: ReadonlyArray<PostListItem>;
   timeZone: string;
   locale: string;
-  /** True when the page has more posts than this batch. Footer hint. */
-  hasMore: boolean;
+  /**
+   * Encoded cursor for the next page, or null when this is the last
+   * page. Drives the "Cargar más" footer; clicking it appends
+   * `?cursor=…` to the current URL — the Server Component reloads
+   * with the next batch (Commit 21 — real pagination).
+   */
+  nextCursor: string | null;
 }
 
 /**
  * Virtualized list used by the named tabs (drafts / scheduled /
  * published / failed). react-virtuoso keeps rendering cheap even
- * with 500+ rows; the `style` height comes from the parent because
- * the page already reserves vertical space below the filter bar.
+ * with 500+ rows.
  *
- * Cursor pagination is deferred to Commit 21 (TODO #5
- * `polling-scroll-and-url-state`). For now we show the first batch
- * the loader returned and surface a hint when `hasMore` is true.
+ * Cursor pagination: each click on "Cargar más" navigates to
+ * `?cursor=<encoded>`. The Server Component re-runs with the new
+ * cursor; the URL stays in sync so a bookmark resumes mid-list.
  */
 export function PostsList({
   posts,
   timeZone,
   locale,
-  hasMore,
+  nextCursor,
 }: PostsListProps): React.ReactElement {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [pending, startTransition] = useTransition();
+  void startTransition;
+
+  const loadMoreHref = nextCursor
+    ? `${pathname}?${appendCursor(searchParams, nextCursor)}`
+    : null;
+
   return (
     <div
       data-testid="publish-posts-list"
@@ -42,11 +60,17 @@ export function PostsList({
           <PostListRow post={post} timeZone={timeZone} locale={locale} />
         )}
         components={{
-          Footer: hasMore
+          Footer: loadMoreHref
             ? () => (
-                <div className="border-t bg-card/30 px-6 py-3 text-center text-xs text-muted-foreground">
-                  Mostrando los primeros {posts.length} posts. La paginación
-                  completa llega en Commit 21.
+                <div className="border-t bg-card/20 px-6 py-3 text-center">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={loadMoreHref} prefetch={false} scroll={false}>
+                      {pending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : null}
+                      Cargar más
+                    </Link>
+                  </Button>
                 </div>
               )
             : undefined,
@@ -54,4 +78,10 @@ export function PostsList({
       />
     </div>
   );
+}
+
+function appendCursor(searchParams: URLSearchParams, cursor: string): string {
+  const next = new URLSearchParams(searchParams);
+  next.set('cursor', cursor);
+  return next.toString();
 }

@@ -2,6 +2,7 @@ import 'server-only';
 
 import { type AnyPgTx, dbAs } from '../db/client';
 
+import type { PostCursor } from './cursor';
 import { endOfMonthUtc, type PublishFilters, statusForTab } from './filters';
 import {
   getOrgTimezoneWithTx,
@@ -76,6 +77,8 @@ export interface LoadDashboardOpts {
   readonly orgId: string;
   readonly userId: string;
   readonly filters: PublishFilters;
+  /** Decoded cursor from `?cursor=…`. Threaded into `listPostsWithTx`. */
+  readonly cursor?: PostCursor | null;
   readonly pageSize?: number;
   /** DI override for the spy contract test. */
   readonly deps?: PublishDashboardDeps;
@@ -128,6 +131,7 @@ export async function loadPublishDashboardDataWithTx(
           ...listFilters,
           ...(tabStatus ? { status: tabStatus } : {}),
         },
+        ...(opts.cursor ? { cursor: opts.cursor } : {}),
         ...(opts.pageSize ? { pageSize: opts.pageSize } : {}),
       }),
       deps.kpis(tx, opts.orgId),
@@ -160,8 +164,6 @@ export async function loadPublishDashboardDataWithTx(
 
 /**
  * Shape-narrowed re-export so consumers don't have to thread the
- * query module separately for typing. Drops the cursor field
- * since list rendering on /publish doesn't use cursor pagination
- * yet (Commit 21 polish).
+ * query module separately for typing.
  */
 export type PublishDashboardListItem = PostListItem;

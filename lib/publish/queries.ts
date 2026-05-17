@@ -13,6 +13,8 @@ import {
   users,
 } from '../db/schema';
 
+import { encodePostCursor, type PostCursor } from './cursor';
+
 /**
  * Read paths for /publish (Commit 18 onward). Same shape as the
  * inbox / reviews / reputation query modules: every read goes
@@ -98,6 +100,13 @@ export interface ListPostsOpts {
   readonly orgId: string;
   readonly userId: string;
   readonly filters: PostListFilters;
+  /**
+   * Cursor for the previous page's last row. `null` starts from
+   * the top. Encoded form lives in the URL as `?cursor=…`.
+   * Added in Commit 21 — Phase 6's dashboards were happy with
+   * "first batch + hint" until the named tabs gained 50+ posts.
+   */
+  readonly cursor?: PostCursor | null;
   readonly pageSize?: number;
 }
 
@@ -141,6 +150,13 @@ export async function listPostsWithTx(
   if (opts.filters.scheduledTo) {
     conditions.push(
       sql`${posts.scheduledAt} < (${opts.filters.scheduledTo}::date + interval '1 day')`,
+    );
+  }
+  // Cursor predicate — tuple comparison on (created_at, id) DESC.
+  // Same shape as inbox + approvals + campaigns.
+  if (opts.cursor) {
+    conditions.push(
+      sql`(${posts.createdAt}, ${posts.id}) < (${opts.cursor.t}::timestamptz, ${opts.cursor.i}::uuid)`,
     );
   }
 
@@ -227,9 +243,13 @@ export async function listPostsWithTx(
       maxRetryCount: toNum(r.maxRetryCount) ?? 0,
       lastErrorMessage: r.lastErrorMessage,
     })),
-    // Cursor pagination wires in Commit 18 when the list view
-    // lands. Phase-6 Commit-17 surface is server-side only.
-    nextCursor: hasMore ? 'TODO_CURSOR' : null,
+    nextCursor:
+      hasMore && visible.length > 0
+        ? encodePostCursor({
+            t: visible[visible.length - 1]!.createdAt.toISOString(),
+            i: visible[visible.length - 1]!.id,
+          })
+        : null,
   };
 }
 

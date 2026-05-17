@@ -26,6 +26,13 @@ export interface CampaignOption {
   readonly id: string;
   readonly name: string;
   readonly brandId: string | null;
+  /**
+   * Lifecycle state — the composer's campaign-picker (Commit 21)
+   * filters out `archived` / `completed` to avoid attaching new
+   * posts to closed campaigns. The /publish filter bar shows
+   * every status so historical filters still work.
+   */
+  readonly status: 'draft' | 'active' | 'paused' | 'completed' | 'archived';
 }
 
 export async function listBrandOptionsWithTx(
@@ -49,6 +56,7 @@ export async function listCampaignOptionsWithTx(
       id: campaigns.id,
       name: campaigns.name,
       brandId: campaigns.brandId,
+      status: campaigns.status,
     })
     .from(campaigns)
     .where(eq(campaigns.organizationId, orgId))

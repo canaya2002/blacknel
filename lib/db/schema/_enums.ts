@@ -265,9 +265,34 @@ export const campaignGoalEnum = pgEnum('campaign_goal', [
 
 /**
  * Campaign lifecycle. `draft` is pre-launch; `active` runs between
- * starts_at and ends_at; `paused` is a manual hold (Phase 9
- * automations can flip this); `completed` is post-end-date; `archived`
- * hides it from the default list.
+ * `starts_at` and `ends_at`; `paused` is a manual hold (Phase 9
+ * automations can flip this); `completed` is post-end-date;
+ * `archived` hides it from the default list. `archived` is the
+ * single terminal state — every other state eventually reaches it.
+ *
+ * # Transition graph (canTransitionCampaignStatus is the canonical gate)
+ *
+ *     draft     → active   (manager launches the campaign)
+ *     draft     → archived (discarded before launch)
+ *     active    → paused   (temporary hold)
+ *     active    → completed (successful end)
+ *     paused    → active   (resumed)
+ *     paused    → archived (discarded mid-flight)
+ *     completed → archived (closed + filed)
+ *
+ * # Explicitly disallowed
+ *
+ *   - `active → draft`     — once launched, no rollback.
+ *   - `completed → active` — no re-open. Create a new campaign.
+ *   - `archived → *`       — terminal.
+ *   - any transition to itself.
+ *
+ * The matrix lives in `lib/campaigns/validate.ts` as the pure
+ * `canTransitionCampaignStatus(from, to)` function. The Server
+ * Action `transitionCampaignStatusAction` calls it before issuing
+ * the UPDATE so an out-of-graph transition is rejected with
+ * `VALIDATION_ERROR`. Tests cover both positive (every allowed
+ * edge) and negative (every disallowed edge) cases.
  */
 export const campaignStatusEnum = pgEnum('campaign_status', [
   'draft',

@@ -3,7 +3,7 @@ import { AlertTriangle, CalendarClock, Megaphone, Send, Tag, UserSquare2 } from 
 
 import { RetryButton } from '@/components/publish/retry-button';
 import { Badge } from '@/components/ui/badge';
-import { MAX_RETRY_COUNT } from '@/lib/jobs/publish-target';
+import { MAX_RETRY_COUNT } from '@/lib/jobs/constants';
 import { cn } from '@/lib/utils/cn';
 import type { PostListItem } from '@/lib/publish/queries';
 

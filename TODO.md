@@ -595,3 +595,107 @@ the draft, then re-route to approval.
   if the existing one becomes unwieldy).
 
 **Target phase.** Phase 12 (polish).
+
+## composer-campaign-picker-multi-brand
+
+**Problem.** When the user changes the post's brand inside the
+composer mid-edit, the `<CampaignPicker />` (Commit 21) still
+shows campaigns for the OLD brand until the page reloads.
+
+**Why deferred.** The composer loader fetches `campaignOptions`
+once at page-load time. Refreshing on brand change requires
+either a Server Action round-trip per brand swap or a Client
+fetch hook — both add complexity for a flow that today involves
+saving the brand change first (the brand picker is itself a
+Server Action — `saveDraftAction`).
+
+**Resolution criteria.** Either:
+
+1. Wire a `useTransition`-driven re-fetch when `data.postDetail.brandId`
+   changes in the shell's state — call a new server action
+   `listCampaignsForBrandAction(brandId)` and rebuild `campaignOptions`
+   client-side.
+2. OR add a "Cambia la marca antes de elegir campaña" hint when
+   brand is dirty + a campaign is selected.
+
+**Affected files.**
+
+- `components/publish/composer/campaign-picker.tsx`
+- `components/publish/composer/composer-shell.tsx`
+- `lib/publish/composer/loader.ts` (option 1)
+
+**Target phase.** Phase 12 (polish).
+
+## campaign-timeline-real-engagement
+
+**Problem.** `/publish/campaigns/[id]` Resumen tab shows an
+`Engagement: —` KPI placeholder. The data isn't aggregated
+anywhere today; Phase 8 (Reports) is the natural home for
+per-post engagement aggregation against a campaign dimension.
+
+**Resolution criteria.** Phase 8 lands the reports query layer
+that aggregates likes / comments / shares per post and groups
+by `campaign_id`. Replace the placeholder in `campaign-detail`
+with a real read.
+
+**Affected files.**
+
+- `app/(app)/publish/campaigns/[id]/page.tsx` (Resumen tab)
+- `lib/campaigns/queries.ts` (`getCampaignDetail`)
+- `lib/reports/*` (Phase 8)
+
+**Target phase.** Phase 8 (Reports).
+
+## previews-fiel-x-tiktok-pinterest-youtube
+
+**Problem.** `preview-shell.tsx` dispatches X / TikTok /
+Pinterest / YouTube to `<PreviewGeneric />`. Per the Commit 21
+D-21-1 decision, we shipped LinkedIn fiel only to validate the
+swap pattern; the other 4 wait until either Phase 12 polish or
+the Phase 11 connector cutover surfaces real preview chrome
+the user expects to see.
+
+**Resolution criteria.** For each platform, build
+`preview-<platform>.tsx` mirroring the LinkedIn shape:
+
+- Square or circular avatar matching the real platform.
+- Platform-specific meta line.
+- Body truncated via the existing `truncateBody`.
+- Media grid that respects the platform's display semantics
+  (X = single image priority, TikTok = vertical aspect, etc).
+- Footer with the real action buttons.
+
+Add the platform to the `switch` in `preview-shell.tsx`. Each
+preview gets a `React.memo` wrapper with `arePreviewPropsEqual`
+and a perf cutoff test in `tests/unit/preview-perf.test.tsx`.
+
+**Affected files.**
+
+- `components/publish/composer/previews/preview-x.tsx` (new)
+- `components/publish/composer/previews/preview-tiktok.tsx` (new)
+- `components/publish/composer/previews/preview-pinterest.tsx` (new)
+- `components/publish/composer/previews/preview-youtube.tsx` (new)
+- `components/publish/composer/previews/preview-shell.tsx`
+
+**Target phase.** Phase 12 (polish) — decide per platform
+whether Phase 11 connector data changes the design.
+
+## composer-dirty-state-dialog-polish
+
+**Problem.** The composer's cancel/leave-with-unsaved-changes
+guard uses `window.confirm()`. Functionally correct (per the
+Commit 21 D-21-2 decision the user explicitly authorized
+keeping it). Aesthetically a native browser confirm doesn't
+match the rest of the shadcn UI vocabulary.
+
+**Resolution criteria.** Replace `window.confirm()` with a
+controlled `<Dialog>` from `components/ui/dialog.tsx`. Wire it
+into the existing `<CancelButton />` flow so the surface is
+identical apart from the chrome.
+
+**Affected files.**
+
+- `components/publish/composer/cancel-button.tsx`
+
+**Target phase.** Phase 12 (polish). Purely aesthetic; no
+behavior change.

@@ -52,8 +52,13 @@ import { err, ok, type Result } from '@/lib/types/result';
  * That's why a retry of a transient failure is safe.
  */
 
-export const BACKOFF_MS: ReadonlyArray<number> = [60_000, 300_000, 900_000];
-export const MAX_RETRY_COUNT = 3;
+// Re-export from the non-server-only constants module so Client
+// components (post-list-row's retry chip, composer-status-banners)
+// can read the same single source of truth without bringing the
+// server-only `lib/jobs/publish-target.ts` body through the Client
+// boundary.
+export { BACKOFF_MS, MAX_RETRY_COUNT } from './constants';
+import { BACKOFF_MS, MAX_RETRY_COUNT } from './constants';
 
 export interface DispatchOneTargetDeps {
   asUser: <T>(

@@ -28,6 +28,7 @@ import type { PlanCode } from '@/lib/plans/plans';
 
 import { AccountPicker } from './account-picker';
 import { AICaptionButton } from './ai-caption-button';
+import { CampaignPicker } from './campaign-picker';
 import { CancelButton } from './cancel-button';
 import { CharacterLimitsBar } from './character-limits-bar';
 import { CompliancePill, getComplianceState } from './compliance-pill';
@@ -426,6 +427,12 @@ export function ComposerShell({
             accounts={data.publishCapableAccounts}
             selected={selectedAccountIds}
             onChange={setSelectedAccountIds}
+          />
+          <CampaignPicker
+            postId={data.postDetail.id}
+            selectedCampaignId={campaignId}
+            postBrandId={data.postDetail.brandId}
+            campaignOptions={data.campaignOptions}
           />
           <PlatformVariants
             selectedAccounts={selectedAccounts}

@@ -7,6 +7,263 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 6 / Commit 21 (campaigns CRUD + composer campaign-picker + posts cursor + LinkedIn preview · CLOSES PHASE 6)
+
+Final commit of Phase 6. Lands the campaigns surface (list / detail
+/ create), wires the composer to attach posts to campaigns, swaps
+the posts-list "first batch + hint" for real cursor pagination,
+and validates the GenericPreview → fiel swap pattern with a
+LinkedIn fiel preview. The remaining 4 platforms (X, TikTok,
+Pinterest, YouTube) stay on `<PreviewGeneric />` until Phase 12 /
+connector cutover.
+
+**Campaign status lifecycle (B1)**
+
+The transition graph lives in `lib/db/schema/_enums.ts` JSDoc and is
+enforced by `canTransitionCampaignStatus(from, to)` in
+`lib/campaigns/validate.ts`:
+
+```
+draft     → active | archived
+active    → paused | completed
+paused    → active | archived
+completed → archived
+archived  → (terminal)
+```
+
+Disallowed (every other edge, including self-transitions):
+`active → draft` (no rollback), `completed → active` (no re-open),
+`archived → *` (terminal). `transitionCampaignStatusAction` calls
+this gate inside a SELECT FOR UPDATE — concurrent decisions race
+on the row lock, not on the read.
+
+**Campaigns CRUD (B2-B5)**
+
+- `lib/campaigns/queries.ts` — `listCampaigns` + `getCampaignDetail`
+  + `getCampaignKpiCounts` + `getPostsByCampaignWithTx`. Cursor on
+  `(created_at, id) DESC`. `*WithTx` siblings keep the
+  loader-test pattern.
+- `lib/campaigns/filters.ts` — `parseCampaignFilters` whitelist +
+  `campaigns.filter.suspicious_input` log. Pairwise date range
+  validation (`from > to` OR `> 365d` → drop both).
+- `lib/campaigns/cursor.ts` — base64url-encoded `{ t, i }` cursor;
+  fault-tolerant decode logs `campaign.cursor.malformed` and
+  degrades to top-of-list.
+- `lib/campaigns/validate.ts` — Zod schemas
+  (`createCampaignSchema`, `updateCampaignSchema`,
+  `transitionCampaignStatusSchema`, `setPostCampaignSchema`,
+  `updateManualSpentSchema`) with cross-field
+  `startsAt < endsAt` AND `endsAt > now` (create-only).
+- `app/(app)/publish/campaigns/actions.ts` — Server Actions
+  matching the queries: `createCampaignAction`,
+  `updateCampaignAction`, `transitionCampaignStatusAction`,
+  `updateManualSpentAction`, `setPostCampaignAction`. Audits
+  `campaign.created`, `campaign.updated`, `campaign.status.{to}`,
+  `campaign.manual_spent.updated`, `post.campaign.set`,
+  `post.campaign.removed`.
+- `lib/permissions/roles.ts` — `campaigns:read` / `:create` /
+  `:update`. Viewer = read only. Agent = read + create (no
+  update). Manager+ = full.
+- `app/(app)/publish/campaigns/page.tsx` — list view with KPI
+  cards (active / drafts / paused / archived / total budget),
+  filter bar, 3 empty states.
+- `app/(app)/publish/campaigns/new/page.tsx` — dedicated create
+  page (no modal; per D-21 decision).
+- `app/(app)/publish/campaigns/[id]/page.tsx` — detail with
+  URL-driven tabs `?tab=resumen|posts|config`. Resumen tab shows
+  KPIs, timeline visual, and budget X/Y with spent placeholder
+  (`metadata.manualSpentCents`, editable in config tab — Phase
+  8 replaces with real ad-spend correlation).
+- 8 components under `components/campaigns/`:
+  campaign-status-badge, campaign-kpi-cards,
+  campaign-filter-bar, campaigns-list, campaign-list-row,
+  empty-states, campaign-status-transitions (Client),
+  campaign-form (Client), campaign-manual-spent-form (Client),
+  campaign-timeline, campaign-posts-tab.
+
+**Composer campaign-picker (B6)**
+
+- `components/publish/composer/campaign-picker.tsx` — searchable
+  Combobox (`@radix-ui/react-popover`-based). Client-side filters
+  campaigns to brand-match + status in `('draft', 'active')`.
+  Server rejects `archived` / `completed` too (defense in depth).
+- `composer-shell.tsx` — picker rendered between AccountPicker
+  and PlatformVariants. Disabled cascade respects the C20b
+  fieldset wrapper (read-only on `pending_approval` / `failed`).
+- `lib/publish/picker-data.ts` — `CampaignOption` gains `status`
+  so the composer can filter without a second fetch.
+
+**Posts-list real cursor pagination (B7)**
+
+- `lib/publish/cursor.ts` (new) — `encodePostCursor` /
+  `decodePostCursor`. Same shape as inbox / approvals / campaigns.
+- `lib/publish/queries.ts` — `listPostsForOrg`/`listPostsWithTx`
+  accept `cursor: PostCursor | null`. `nextCursor` returned as a
+  real encoded string (the placeholder `'TODO_CURSOR'` is gone).
+- `app/(app)/publish/page.tsx` — parses `?cursor=…` and threads
+  it through to the loader.
+- `components/publish/posts-list.tsx` — Virtuoso footer renders
+  a "Cargar más" button that navigates to `?cursor=<encoded>`.
+  Bookmarkable — a user who closes the tab mid-scroll resumes
+  exactly where they left off.
+
+**LinkedIn fiel preview (B8)**
+
+- `components/publish/composer/previews/preview-linkedin.tsx` —
+  LinkedIn feed chrome: square rounded avatar (vs Facebook's
+  circle), "Posted via Blacknel · 1m · 🌐" meta, 2×2 image grid
+  with `+N` overlay when more than 4 attachments, link unfurl
+  card with uppercase hostname + bold title, 4-action footer
+  (Like / Comment / Repost / Send). `React.memo` +
+  `arePreviewPropsEqual` cutoff — same perf contract as
+  Facebook / Instagram / GBP.
+- `preview-shell.tsx` — dispatch gains `case 'linkedin'`. The
+  other 4 platforms (X, TikTok, Pinterest, YouTube) keep using
+  `<PreviewGeneric />`; the swap pattern is now validated.
+
+**Sidebar nav (B9)**
+
+- `components/layout/nav-sections.ts` — `Campaigns` sibling of
+  Publish + AI Studio under 'Contenido' (per D-21 decision).
+  Icon: `Layers` (free; not used elsewhere in the sidebar).
+
+**Constants extraction (build fix)**
+
+- `lib/jobs/constants.ts` (new) — `MAX_RETRY_COUNT` +
+  `BACKOFF_MS`. The `'server-only'` boundary on
+  `lib/jobs/publish-target.ts` was blocking the Client bundle
+  (post-list-row's retry chip + composer-status-banners both
+  need the constant). Constants module re-exports through
+  publish-target.ts so existing server-side imports are
+  unchanged.
+
+**Tests (B10-B11)**
+
+- `tests/unit/campaign-filters.test.ts` (12 cases) — whitelist +
+  suspicious_input + pairwise date validation.
+- `tests/unit/campaign-cursor.test.ts` (8 cases) — round-trip +
+  malformed input + length cap.
+- `tests/unit/campaign-status-transitions.test.ts` (23 cases) —
+  positive AND negative matrix for every (from, to) pair in the
+  graph, plus `allowedCampaignTransitionsFrom` and
+  `isCampaignStatusTerminal`.
+- `tests/unit/preview-linkedin.test.tsx` (4 cases) — body
+  rendering, link unfurl, +N overlay, over=true red class.
+- `tests/integration/campaigns-crud.test.ts` (8 cases) — create
+  + read, tenant isolation, status transition allowed, status
+  transition disallowed (helper rejects), post association
+  attach/detach, detail post breakdown (scheduled / published
+  / failed), KPI totals (archived excluded from budget sum),
+  audit_events shape.
+- `tests/integration/posts-list-cursor.test.ts` (3 cases) —
+  first batch of 51 returns 50 + nextCursor non-null, second
+  batch via cursor continues without overlap, stale cursor
+  against a different filter degrades to 0 rows without error.
+
+**TODOs added (Phase 12 polish)**
+
+- `composer-campaign-picker-multi-brand` — when the user
+  changes the post's brand mid-edit, the loader doesn't refresh;
+  picker still shows the old brand's campaigns until reload.
+- `campaign-timeline-real-engagement` — engagement metric in
+  the resumen tab is a placeholder until Phase 8 Reports wires
+  real per-post engagement.
+- `previews-fiel-x-tiktok-pinterest-youtube` — Phase 12 /
+  connector cutover decides whether each gets a fiel preview
+  or stays on GenericPreview.
+- `composer-dirty-state-dialog-polish` — `window.confirm()` is
+  fine functionally; a Dialog shadcn variant is purely
+  aesthetic (per D-21-2 decision).
+
+### Phase 6 closing summary — Publishing (Commits 17-21)
+
+**Commits**
+
+| Commit  | Hash      | Scope |
+|---------|-----------|-------|
+| 17      | `4296744` | Publishing schema + mock publish + seed + Server Actions base |
+| 18      | `35e2957` | Publish dashboard + calendar + tabs + filters |
+| 19a     | `d53b00f` | Composer foundation + idempotent create CTA |
+| 19b     | `6160e9b` | Media uploader + asset library + storage provider + plan quotas |
+| 19c.1   | `4526f74` | Composer previews stack with React.memo cutoff |
+| 19c.2   | `4041cf0` | Schedule control + compliance pill + AI caption stub |
+| 19c.3   | `bdf8662` | Approval rules + asset detail drawer + final composer wire |
+| 20a     | `03afebe` | Publish-job + retries + idempotency + cron singleton |
+| 20b     | `66d89e7` | Post approval dispatcher + bidir UI + failed posts UX |
+| 21      | _pending_ | Campaigns CRUD + composer picker + posts cursor + LinkedIn preview |
+
+**Aggregate metrics**
+
+- 79 test files / **760 tests passing** + 7 skipped (started Phase 6 at ~25 test files / 350 tests).
+- ~9 200 LOC added across `lib/`, `app/(app)/publish/`, `components/`, `tests/`.
+- 9 new schema migrations during Phase 6 (`0007_publishing.sql`
+  through `0009_publishing_retries.sql` plus the 0008
+  micro-migration for `brand_voices.metadata`).
+- Real Postgres ENUMs: `post_status`, `post_target_status`,
+  `campaign_goal`, `campaign_status`, `content_asset_kind`.
+- 8 platform codes in the connector registry — `facebook`,
+  `instagram`, `gbp`, `x`, `linkedin`, `tiktok`, `pinterest`,
+  `youtube`. All wired in mock today; real OAuth ships in
+  Phase 11.
+
+**Phase 6 demo verification rúbrica**
+
+Backend equivalents validated by integration tests (run via
+`pnpm test`):
+
+| Step | Rúbrica action | Test coverage |
+|------|---------------|--------------|
+| (a)  | Crear campaign | `campaigns-crud.test.ts` create+read case |
+| (b)  | Post asociado a campaign | `campaigns-crud.test.ts` post-association case |
+| (c)  | Subir imagen al composer | `asset-upload-flow.test.ts` (Commit 19b) |
+| (d)  | Override texto Twitter | `platform-variants` shape exercised in `composer-double-submit.test.ts` |
+| (e)  | Programar a +5 min | `schedule-with-approval-rule.test.ts` direct-schedule branch |
+| (f)  | Cron tick → post publicado | `publish-job.test.ts` happy path |
+| (g)  | Post en campaign detail Posts tab | `campaigns-crud.test.ts` detail post breakdown case |
+| (h)  | Post con approval rule | `schedule-with-approval-rule.test.ts` brand_rule + platform_rule cases |
+| (i)  | /approvals queue | `approvals-flows.test.ts` (Commit 10/11) |
+| (j)  | Aprobar con edits | `post-approval-dispatch.test.ts` approveWithEdits case |
+| (k)  | Pasa a scheduled | `post-approval-dispatch.test.ts` approve+scheduled case |
+| (l)  | Cron tick → published | `post-approval-dispatch.test.ts` approve sin scheduled_at + runPublishTick |
+| (m)  | KPIs reflect 2 published | `campaigns-crud.test.ts` detail post breakdown counts |
+
+**Visual demo** (browser walkthrough) is the user's
+responsibility before tagging Phase 6 done — the tests above
+cover the data + logic paths but not the visual chrome. Cron
+tick is 60s in dev (`BLACKNEL_PUBLISH_JOB_ENABLED=true` +
+`NODE_ENV=development`); a full publish-now flow takes 1-2
+intervals to reach `'published'`. Per D-21-3, cron latency is
+NOT a Commit 21 fail; only structural breakage (post stuck in
+`scheduled` after 3+ ticks, missing banner, broken approve
+transition, cross-tenant leak) would block cierre.
+
+**Deferred to Phase 12 polish** (all tracked in TODO.md):
+
+- `composer-dirty-state-dialog-polish` — `window.confirm()` →
+  Dialog shadcn (cosmetic).
+- `composer-readonly-bypass` — fieldset cascade misses
+  Server-Action buttons outside the form tree.
+- `composer-edit-modal-post-kind` — EditModal only edits
+  inbox `messageBody`; needs `editedText` (post) and `body`
+  (review_response) branches.
+- `composer-campaign-picker-multi-brand` — brand change
+  mid-edit doesn't refresh the picker's options.
+- `campaign-timeline-real-engagement` — engagement KPI
+  placeholder until Phase 8.
+- `previews-fiel-x-tiktok-pinterest-youtube` — 4 generic
+  previews stay generic until connector cutover.
+- `audit-events-atomicity` — audit writes outside the parent
+  dispatch txn (Phase 11 cutover).
+- `publish-job-concurrency-live` — pglite sequential proxy;
+  real concurrency test requires live Postgres in Phase 11.
+
+**What ships in Phase 7** (Crisis + Recovery):
+
+The publishing pipeline + reputation reads + approvals queue
+all become inputs to Phase 7's automated crisis detection. The
+audit trail Phase 6 emits is the ground truth Phase 7
+analytics build on. No data model changes needed.
+
 ### Added — Phase 6 / Commit 20 (publish-job + retries + post-approval dispatch + bidir UI)
 
 End-to-end publishing pipeline. Sub-commit 20a (`03afebe`)
