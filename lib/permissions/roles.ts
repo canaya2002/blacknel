@@ -49,7 +49,8 @@ export type Permission =
   | 'campaigns:create'
   | 'campaigns:update'
   | 'crisis:read'
-  | 'crisis:decide';
+  | 'crisis:decide'
+  | 'brand_voice:manage';
 
 const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'inbox:read',
@@ -85,6 +86,7 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'campaigns:update',
   'crisis:read',
   'crisis:decide',
+  'brand_voice:manage',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
@@ -127,6 +129,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'campaigns:update',
     'crisis:read',
     'crisis:decide',
+    'brand_voice:manage',
   ],
 
   // Manager: full operational reach (reply, approve, publish, automate,
@@ -160,6 +163,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'campaigns:update',
     'crisis:read',
     'crisis:decide',
+    'brand_voice:manage',
   ],
 
   // Agent: front-line operator. Reads and replies, drafts and

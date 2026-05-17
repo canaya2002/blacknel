@@ -7,6 +7,143 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 7 / Commit 26 (brand-voice editable + approvalRules UI · CLOSES PHASE 7)
+
+Last commit of Phase 7. Ships the manager-facing editor for
+`brand_voices` + `metadata.approvalRules` — the schema existed
+since Phase 1 and the runtime read paths (composer / approval
+flow) used the fields, but until now they could only be seeded
+via SQL. Phase 7 closes with the editor in place.
+
+**3 ajustes incorporados**
+
+  1. **Zod strict validations** — every field that lands in
+     `brand_voices.*` or `brand_voices.metadata.approvalRules`
+     goes through explicit limits before persist:
+     - `name` 1-100, `tone` 1-200, `style` 1-500.
+     - `forbiddenWords` / `preferredWords` ≤100 entries, each
+       1-50 chars, **lowercased + deduped** on save.
+     - `allowedEmojis` ≤50, ≤4 chars each, regex `/^\p{Emoji}/u`.
+     - `languages` enum {es, en, pt, fr}, min 1 max 4.
+     - `requireApprovalForPostsOnPlatforms` ≤8 PlatformCode;
+       `…CampaignTypes` ≤12 CampaignGoal.
+
+  2. **Audit event diff for `brand_voice.approval_rules.changed`**
+     — captures `requireApprovalForPostsChanged: {from, to}`,
+     `addedPlatforms` / `removedPlatforms`, `addedGoals` /
+     `removedGoals`. Pure helper `diffApprovalRules()` returns
+     null when nothing changed; Server Action skips the audit
+     row entirely on null.
+
+  3. **Phase 7 closing summary** — see "Phase 7 closed" section
+     below.
+
+**Code surface**
+
+- `lib/brand-voice/validate.ts` — Zod schemas + normalization
+  helpers (`normalizeWords`, `normalizeEmojis`, `parseCsv`).
+- `lib/brand-voice/diff.ts` — `diffApprovalRules` pure
+  function.
+- `lib/brand-voice/queries.ts` — `listBrandsWithVoice` +
+  `getBrandVoiceDetail` + `*WithTx` siblings.
+- `lib/permissions/roles.ts` — `brand_voice:manage` granted
+  to manager+ / admin / owner.
+- `app/(app)/settings/brand-voice/actions.ts` —
+  `createBrandVoiceAction` + `updateBrandVoiceAction`. LWW
+  per D-26-2.
+- `app/(app)/settings/brand-voice/page.tsx` — brand list.
+- `app/(app)/settings/brand-voice/[brandId]/edit/page.tsx` —
+  detail editor.
+- `components/brand-voice/brand-voice-form.tsx` — Client
+  component, CSV textareas (D-26-1), platform/goal chip
+  toggles, language multi-select.
+- `components/layout/nav-sections.ts` — Brand Voice entry
+  under Configuración.
+
+**Tests (+29 cases / +3 files)**
+
+- `tests/unit/brand-voice-validate.test.ts` (17) — every limit
+  positive + negative, normalization helpers.
+- `tests/unit/brand-voice-diff.test.ts` (6) — null on
+  no-change including reordered-equivalent, single-field +
+  multi-field changes.
+- `tests/integration/brand-voice-actions.test.ts` (6) — create
+  flow + link, update preserves link, tenant isolation, audit
+  shape with diff, LWW semantics, RBAC matrix.
+
+---
+
+### Phase 7 closed — AI infrastructure
+
+**Commits:** 22 → 26 (5 commits)
+
+**Total entregado:**
+
+- Adapter pattern para Claude SDK con swap point único
+  (`lib/ai/client.ts`) — Fase 11 cutover ready.
+- 9 skills implementadas (`lib/ai/skills/*`):
+  - **compliance** dual-model cascade (Haiku baseline + Opus
+    second-pass con `parent_generation_id` linkage).
+  - **caption, review_response, language_detect** — callers
+    migrated (Commits 23-24).
+  - **sentiment, intent, thread_summary, review_summary** —
+    mock-ready; no production caller yet.
+  - **crisis** — live producer cron + ai_recommendations
+    consumer + UI banner + history page.
+- 4 stubs originales como re-export shims (cero callers de
+  producción importan directo).
+- Migración 0010 — `ai_generations` + `ai_recommendations` +
+  ENUMs + indexes + RLS.
+- Migración 0011 — `parent_generation_id` self-FK +
+  partial index.
+- `/audit/ai` dashboard: 5 KPIs (cost month, generations
+  month, cache hit rate, cascade rate, modelo más usado),
+  table, filtros, prompt-version column.
+- `/reputation/crisis/history` — accepted+dismissed recs
+  últimos 90d.
+- `/settings/brand-voice` + `/settings/brand-voice/[brandId]/edit`
+  editable con approvalRules UI.
+- Prompt caching infrastructure (90% discount target en
+  system prompts; Anthropic `cache_control: ephemeral`
+  ready en `adapter-real.ts`).
+- Dedup window 5min (LRU in-process + DB lookup).
+- Cron singletons: publish-post 60s + crisis-scan 60min.
+- Prompt versioning (`*_V1` constants registrados en
+  `ai_generations.input.promptVersion`) — A/B + rollback ready.
+- REGLA BLACKNEL AI-FEEDBACK PATTERN formalizada —
+  sync para render hot path, async para submit gate. Aplicada
+  en `compliance` (hint vs check) y `language_detect`
+  (sync vs ai-async).
+
+**Tests al cierre Phase 7:** 99 test files / **906 tests
+passing** / 1+7 skipped. ~+170 tests durante Phase 7
+(Commits 22-26 = 760 → 906 = +146 sumando ajustes a tests
+existentes).
+
+**Deferred a Phase 11:**
+
+- Swap `adapter-mock` → `adapter-real` con
+  `@anthropic-ai/sdk` (single-file change, full migration
+  steps en `lib/ai/adapter-real.ts` JSDoc).
+- Activar prompt caching real con `cache_control` headers.
+- Stub shim retirement (`ai-stubs-shim-retirement` TODO).
+- Concurrency live tests con Postgres real
+  (`publish-job-concurrency-live` TODO).
+
+**Deferred a Phase 12:**
+
+- `crisis-yoy-suppression` (requires ≥1y historical data).
+- Brand voice chips/tags UI polish.
+- Brand voice optimistic locking via `updated_at` ETag.
+- `crisis-include-inbox-sentiment`.
+- `prompt-cache-hit-metrics-dashboard` (split cache hit rate
+  into prompt-cache + dedup separately + per-skill cost
+  ranking + alerts).
+- `composer-edit-modal-post-kind` — extend approvals
+  EditModal con `editedText` (post) + `body` (review_response).
+
+**Próximo paso:** Phase 8 — Reports + Ads Intelligence.
+
 ### Added — Phase 7 / Commit 25 (crisis detection real · cron producer + ai_recommendations consumer + banner + history)
 
 First end-to-end AI-driven recommendation lifecycle in

@@ -127,6 +127,7 @@ export const SIDEBAR_SECTIONS: SidebarSection[] = [
       { label: 'Integrations', href: '/integrations', icon: Plug },
       { label: 'Locations', href: '/locations', icon: MapPin },
       { label: 'Team', href: '/team', icon: Users },
+      { label: 'Brand Voice', href: '/settings/brand-voice', icon: Sparkles },
       { label: 'Automations', href: '/automations', icon: Workflow },
       {
         label: 'Audit',
