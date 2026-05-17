@@ -160,3 +160,37 @@ Current `app_*` functions (Phase 10 / Commit 36a):
 In Phase 11 with Supabase Auth, evaluate moving `app_*` functions
 to a dedicated `blacknel_internal` schema for isolation. Tracked
 in `TODO.md#rbac-rls-dynamic-policies-supabase-auth`.
+
+---
+
+## Build configuration (Phase 10 / Commit 36b)
+
+Blacknel uses two different bundlers:
+
+- **`pnpm dev`** → `next dev --turbopack`. Turbopack stays for
+  development because its HMR (hot-module-reload) is materially
+  faster than webpack's; that is the main Turbopack value
+  proposition.
+- **`pnpm build`** → `next build --webpack`. **Webpack is the
+  default for production builds** because Turbopack on the
+  Blacknel Windows dev env recurrently crashes during build
+  (8+ different errors in a single C36a session:
+  `STATUS_ACCESS_VIOLATION`, SWC parser assertions, 442GB OOM
+  Rust panics, CSS module loader failures). Webpack succeeds
+  cleanly on the first try.
+
+The escalation was applied at the start of Commit 36b after the
+C36a session burned ~30 min in retry loops. Tracking:
+`TODO.md#turbopack-builds-webpack-fallback-applied`.
+
+### When to re-evaluate
+
+Re-evaluate switching `build` back to Turbopack when:
+
+1. The Next.js / Turbopack project ships a major stability fix
+   (track upstream issue tracker; Next 17.x candidate).
+2. The Blacknel codebase shrinks materially (unlikely as we add
+   Phase 11+ features).
+3. CI moves to Linux runners where the Windows-specific failure
+   modes don't apply — at that point `build` can split into
+   `build:webpack` (kept here) + `build:turbopack` (CI-only).

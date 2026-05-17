@@ -7,6 +7,119 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 10 / Commit 36b (Custom Roles UI + Server Actions + Turbopack escalation)
+
+Exposes the C36a RBAC core via Server Actions + UI. Five
+critical-action Server Actions with dual enforcement (TS +
+`assertPermissionInDb`), a permission picker with search, the
+3-template wizard, and the `/team/roles` surface.
+
+**Turbopack escalation (first step)**
+
+Applied per the C36a session's recommendation. The flake from
+`TODO.md#turbopack-builds-webpack-fallback-applied` is now
+mitigated:
+
+- `package.json` → `"build": "next build --webpack"` (was
+  `next build`). `"dev": "next dev --turbopack"` unchanged.
+- `doc/PATTERNS.md` adds a `## Build configuration` section
+  documenting the bundler split + re-evaluation criteria.
+- TODO anchor renamed from `turbopack-windows-segfault-flake`
+  → `turbopack-builds-webpack-fallback-applied`, status
+  `ESCALATED applied`.
+
+This was the C36b first sub-step. `pnpm build` is now reliably
+green on the first invocation.
+
+**5 Server Actions, all dual-enforced**
+
+Critical actions per `doc/PATTERNS.md#critical-actions`:
+
+| Action | Critical # | Auth (TS) | Auth (DB) | Plan-gated | Audit |
+|---|---|---|---|---|---|
+| `createCustomRoleAction` | 10 | `team:manage_roles` | ✅ | `custom_roles` | `custom_role.created` |
+| `updateCustomRoleAction` | 10 | `team:manage_roles` | ✅ | `custom_roles` | `custom_role.updated` (before/after) |
+| `archiveCustomRoleAction` | 10 | `team:manage_roles` | ✅ | `custom_roles` | `custom_role.archived` |
+| `assignCustomRoleAction` | 3 | `team:manage_roles` | ✅ | `custom_roles` | `custom_role.assigned` (before/after) |
+| `changeMemberRoleAction` | 4 | `team:manage_roles` | ✅ | — (Phase 2 cap) | `organization_member.role_changed` |
+
+Owner is protected from `changeMemberRoleAction` (returns
+`FORBIDDEN` — separate transfer flow required).
+
+**Decisions D-36b-1..3 confirmed**
+
+- D-36b-1 — wizard with 3 templates + "Empezar desde cero" tab.
+  Templates: Brand Manager, Regional Director, Read-only
+  Analyst. TS-only data (`lib/custom-roles/templates.ts`), NOT
+  DB-seeded — each org's interpretation differs.
+- D-36b-2 — session staleness up to 24h is OK; dual enforcement
+  absorbs. NO force re-login on assignment.
+- D-36b-3 — minimal downgrade behavior in C36b: mutations
+  blocked by `requirePlanFeature`, UpgradePrompt shown. UI badge
+  + mass `plan.downgraded.custom_roles_deactivated` audit event
+  deferred to Phase 10 closing commit.
+
+**Ajuste 1 — Permission picker UX**
+
+`components/team/permission-picker.tsx` + supporting catalog at
+`lib/custom-roles/catalog.ts`:
+
+- Search input (100ms debounce) matches by permission name OR
+  tooltip text.
+- Counter strip: `+N grants · −M revokes · K efectivos`.
+- 38 permissions grouped by area (inbox, posts, reviews, ai,
+  ads, listening, …) — each area collapsible. Expand-all /
+  Collapse-all toggles.
+- One-line tooltip per permission via `Info` icon.
+- 3-state per permission: base / grant / revoke. Click cycles.
+
+**Ajuste 2 — Audit diff view in `/team/roles/[id]`**
+
+`components/team/custom-role-audit-diff.tsx`. Same JSX shape as
+brand-voice Commit 26 — before/after JSON side-by-side when both
+exist, after-only for create/archive. Update with no-op (same
+fields) does NOT generate an audit row — verified in
+`tests/integration/custom-role-audit-diff.test.ts`.
+
+**Ajuste 3 — Dual enforcement bypass tests (5 actions)**
+
+`tests/integration/custom-role-dual-enforcement-actions.test.ts`:
+member with default `admin` role assigned to a custom_role that
+REVOKES `team:manage_roles`. TS layer would say yes (admin has
+`team:manage_roles`); DB function `app_permission_check` says no.
+Test confirms blocking for each of the 5 critical-action call
+sites + a control test that removing the revoke restores access.
+
+**Charter touches (Phase 1-2 infrastructure)**
+
+- `package.json` (Phase 1) — `build` script switched to
+  `next build --webpack`. Justified by escalation evidence.
+- `doc/PATTERNS.md` (Phase 9) — `## Build configuration` section
+  documenting the bundler split.
+- `app/(app)/team/page.tsx` (Phase 2) — extended with
+  `MemberCustomRoleSelect` per row when feature enabled. The
+  query selects `customRoleId` per member and loads the org's
+  active custom_roles list once.
+- `lib/custom-roles/validate.ts` (C36a) — `changeMemberRoleSchema`
+  added.
+
+**Code surface**
+
+- Server Actions: `app/(app)/team/roles/actions.ts` (5 actions).
+- Catalog + templates: `lib/custom-roles/{catalog,templates}.ts`.
+- Components: `components/team/{permission-picker,custom-role-form,
+  custom-role-audit-diff,member-custom-role-select}.tsx`.
+- Pages: `/team/roles` (list), `/team/roles/new` (wizard with
+  template tabs), `/team/roles/[id]` (5-section detail per
+  PATTERNS.md), `/team/roles/[id]/edit`.
+- Tests: 7 new files, +21 cases.
+
+**Verification**
+
+- `pnpm verify` ✅ 1152 tests pass (+21 vs C36a baseline 1131).
+- `pnpm build` ✅ clean on first invocation with webpack — the
+  escalation works.
+
 ### Added — Phase 10 / Commit 36a (OPENS PHASE 10 · Custom Roles RBAC core — backend only)
 
 Opens Phase 10 (Enterprise-tier features). This commit lands the

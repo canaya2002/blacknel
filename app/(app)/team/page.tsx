@@ -5,15 +5,19 @@ import { EmptyState } from '@/components/common/empty-state';
 import { PageHeader } from '@/components/common/page-header';
 import { InviteDialog } from '@/components/team/invite-dialog';
 import { MemberActions } from '@/components/team/member-actions';
+import { MemberCustomRoleSelect } from '@/components/team/member-custom-role-select';
 import { PendingInvitations } from '@/components/team/pending-invitations';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireUser } from '@/lib/auth/server';
+import { listCustomRolesWithTx } from '@/lib/custom-roles/queries';
 import { dbAs } from '@/lib/db/client';
 import { invitations, organizationMembers, users as usersTable } from '@/lib/db/schema';
 import { env } from '@/lib/env';
 import { invitationAcceptUrl } from '@/lib/invitations/tokens';
 import { sessionCan } from '@/lib/permissions/can';
 import type { Role } from '@/lib/permissions/roles';
+import { planAllowsNamedFeature } from '@/lib/plans/gates';
+import { getOrgPlanCode } from '@/lib/queries/plan';
 import { cn } from '@/lib/utils/cn';
 
 const ROLE_TONE: Record<Role, string> = {
@@ -33,10 +37,12 @@ const ASSIGNABLE_BY_ROLE: Record<Role, ReadonlyArray<Role>> = {
 };
 
 interface MemberRow {
+  memberId: string;
   userId: string;
   email: string;
   name: string | null;
   role: Role;
+  customRoleId: string | null;
   joinedAt: Date | null;
 }
 
@@ -52,14 +58,16 @@ export default async function TeamPage(): Promise<React.ReactElement> {
   const session = await requireUser();
   const ctx = { orgId: session.orgId, userId: session.userId };
 
-  const [members, pending] = await Promise.all([
+  const [members, pending, customRolesList] = await Promise.all([
     dbAs<MemberRow[]>(ctx, async (tx) =>
       tx
         .select({
+          memberId: organizationMembers.id,
           userId: organizationMembers.userId,
           email: usersTable.email,
           name: usersTable.name,
           role: organizationMembers.role,
+          customRoleId: organizationMembers.customRoleId,
           joinedAt: organizationMembers.joinedAt,
         })
         .from(organizationMembers)
@@ -85,11 +93,17 @@ export default async function TeamPage(): Promise<React.ReactElement> {
         )
         .orderBy(invitations.expiresAt),
     ),
+    dbAs(ctx, async (tx) => listCustomRolesWithTx(tx, session.orgId)),
   ]);
 
   const ownersTotal = members.filter((m) => m.role === 'owner').length;
   const canInvite = sessionCan(session, 'team:invite');
   const canManageRoles = sessionCan(session, 'team:manage_roles');
+  const plan = await getOrgPlanCode(session);
+  const customRolesEnabled = planAllowsNamedFeature(plan, 'custom_roles');
+  const activeCustomRoles = customRolesList
+    .filter((r) => r.status === 'active')
+    .map((r) => ({ id: r.id, name: r.name }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -182,6 +196,13 @@ export default async function TeamPage(): Promise<React.ReactElement> {
                       assignableRoles={assignable}
                       canRemove={!isLastOwner && !isSelf}
                       isLastOwner={isLastOwner}
+                    />
+                  ) : null}
+                  {canManageRoles && customRolesEnabled ? (
+                    <MemberCustomRoleSelect
+                      memberId={m.memberId}
+                      currentCustomRoleId={m.customRoleId}
+                      options={activeCustomRoles}
                     />
                   ) : null}
                 </div>

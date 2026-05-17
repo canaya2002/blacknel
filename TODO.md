@@ -838,7 +838,7 @@ deprecation cycle.
 
 **Target phase.** Phase 12 (polish).
 
-## turbopack-windows-segfault-flake
+## turbopack-builds-webpack-fallback-applied
 
 **Problem.** `pnpm build` (Next.js 16.2.6 with Turbopack) on
 Windows occasionally crashes with exit code `3221225477` —
@@ -872,29 +872,51 @@ Next minor.
    suggest a deeper Node-on-Windows issue worth investigating
    before Phase 11 cutover.
 
-**Affected files.** None — environmental, no code touches
-needed today. This anchor exists so future failures can
-reference `TODO.md#turbopack-windows-segfault-flake` instead
-of relitigating diagnosis.
+**Affected files.** `package.json` (the `build` script).
+`doc/PATTERNS.md` for the bundler split documentation. This
+anchor exists so future Turbopack regressions can reference
+`TODO.md#turbopack-builds-webpack-fallback-applied` instead of
+relitigating diagnosis.
 
-**Update — Phase 10 / Commit 36a session.** The flake recurred
-8+ times in a row during the C36a build verification with
-different errors per retry: `STATUS_ACCESS_VIOLATION 3221225477`,
-SWC parser `assertion failed: span.lo >= ...`, `memory allocation
-of 442746541700 bytes failed` (442GB OOM — Rust panic). Webpack
-fallback (`next build --webpack`) succeeds cleanly on the first
-try. Turbopack on this Windows env appears materially unstable
-for our codebase size.
+**Status — ESCALATED applied (Phase 10 / Commit 36b first step).**
+The flake recurred 8+ times in a row during the C36a build
+verification with materially different errors per retry:
 
-**Action if flake recurs in any other commit:** either pin
-Turbopack to a known-good patch in `package.json` overrides, or
-default the `build` script to `next build --webpack` keeping
-Turbopack for `dev` only (HMR is the main Turbopack win anyway).
-**Promote-to-immediate when the next flake appears outside C36a.**
+- `STATUS_ACCESS_VIOLATION 3221225477` (4×)
+- SWC parser `assertion failed: span.lo >= ...` (1×)
+- `memory allocation of 442746541700 bytes failed` (442GB OOM
+  Rust panic) (1×)
+- `TurbopackInternalError: Parenthesized expression cannot be
+  empty` (1×)
+- CSS module loader failures (1×)
 
-**Target phase.** Phase 11 or 12, only if it recurs in CI — but
-the C36a session moved this anchor closer to needing immediate
-mitigation.
+Webpack fallback (`next build --webpack`) succeeds cleanly on
+the first try. Turbopack on the Blacknel Windows dev env is
+materially unstable at our codebase size.
+
+**Action taken (C36b first step):**
+
+1. `package.json` → `"build": "next build --webpack"` (was
+   `next build`). `"dev": "next dev --turbopack"` unchanged —
+   HMR is the main Turbopack win and dev does NOT show the
+   build-time crashes.
+2. `doc/PATTERNS.md` adds a `## Build configuration` section
+   that documents the split and the re-evaluation criteria.
+3. This anchor renamed from
+   `turbopack-windows-segfault-flake` →
+   `turbopack-builds-webpack-fallback-applied` to reflect
+   that mitigation is now live, not pending.
+
+**Re-evaluate when:**
+
+- Next.js / Turbopack ships a major Windows stability fix
+  (track upstream; Next 17.x candidate).
+- Move to Linux CI runners (the Windows-specific failure modes
+  may not reproduce there → could re-add a `build:turbopack`
+  variant for CI).
+
+**Target phase.** Phase 11 (Turbopack 17.x maturation). Anchor
+stays open as a tracker, no active work today.
 
 ## nps-analytics-sparkline
 

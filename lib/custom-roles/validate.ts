@@ -62,3 +62,14 @@ export const assignCustomRoleSchema = z.object({
   memberId: z.string().uuid(),
   customRoleId: z.string().uuid().nullable(),
 });
+
+/**
+ * Default-role change. Critical action #4 — dual-enforced.
+ * `owner` excluded as a target — the singleton owner is set at
+ * org creation and only the existing owner can transfer (separate
+ * flow not in C36b scope).
+ */
+export const changeMemberRoleSchema = z.object({
+  memberId: z.string().uuid(),
+  role: z.enum(['admin', 'manager', 'agent', 'viewer']),
+});
