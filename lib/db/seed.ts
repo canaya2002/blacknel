@@ -433,4 +433,14 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
     const { seedNps } = await import('./seed-nps');
     await seedNps(tx);
   }
+
+  // --- Listening demo (Phase 9 / Commit 33) ---
+  // 4 tracked terms + 80 mentions with PRE-CLASSIFIED sentiment +
+  // is_lead (R-33-1: AI skills only run in the cron, never in
+  // seed). Gated by env. The /listening Mentions/Leads/Terms tabs
+  // all have real content out of the box.
+  if (env.BLACKNEL_SEED_LISTENING) {
+    const { seedListening } = await import('./seed-listening');
+    await seedListening(tx);
+  }
 }

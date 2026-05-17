@@ -46,3 +46,5 @@ export * from './whatsapp-templates';
 export * from './nps-surveys';
 export * from './nps-invitations';
 export * from './nps-responses';
+export * from './listening-tracked-terms';
+export * from './listening-mentions';

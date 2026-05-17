@@ -6,6 +6,7 @@ import { log } from '@/lib/log';
 import { runAdsAlertsScanTick } from './ads-alerts-scan';
 import { runAdsSyncTick } from './ads-sync';
 import { runCrisisScanTick } from './crisis-scan';
+import { runListeningScanTickEntry } from './listening-scan';
 import { runNpsScanTick } from './nps-scan';
 import { runPublishTick } from './publish-post';
 
@@ -71,6 +72,15 @@ const ADS_ALERTS_TICK_INTERVAL_MS = 12 * 60 * 60_000;
  * slow enough to avoid burning resources on idle orgs.
  */
 const NPS_TICK_INTERVAL_MS = 30 * 60_000;
+/**
+ * Listening scan tick — 60 minutes (Phase 9 / Commit 33). The
+ * deterministic mock connector produces a stable mention set per
+ * `(org, term, UTC day)`; running every hour shows new mentions
+ * trickle in across the day while the per-day uniqueness on the
+ * scan key keeps the total stable. Phase 11 swap (Brand24 /
+ * Mention.com) keeps the same cadence.
+ */
+const LISTENING_TICK_INTERVAL_MS = 60 * 60_000;
 
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -87,6 +97,9 @@ let adsAlertsTickInFlight = false;
 
 let npsTimer: ReturnType<typeof setInterval> | null = null;
 let npsTickInFlight = false;
+
+let listeningTimer: ReturnType<typeof setInterval> | null = null;
+let listeningTickInFlight = false;
 
 export function startPublishCron(): void {
   if (started) {
@@ -209,6 +222,32 @@ export function startPublishCron(): void {
   } else {
     log.info('nps cron — disabled via BLACKNEL_NPS_JOB_ENABLED=false');
   }
+
+  // Phase 9 / Commit 33 — listening scan tick. 60 min cadence;
+  // gated by BLACKNEL_LISTENING_JOB_ENABLED. The mock connector
+  // is deterministic per (org, term, UTC day) so re-firing the
+  // tick within the day is a no-op (ON CONFLICT DO NOTHING on
+  // listening_mentions_external_unique).
+  if (env.BLACKNEL_LISTENING_JOB_ENABLED) {
+    void listeningTickSafe();
+    listeningTimer = setInterval(() => {
+      void listeningTickSafe();
+    }, LISTENING_TICK_INTERVAL_MS);
+    if (
+      listeningTimer &&
+      typeof (listeningTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (listeningTimer as unknown as { unref: () => void }).unref();
+    }
+    log.info(
+      { tickIntervalMs: LISTENING_TICK_INTERVAL_MS },
+      'listening cron — started',
+    );
+  } else {
+    log.info(
+      'listening cron — disabled via BLACKNEL_LISTENING_JOB_ENABLED=false',
+    );
+  }
 }
 
 /**
@@ -239,12 +278,17 @@ export function stopPublishCron(): void {
     clearInterval(npsTimer);
     npsTimer = null;
   }
+  if (listeningTimer) {
+    clearInterval(listeningTimer);
+    listeningTimer = null;
+  }
   started = false;
   tickInFlight = false;
   crisisTickInFlight = false;
   adsSyncTickInFlight = false;
   adsAlertsTickInFlight = false;
   npsTickInFlight = false;
+  listeningTickInFlight = false;
 }
 
 /** True when the singleton is currently running. Used by tests. */
@@ -372,5 +416,29 @@ async function npsTickSafe(): Promise<void> {
     );
   } finally {
     npsTickInFlight = false;
+  }
+}
+
+async function listeningTickSafe(): Promise<void> {
+  if (listeningTickInFlight) {
+    log.debug('listening cron — tick still in-flight, skipping turn');
+    return;
+  }
+  listeningTickInFlight = true;
+  try {
+    const result = await runListeningScanTickEntry();
+    if (!result.ok) {
+      log.error({ err: result.error.message }, 'listening cron — tick failed');
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'listening cron — tick threw',
+    );
+  } finally {
+    listeningTickInFlight = false;
   }
 }

@@ -56,7 +56,8 @@ export type Permission =
   | 'brand_voice:manage'
   | 'whatsapp:manage_templates'
   | 'nps:read'
-  | 'nps:manage';
+  | 'nps:manage'
+  | 'listening:read';
 
 const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'inbox:read',
@@ -99,6 +100,7 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'whatsapp:manage_templates',
   'nps:read',
   'nps:manage',
+  'listening:read',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
@@ -148,6 +150,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'whatsapp:manage_templates',
     'nps:read',
     'nps:manage',
+    'listening:read',
   ],
 
   // Manager: full operational reach (reply, approve, publish, automate,
@@ -187,6 +190,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'whatsapp:manage_templates',
     'nps:read',
     'nps:manage',
+    'listening:read',
   ],
 
   // Agent: front-line operator. Reads and replies, drafts and
@@ -213,6 +217,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'crisis:read',
     'ads_alerts:read',
     'nps:read',
+    'listening:read',
   ],
 
   // Viewer: read-only, end-of-pipeline visibility for stakeholders.
@@ -228,5 +233,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'campaigns:read',
     'crisis:read',
     'nps:read',
+    'listening:read',
   ],
 };

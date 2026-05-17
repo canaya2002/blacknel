@@ -461,3 +461,44 @@ export const npsSurveyStatusEnum = pgEnum('nps_survey_status', [
   'paused',
   'archived',
 ]);
+
+// ---------------------------------------------------------------------------
+// Listening (Phase 9 / Commit 33) — Growth-tier social listening.
+//
+// `listening_term_kind` carries the syntactic flavor of the watch:
+//   - keyword: free-form text ("looking for a new app")
+//   - hashtag: '#topic'
+//   - handle:  '@brand_handle'
+//
+// `listening_mention_kind` mirrors the four shapes a connector can
+// emit. `repost` is distinct from `share` so that orgs that care
+// about retweets/reshares can filter.
+//
+// `listening_mention_status` is the triage lifecycle:
+//   new → triaged (manager has looked at it) → archived (dismissed)
+//   new → converted (manager promoted it to an inbox thread)
+// ---------------------------------------------------------------------------
+
+export const listeningTermKindEnum = pgEnum('listening_term_kind', [
+  'keyword',
+  'hashtag',
+  'handle',
+]);
+
+export const listeningTermStatusEnum = pgEnum('listening_term_status', [
+  'active',
+  'paused',
+  'archived',
+]);
+
+export const listeningMentionKindEnum = pgEnum('listening_mention_kind', [
+  'post',
+  'comment',
+  'share',
+  'repost',
+]);
+
+export const listeningMentionStatusEnum = pgEnum(
+  'listening_mention_status',
+  ['new', 'triaged', 'archived', 'converted'],
+);

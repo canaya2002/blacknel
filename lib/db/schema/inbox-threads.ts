@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import {
@@ -10,6 +11,7 @@ import {
 import { brands } from './brands';
 import { connectedAccounts } from './connected-accounts';
 import { contactProfiles } from './contact-profiles';
+import { listeningMentions } from './listening-mentions';
 import { locations } from './locations';
 import { organizations } from './organizations';
 import { users } from './users';
@@ -56,6 +58,26 @@ export const inboxThreads = pgTable(
     closedAt: timestamp('closed_at', { withTimezone: true }),
     tags: jsonb('tags').notNull().default(sql`'[]'::jsonb`),
     metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
+    /**
+     * Listening provenance (Phase 9 / Commit 33, R-33-2).
+     *
+     * NULL for every thread NOT originated from a listening
+     * mention — the dominant state. Populated when a manager
+     * promotes a `listening_mentions` row into an inbox thread.
+     * FK ON DELETE SET NULL so deleting the source mention
+     * doesn't cascade into a real conversation.
+     *
+     * Charter touch: column es nullable, sin default, no afecta
+     * rows históricos de Phase 4 ni altera inserts existentes
+     * que no setean el campo. Mismo patrón que
+     * `inbox_messages.whatsapp_template_id` (Commit 31). Partial
+     * index restringe el storage al subset de threads de
+     * origen listening (~5-15% estimado).
+     */
+    sourceMentionId: uuid('source_mention_id').references(
+      (): AnyPgColumn => listeningMentions.id,
+      { onDelete: 'set null' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -76,6 +98,9 @@ export const inboxThreads = pgTable(
     orgPlatformExternalUnique: uniqueIndex('inbox_threads_org_platform_external_unique')
       .on(table.organizationId, table.platform, table.externalThreadId)
       .where(sql`external_thread_id IS NOT NULL`),
+    sourceMentionIdx: index('inbox_threads_source_mention_idx')
+      .on(table.sourceMentionId)
+      .where(sql`source_mention_id IS NOT NULL`),
   }),
 );
 

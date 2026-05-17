@@ -121,6 +121,20 @@ const envSchema = z.object({
    * numbers out of the box.
    */
   BLACKNEL_SEED_NPS: boolFromString(true),
+  /**
+   * Listening cron (Phase 9 / Commit 33). 60-min tick scans
+   * active tracked terms and persists deterministic mock mentions
+   * with AI sentiment + intent classification. Vitest forces off.
+   * Phase 11 swaps the mock connector for Brand24 / Mention.com.
+   */
+  BLACKNEL_LISTENING_JOB_ENABLED: boolFromString(true),
+  /**
+   * Whether `seedDatabase()` seeds listening demo data (Phase 9
+   * / Commit 33). 4 tracked terms + 80 mentions with deterministic
+   * pre-classified sentiment + is_lead (R-33-1: no AI skills
+   * invoked from seed). Default `true`.
+   */
+  BLACKNEL_SEED_LISTENING: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

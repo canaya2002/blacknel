@@ -37,3 +37,9 @@ if (!process.env.BLACKNEL_NPS_JOB_ENABLED) {
 if (!process.env.BLACKNEL_SEED_NPS) {
   process.env.BLACKNEL_SEED_NPS = 'false';
 }
+if (!process.env.BLACKNEL_LISTENING_JOB_ENABLED) {
+  process.env.BLACKNEL_LISTENING_JOB_ENABLED = 'false';
+}
+if (!process.env.BLACKNEL_SEED_LISTENING) {
+  process.env.BLACKNEL_SEED_LISTENING = 'false';
+}

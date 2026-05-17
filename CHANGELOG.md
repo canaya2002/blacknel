@@ -7,6 +7,127 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 9 / Commit 33 (Social listening · deterministic mock connector · AI sentiment + intent pipeline · CSV export)
+
+Third Growth-tier feature for Phase 9. Lands the full listening
+loop: tracked terms → deterministic mock scans → AI-classified
+mentions (sentiment + lead detection) → triage (archive / mark
+lead / promote to inbox thread) → CSV export. Plan-gated on
+Growth+. Standard sees `<UpgradePrompt />` with listening-specific
+value bullets.
+
+**Charter touch — Phase 4 ALTER on `inbox_threads` (R-33-2)**
+
+Migration `0016_listening.sql` toca `inbox_threads` (Fase 4) con
+column nullable `source_mention_id` FK `listening_mentions(id)` ON
+DELETE SET NULL + partial index. Habilita el loop
+discover→triage→operate exclusivo de Listening Growth tier. Column
+nullable sin default → NO afecta inserts existentes ni rows
+históricos. Patrón idéntico a `inbox_messages.whatsapp_template_id`
+(Commit 31) — column tipada sobre `metadata jsonb` genérico (anti-
+Drupal). El FK opuesto (`listening_mentions.assigned_thread_id` →
+`inbox_threads.id`) se agrega en un segundo ALTER después de
+crear ambas tablas (circular FK resuelto en 3 pasos en la
+migration).
+
+**R-33-1 invariant — AI skills only run at runtime, not in seed**
+
+`lib/db/seed-listening.ts` lleva un JSDoc explícito: "Sentiments
+and is_lead are pre-classified to keep the seed deterministic and
+side-effect-free. AI sentiment skill is only invoked by the
+listening-scan cron when new mentions arrive at runtime." Razón:
+
+  1. El seed corre en cada dev boot. Pinging el (mock) AI adapter
+     en cada boot noise el `ai_generations` y oculta señal real
+     cuando llegue Phase-11 live API.
+  2. Tests corren con seed off; un dev que active el flag no debe
+     pagar AI calls por row.
+
+**Ajuste B — Determinismo del mock connector**
+
+`lib/connectors/listening/mock.ts` produce mentions con hash
+SHA-256 sobre `(orgId, trackedTermId, isoDayKey)`. Mismo seed →
+mismo set. Volume bands by `termKind`:
+
+  - `handle`  → 5-20 mentions/día
+  - `hashtag` → 2-12 mentions/día
+  - `keyword` → 0-5  mentions/día
+
+JSDoc del módulo apunta a Phase-11 swap candidates: Brand24
+(`brand24.com`), Mention.com, Google Alerts (RSS fallback).
+Sentiment + intent NUNCA vienen del connector — los corremos
+nosotros vía Phase-7 AI skills.
+
+**Decisiones D-33-1..5 confirmadas**
+
+- D-33-1 (a) — connector-driven listening. `platforms text[]` por
+  term; mock por plataforma reuso del registry pattern Fase 3.
+- D-33-2 (a) — `aiSkillEnum.sentiment` invocado en `persistMention`.
+  Fallback a `hintSentiment` del mock cuando la skill falla.
+- D-33-3 (b) — `aiSkillEnum.intent` reuso. `is_lead = primaryIntent
+  ∈ {sales_inquiry, info_request}`.
+- D-33-4 (a) — `assign_to_thread` crea `inbox_threads` nuevo +
+  `contact_profiles` upsert + wire ambos FKs.
+- D-33-5 (a) — `tracked_terms.brand_id` nullable. Per-brand o
+  org-global; index unique sobre `(org, brand, term, kind)` cubre
+  ambos casos.
+
+**Ajuste A — CSV export de mentions**
+
+`exportListeningMentionsCsvAction` + `<ListeningExportButton />`.
+Columns: `captured_at, platform, author_handle, body (≤500 chars),
+sentiment, sentiment_score, is_lead, status, url,
+assigned_thread_id`. Audit row carries `section: 'listening'` +
+filtros + period en metadata.
+
+**Permissions — `listening:read` agregado (`listening:manage` ya
+existía)**. Patrón consistente con `nps:read` / `nps:manage` de
+Commit 32: owner/admin/manager/agent/viewer todos con `:read`,
+manager+ con `:manage`.
+
+**Code surface**
+
+- Migration `0016_listening.sql` — 4 enums + 2 tablas + RLS +
+  indexes + CHECK constraints + ALTER `inbox_threads` + segundo
+  ALTER para circular FK.
+- Schemas: `lib/db/schema/listening-tracked-terms.ts`,
+  `lib/db/schema/listening-mentions.ts`. Touch a
+  `lib/db/schema/inbox-threads.ts` (Fase 4) con `sourceMentionId`
+  column + partial index.
+- Mock connector: `lib/connectors/listening/mock.ts` (deterministic
+  + Brand24-shaped).
+- Domain layer: `lib/listening/{queries,validate,persist}.ts`.
+  `persist.ts` orquesta sentiment + intent skills + INSERT con
+  ON CONFLICT DO NOTHING.
+- Cron: `lib/jobs/listening-scan.ts` + extension de
+  `lib/jobs/cron-loop.ts` (6to timer, 60 min cadence, env-gated).
+- Server Actions: `app/(app)/listening/actions.ts` — 4 actions
+  (addTracked / removeTracked / triageMention con 4 sub-actions /
+  exportCsv) cada una con plan-gate + RBAC + audit.
+- App UI: `app/(app)/listening/page.tsx` (tabs Mentions / Leads /
+  Tracked terms, URL-driven) + `terms/new`. Components:
+  `mention-card`, `sentiment-pill`, `lead-badge`, `tracked-term-
+  pill`, `tracked-term-form`, `listening-export-button`. La page
+  Phase-1 stub fue reemplazada — usaba el legacy
+  `components/common/upgrade-prompt` (superseded por el Commit-31
+  `components/billing/upgrade-prompt`).
+- Seed: `lib/db/seed-listening.ts` — 4 tracked terms + 80
+  mentions pre-clasificadas (R-33-1). Gated por
+  `BLACKNEL_SEED_LISTENING`.
+- Tests: 6 archivos, +21 cases (`listening-mock-connector`,
+  `listening-mentions-crud`, `listening-triage`,
+  `listening-scan-cron`, `listening-export-csv`,
+  `upgrade-prompt-listening`).
+
+**Verification**
+
+- `pnpm verify` ✅ 1066 tests pass (+21 vs Commit 32 baseline 1045).
+- `pnpm build` ✅ — first invocation hit the same Turbopack /
+  Windows `STATUS_ACCESS_VIOLATION` flake documented in
+  `TODO.md#turbopack-windows-segfault-flake`; retry produced a
+  clean build with all listening routes registered (`/listening`,
+  `/listening/terms/new`).
+
 ### Added — Phase 9 / Commit 32 (NPS surveys · public landing · post-resolution cron · CSV export)
 
 Second Growth-tier feature for Phase 9. Net Promoter Score surveys
