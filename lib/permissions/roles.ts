@@ -39,6 +39,7 @@ export type Permission =
   | 'automations:manage'
   | 'ai:use_advanced'
   | 'ads:read'
+  | 'ads:manage'
   | 'listening:manage'
   | 'reports:create'
   | 'reports:export'
@@ -75,6 +76,7 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'automations:manage',
   'ai:use_advanced',
   'ads:read',
+  'ads:manage',
   'listening:manage',
   'reports:create',
   'reports:export',
@@ -118,6 +120,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'automations:manage',
     'ai:use_advanced',
     'ads:read',
+    'ads:manage',
     'listening:manage',
     'reports:create',
     'reports:export',

@@ -82,6 +82,13 @@ const envSchema = z.object({
    * deshabilita y usa el handler de queue en su lugar.
    */
   BLACKNEL_PUBLISH_JOB_ENABLED: boolFromString(true),
+  /**
+   * Ads-sync cron (Commit 28). Same lifecycle as the publish/crisis
+   * crons: only fires when `NODE_ENV='development'` AND this flag
+   * is true. Vitest forces it off. Phase 11 swaps the in-process
+   * loop for Inngest with real OAuth-backed connectors.
+   */
+  BLACKNEL_ADS_SYNC_ENABLED: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

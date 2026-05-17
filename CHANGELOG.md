@@ -7,6 +7,102 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 8 / Commit 28 (Ads Intelligence — schema + mock connectors + cron + /ads dashboard)
+
+Second Phase-8 commit. Stands up the Ads Intelligence pillar
+end-to-end con mock connectors deterministas para que
+dashboards, cron, queries y server actions exerciten el
+mismo code path que producción. Real OAuth + provider SDKs
+cablean en Fase 11 — el swap toca solo
+`lib/ads-connectors/*` y `lib/ads/fx-rates.ts`.
+
+**Code surface**
+
+- Migration `0012_ads_intelligence.sql` (additive only, no
+  Phase 1-7 changes per charter rule):
+  - `ads_platform` enum (`google` | `meta`),
+    `ads_account_status` enum
+    (`connected` | `disconnected` | `error`).
+  - `ads_accounts`: `(org, platform, external_account_id)`
+    UNIQUE; reconectar flip-flops `status` en la misma fila.
+  - `ads_spend_daily`: `(org, ads_account, platform_campaign_id,
+    date, currency)` UNIQUE para upsert idempotente; columns
+    `spend_cents` (native) + `spend_usd_cents` (frozen at-insert).
+  - RLS por tenant en ambas tablas.
+- `lib/ads/fx-rates.ts` (D-28-1 / Ajuste 1) — `FX_RATES_TO_USD`
+  table-as-data + `FX_RATES_AS_OF` + pure `toUsdCents`.
+  Fase 11 swap-point.
+- `lib/ads-connectors/` (D-28-1 / Ajuste 2):
+  - `base.ts` — contract + FNV-1a + Mulberry32 deterministic
+    seeds.
+  - `google-mock.ts` (3 campaigns/account) +
+    `meta-mock.ts` (2 campaigns/account). Spend $20-$200,
+    CTR 1-3%, impressions 5k-25k.
+  - `index.ts` exposes `getAdsConnector(platform)`.
+- `lib/jobs/ads-sync.ts` — producer + `runAdsSyncTick(deps)`.
+  Iterates `status='connected'` accounts, fetches 2d window
+  (D-28-2), bulk INSERT ... ON CONFLICT DO UPDATE,
+  refreshes `last_sync_at`, audits
+  `ads.sync.completed` per account.
+- `lib/jobs/cron-loop.ts` — registers `ads-sync` tick (24h)
+  alongside publish + crisis; gated por
+  `BLACKNEL_ADS_SYNC_ENABLED` + `NODE_ENV='development'`.
+- `lib/ads/queries.ts` — `getAdsOverview` (4 KPIs 30d) +
+  `listAdsAccounts` (per-account 30d spend USD).
+- `app/(app)/ads/actions.ts` —
+  `connectAdsAccountAction` (D-28-3 manual dialog,
+  re-connect path retorna `created:false`) +
+  `disconnectAdsAccountAction` (idempotent, flip-only).
+  Gated `ads:manage`. Audits
+  `ads_account.{connected,reconnected,disconnected}`.
+- `/ads` page reemplaza el placeholder Fase-1. Enterprise gate
+  vía `getOrgPlanCode`. Tabla simple sin chart (Ajuste 3) +
+  4 KPI cards + dialog manual.
+- `lib/permissions/roles.ts` — añade permiso `ads:manage`
+  (owner + admin only; manager mantiene `ads:read`).
+- `lib/env.ts` + `tests/helpers/react-act-setup.ts` —
+  añaden `BLACKNEL_ADS_SYNC_ENABLED` (test setup forces off,
+  dev defaults on).
+
+**Phase 8 charter rule — enforced this commit**
+
+NO modifications a Phase 1-7 schema, queries, indexes, o
+RLS policies. Migration 0012 es additive-only; queries
+`lib/ads/*` solo leen de tablas Commit 28 (con un LEFT JOIN
+read-only a `brands` para el display name).
+
+**Carry-overs descubiertos durante Commit 28**
+
+**NONE.** Las dos tablas nuevas land sobre indexes propios;
+el FX conversion stays en `lib/ads/fx-rates.ts`; la dialog
+manual no requiere cambios en pickers existentes.
+
+**TODOs nuevos (no negociables para Fase 9 polish)**
+
+- `ads-campaign-id-mapping` — `platform_campaign_id` es el
+  external id; cross-platform JOIN con `campaigns.id` (nuestra
+  tabla interna) necesita una tabla de mapeo. Phase-12 polish.
+- `ads-real-oauth` — Phase 11. Swap `google-mock`/`meta-mock`
+  por adapters reales detrás de `MOCK_ADS_*` env flag.
+
+**Tests (+23 cases / +4 files)**
+
+- `tests/unit/ads-fx-rates.test.ts` (5) — USD anchor, EUR rate,
+  case-insensitive currency, unsupported-currency fallback,
+  non-finite input → 0.
+- `tests/unit/ads-connectors-determinism.test.ts` (8) — row
+  counts por platform, idempotent re-call, spend/CTR envelopes,
+  Google/Meta seeds disjoint, `enumerateDates` inclusivity,
+  FNV+Mulberry stability.
+- `tests/integration/ads-sync.test.ts` (7) — first tick row
+  count (16 = 12g+4m), idempotent re-tick, disconnected
+  account skipped, EUR rows `spend_usd_cents = toUsdCents(...)`,
+  tenant isolation bajo RLS, audit-per-account count,
+  `last_sync_at` touched.
+- `tests/integration/ads-queries.test.ts` (3) — empty-org zero
+  overview, seeded list + overview math (excluye filas >30d),
+  tenant isolation.
+
 ### Added — Phase 8 / Commit 27 (Reports infrastructure · /reports Overview + period delta + cache + CSV export)
 
 Opens Phase 8. Reports = pure read-aggregation layer on top

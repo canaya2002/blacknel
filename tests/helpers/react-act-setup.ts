@@ -22,3 +22,6 @@
 if (!process.env.BLACKNEL_PUBLISH_JOB_ENABLED) {
   process.env.BLACKNEL_PUBLISH_JOB_ENABLED = 'false';
 }
+if (!process.env.BLACKNEL_ADS_SYNC_ENABLED) {
+  process.env.BLACKNEL_ADS_SYNC_ENABLED = 'false';
+}

@@ -3,6 +3,7 @@ import 'server-only';
 import { env } from '@/lib/env';
 import { log } from '@/lib/log';
 
+import { runAdsSyncTick } from './ads-sync';
 import { runCrisisScanTick } from './crisis-scan';
 import { runPublishTick } from './publish-post';
 
@@ -44,6 +45,14 @@ const TICK_INTERVAL_MS = 60_000;
  * cycles per hour is the right tradeoff.
  */
 const CRISIS_TICK_INTERVAL_MS = 60 * 60_000;
+/**
+ * Ads-sync tick interval — 24h (Commit 28). Platform spend
+ * reports refresh ~daily; sub-hour polling would just spend on
+ * Phase-11 API quota without surfacing new data. The 2d window
+ * inside the producer (see `lib/jobs/ads-sync.ts`) handles late
+ * attribution revisions.
+ */
+const ADS_SYNC_TICK_INTERVAL_MS = 24 * 60 * 60_000;
 
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -51,6 +60,9 @@ let tickInFlight = false;
 
 let crisisTimer: ReturnType<typeof setInterval> | null = null;
 let crisisTickInFlight = false;
+
+let adsSyncTimer: ReturnType<typeof setInterval> | null = null;
+let adsSyncTickInFlight = false;
 
 export function startPublishCron(): void {
   if (started) {
@@ -107,6 +119,28 @@ export function startPublishCron(): void {
     { tickIntervalMs: CRISIS_TICK_INTERVAL_MS },
     'crisis cron — started',
   );
+
+  // Phase 8 / Commit 28 — ads-sync tick. Same lifecycle as the
+  // other crons; gated on `BLACKNEL_ADS_SYNC_ENABLED` so a dev
+  // box can disable just the ads tick if mocks become noisy.
+  if (env.BLACKNEL_ADS_SYNC_ENABLED) {
+    void adsSyncTickSafe();
+    adsSyncTimer = setInterval(() => {
+      void adsSyncTickSafe();
+    }, ADS_SYNC_TICK_INTERVAL_MS);
+    if (
+      adsSyncTimer &&
+      typeof (adsSyncTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (adsSyncTimer as unknown as { unref: () => void }).unref();
+    }
+    log.info(
+      { tickIntervalMs: ADS_SYNC_TICK_INTERVAL_MS },
+      'ads-sync cron — started',
+    );
+  } else {
+    log.info('ads-sync cron — disabled via BLACKNEL_ADS_SYNC_ENABLED=false');
+  }
 }
 
 /**
@@ -125,9 +159,14 @@ export function stopPublishCron(): void {
     clearInterval(crisisTimer);
     crisisTimer = null;
   }
+  if (adsSyncTimer) {
+    clearInterval(adsSyncTimer);
+    adsSyncTimer = null;
+  }
   started = false;
   tickInFlight = false;
   crisisTickInFlight = false;
+  adsSyncTickInFlight = false;
 }
 
 /** True when the singleton is currently running. Used by tests. */
@@ -183,5 +222,29 @@ async function crisisTickSafe(): Promise<void> {
     );
   } finally {
     crisisTickInFlight = false;
+  }
+}
+
+async function adsSyncTickSafe(): Promise<void> {
+  if (adsSyncTickInFlight) {
+    log.debug('ads-sync cron — tick still in-flight, skipping turn');
+    return;
+  }
+  adsSyncTickInFlight = true;
+  try {
+    const result = await runAdsSyncTick();
+    if (!result.ok) {
+      log.error({ err: result.error.message }, 'ads-sync cron — tick failed');
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'ads-sync cron — tick threw',
+    );
+  } finally {
+    adsSyncTickInFlight = false;
   }
 }

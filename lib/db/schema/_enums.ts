@@ -350,3 +350,22 @@ export const contentAssetKindEnum = pgEnum('content_asset_kind', [
   'pdf',
   'gif',
 ]);
+
+// ---------------------------------------------------------------------------
+// Phase 8 / Commit 28 — Ads Intelligence enums.
+//
+// `ads_platform` covers the two ad providers we wire in Phase 8.
+// Phase 11+ may add TikTok / LinkedIn / X — those land alongside
+// their respective real connectors.
+//
+// `ads_account_status` lifecycle: `connected → disconnected | error`.
+// Re-connecting flips an existing row back to `connected`.
+// ---------------------------------------------------------------------------
+
+export const adsPlatformEnum = pgEnum('ads_platform', ['google', 'meta']);
+
+export const adsAccountStatusEnum = pgEnum('ads_account_status', [
+  'connected',
+  'disconnected',
+  'error',
+]);
