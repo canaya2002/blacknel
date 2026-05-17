@@ -877,7 +877,24 @@ needed today. This anchor exists so future failures can
 reference `TODO.md#turbopack-windows-segfault-flake` instead
 of relitigating diagnosis.
 
-**Target phase.** Phase 11 or 12, only if it recurs in CI.
+**Update — Phase 10 / Commit 36a session.** The flake recurred
+8+ times in a row during the C36a build verification with
+different errors per retry: `STATUS_ACCESS_VIOLATION 3221225477`,
+SWC parser `assertion failed: span.lo >= ...`, `memory allocation
+of 442746541700 bytes failed` (442GB OOM — Rust panic). Webpack
+fallback (`next build --webpack`) succeeds cleanly on the first
+try. Turbopack on this Windows env appears materially unstable
+for our codebase size.
+
+**Action if flake recurs in any other commit:** either pin
+Turbopack to a known-good patch in `package.json` overrides, or
+default the `build` script to `next build --webpack` keeping
+Turbopack for `dev` only (HMR is the main Turbopack win anyway).
+**Promote-to-immediate when the next flake appears outside C36a.**
+
+**Target phase.** Phase 11 or 12, only if it recurs in CI — but
+the C36a session moved this anchor closer to needing immediate
+mitigation.
 
 ## nps-analytics-sparkline
 
@@ -996,3 +1013,74 @@ sandboxed HTML preview.
 
 **Target phase.** Phase 10 or 11 — whichever lands `/settings`
 expansion first.
+
+## rbac-rls-dynamic-policies-supabase-auth
+
+**Problem.** Phase 10 / Commit 36a lands enforcement híbrido
+(c): TS layer estándar (144 callers) + `app_permission_check()`
+DB function para las 10 critical actions documentadas en
+`doc/PATTERNS.md#critical-actions-dual-ts--db-enforcement`. Esto
+es defendible en security review enterprise pero NO es
+defense-in-depth full — el resto del codebase sigue siendo
+TS-only enforcement.
+
+**Why deferred.** RLS dynamic policies cross-table requieren
+`set_config('app.current_user_role', …)` y `app.current_custom_
+role_id` en cada `dbAs()`, más reescritura de ~25 RLS policies
+existentes. Demasiado coupling con el código actual; mejor con
+Supabase Auth real cuando el patrón de sesión cambia anyway.
+
+**Resolution criteria.** Phase 11 después del cutover Supabase
+Auth:
+
+1. Setear `app.current_user_role` + `app.current_custom_role_id`
+   en cada `dbAs()` transaction (junto con `app.current_org_id`
+   y `app.current_user_id` que ya están).
+2. Promover `app_permission_check()` lógica a RLS policies para
+   tablas críticas (PRIMERO):
+   - `posts` (delete + publish gated)
+   - `subscriptions` / `plans` (billing gated)
+   - `audit_events` (read gated)
+   - `custom_roles` (mutations gated)
+3. Resto de tablas se quedan con tenant isolation actual (RLS
+   sólo por `app.current_org_id`).
+4. Tests `live.test.ts` deben cubrir privilege escalation contra
+   RLS bypass (rol viewer no puede UPDATE posts via SQL directo
+   aunque tenga `tenant` match).
+5. Evaluar mover `app_*` functions a schema dedicado
+   `blacknel_internal` (D-36a-11 future direction).
+
+**Target phase.** Phase 11.
+
+## rbac-permission-check-perf-budget
+
+**Problem.** `assertPermissionInDb()` (Phase 10 / Commit 36a)
+invoca `app_permission_check()` SQL function — 1 round-trip DB
+por critical action por request. Cada query interna es PK
+lookup sub-ms en pglite/local; sin medir contra Postgres real
+bajo carga.
+
+**Why deferred.** Phase 10 no tiene carga real. Phase 11 con
+Supabase Auth + Vercel Functions tendrá perfiles latency reales
+para medir.
+
+**Resolution criteria.** Phase 11:
+
+1. Medir **p95 de `assertPermissionInDb()`** bajo carga real
+   (load test ~1k req/s, mix de roles default + custom).
+2. Si p95 > **10ms** → implementar **LRU cache** dentro de
+   `assertPermissionInDb`:
+   - Key: `(userId, orgId, permission)`.
+   - TTL: 5 min.
+   - Invalidación on mutation events:
+     `custom_role.{created,updated,archived,assigned}` +
+     `organization_members.role.changed`.
+3. Si p95 > **50ms** → re-evaluar SQL function vs full RLS
+   dynamic policies (acelera el anchor
+   `rbac-rls-dynamic-policies-supabase-auth`).
+4. Si p95 < 10ms → cero acción, queda como está.
+
+Tests live.test.ts pueden simular load con un loop de 1000
+checks contra DB real para sanity baseline.
+
+**Target phase.** Phase 11.

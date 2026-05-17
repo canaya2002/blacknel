@@ -1,3 +1,8 @@
+import {
+  permissionAllowed,
+  resolvePermissions,
+} from '../custom-roles/resolve';
+import type { CustomRoleInput } from '../custom-roles/types';
 import { AppError } from '../errors';
 
 import { type Permission, ROLE_PERMISSIONS, type Role } from './roles';
@@ -39,4 +44,34 @@ export function sessionCan(
 ): boolean {
   if (!session) return false;
   return can(session.role, permission);
+}
+
+/**
+ * Phase 10 / Commit 36a — Custom Roles-aware permission resolver.
+ *
+ * Re-exposes `permissionAllowed` from `lib/custom-roles/resolve`
+ * so callers holding the session AND optionally the resolved
+ * custom_role row can check permissions with the revoke-wins rule.
+ * The 144 pre-C36a `authorize()` / `can()` callers do NOT need to
+ * migrate — their behavior is preserved exactly (custom_role
+ * defaults to undefined → matrix lookup as before).
+ */
+export function resolvePermissionsFor(
+  role: Role,
+  customRole: CustomRoleInput | null | undefined,
+  permission: Permission,
+): boolean {
+  return permissionAllowed(role, permission, customRole);
+}
+
+/**
+ * Phase 10 / Commit 36a — full effective set resolver (for UI
+ * gating or audit). Returns the Set of permissions the (role,
+ * customRole) pair effectively holds after applying revoke-wins.
+ */
+export function resolveEffectivePermissionsFor(
+  role: Role,
+  customRole: CustomRoleInput | null | undefined,
+): ReadonlySet<Permission> {
+  return resolvePermissions(role, customRole).effective;
 }

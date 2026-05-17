@@ -1,6 +1,8 @@
+import { sql } from 'drizzle-orm';
 import { index, pgTable, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { memberRoleEnum, memberStatusEnum } from './_enums';
+import { customRoles } from './custom-roles';
 import { organizations } from './organizations';
 import { users } from './users';
 
@@ -24,6 +26,22 @@ export const organizationMembers = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     role: memberRoleEnum('role').notNull(),
     status: memberStatusEnum('status').notNull().default('active'),
+    /**
+     * Custom Roles overlay (Phase 10 / Commit 36a, charter touch).
+     *
+     * NULL → permission resolution uses `role` directly (default
+     * path). NOT NULL → resolution loads `custom_roles` row and
+     * applies revoke-wins resolution. Detail in
+     * `lib/custom-roles/resolve.ts` and SQL function
+     * `app_permission_check()`.
+     *
+     * Column nullable, sin default, FK ON DELETE SET NULL → 0
+     * impact en rows históricos Phase 2. Partial index restringe
+     * storage al subset Enterprise con custom_role asignado.
+     */
+    customRoleId: uuid('custom_role_id').references(() => customRoles.id, {
+      onDelete: 'set null',
+    }),
     invitedBy: uuid('invited_by').references(() => users.id, { onDelete: 'set null' }),
     invitedAt: timestamp('invited_at', { withTimezone: true }),
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow(),
@@ -40,6 +58,9 @@ export const organizationMembers = pgTable(
       table.organizationId,
       table.status,
     ),
+    customRoleIdx: index('organization_members_custom_role_idx')
+      .on(table.customRoleId)
+      .where(sql`custom_role_id IS NOT NULL`),
   }),
 );
 

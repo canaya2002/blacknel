@@ -46,7 +46,8 @@ export type PlanFeature =
   | 'listening_mentions'
   | 'competitors_tracking'
   | 'scheduled_report_emails'
-  | 'ads_intelligence';
+  | 'ads_intelligence'
+  | 'custom_roles';
 
 // Map each named feature to its underlying gating predicate.
 function evaluate(plan: PlanCode, feature: PlanFeature): boolean {
@@ -68,6 +69,8 @@ function evaluate(plan: PlanCode, feature: PlanFeature): boolean {
       // lands we'll add a `scheduledReports` key to
       // `PlanFeatures` and switch to it.
       return plan === 'growth' || plan === 'enterprise';
+    case 'custom_roles':
+      return planAllowsFeature(plan, 'customRoles');
   }
 }
 
@@ -113,6 +116,9 @@ export function requirePlanFeature(
           { meta: { plan, feature } },
         );
       }
+      return;
+    case 'custom_roles':
+      requireFeature(plan, 'customRoles');
       return;
   }
 }

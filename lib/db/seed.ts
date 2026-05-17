@@ -79,6 +79,13 @@ export const SEED_IDS = {
 } as const;
 
 export async function seedDatabase(tx: AnyPgTx): Promise<void> {
+  // Phase 10 / Commit 36a — ALWAYS first. RBAC core depends on
+  // role_permissions being in sync with the ROLE_PERMISSIONS TS
+  // matrix. Without this, `app_permission_check()` returns false
+  // for every user → total auth lockout.
+  const { seedRolePermissions } = await import('./seed-role-permissions');
+  await seedRolePermissions(tx);
+
   const planIdByCode: Record<PlanCode, string> = {
     standard: SEED_IDS.plan.standard,
     growth: SEED_IDS.plan.growth,

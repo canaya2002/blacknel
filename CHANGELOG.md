@@ -7,6 +7,145 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 10 / Commit 36a (OPENS PHASE 10 · Custom Roles RBAC core — backend only)
+
+Opens Phase 10 (Enterprise-tier features). This commit lands the
+RBAC core — schema + resolution logic + DB enforcement function
+— with NO UI and NO Server Actions. UI + actions follow in C36b.
+
+**Why split (procedural)**: RBAC bugs are security incidents.
+Splitting backend from UI lets us verify the 21-case test
+matrix on the resolution layer in isolation before exposing
+any caller. C36b consumes a verified API.
+
+**Model (b) — Default fixed + custom extends, revoke-wins**
+
+The 5 default roles (`owner | admin | manager | agent | viewer`)
+stay in the `member_role` enum (Phase 2). The 144 existing
+`authorize(session.role, permission)` callers are NOT touched —
+they continue to resolve against the global `ROLE_PERMISSIONS`
+matrix.
+
+New `custom_roles` table holds Enterprise-tier overlays. Each row
+carries `base_role` (NOT `'owner'` — singleton), a `grants[]`
+list, and a `revokes[]` list. `organization_members` gets a
+nullable `custom_role_id` FK. Permission resolution rule
+(deterministic, idempotent, set-based):
+
+```
+IF permission ∈ revokes → false   ← revoke wins
+ELIF permission ∈ grants → true   ← explicit grant
+ELSE permission ∈ role_permissions[base_role]  ← base fallback
+```
+
+Documented in 3 places per D-36a-3:
+1. JSDoc `lib/db/schema/custom-roles.ts`
+2. JSDoc `lib/custom-roles/resolve.ts`
+3. SQL `app_permission_check` function comment
++ test #5 verifies empirically.
+
+**Enforcement híbrido (c) — TS + DB cross-check for 10 critical actions**
+
+- TS layer (`lib/permissions/can.ts`): unchanged for 144 callers.
+- DB function `app_permission_check(user_id, org_id, permission)`:
+  PL/pgSQL `STABLE`, mirror of the TS resolver. Reads live state
+  (`organization_members.custom_role_id` → `custom_roles` →
+  `role_permissions`).
+- Critical actions documented in
+  `doc/PATTERNS.md#critical-actions-dual-ts--db-enforcement` (10
+  actions today; process rule to add new ones).
+- `assertPermissionInDb(session, permission)` in
+  `lib/permissions/db-check.ts` is the dual-enforcement primitive
+  for Server Actions (C36b consumes it).
+
+**Charter touches (5 files Phase 1-2)** — all aditive, 0
+destructive, 144 callers unaffected:
+
+| File | Phase | Change |
+|---|---|---|
+| `lib/auth/types.ts` | 1 | `Session.customRoleId?: string \| null` (optional field; NO cookie version bump per D-36a-9) |
+| `lib/permissions/can.ts` | 2 | `resolvePermissionsFor()` + `resolveEffectivePermissionsFor()` added; existing `authorize()` / `can()` unchanged |
+| `lib/permissions/roles.ts` | 2 | `ALL_PERMISSIONS` exported (was const-local) |
+| `lib/plans/plans.ts` | 1 | `PlanFeatures.customRoles: boolean` + `PlanLimits.maxCustomRoles: number`. Standard=0/false, Growth=0/false, Enterprise=25/true |
+| `lib/plans/gates.ts` | 9 (C31) | `'custom_roles'` added to `PlanFeature` union |
+| `lib/db/seed.ts` | 1 | `seedRolePermissions(tx)` wired FIRST in `seedDatabase()` (always runs, NOT env-gated) |
+| `lib/db/schema/organization-members.ts` | 2 | `custom_role_id uuid NULL FK` + partial index |
+
+**Decisions D-36a-1..11 confirmed**
+
+- D-36a-1: `role_permissions` is a DB table seeded by DELETE+INSERT,
+  NOT hardcoded in the SQL function. Test #13 cross-validates
+  TS ↔ DB on every (Role, Permission) pair.
+- D-36a-2: NO force re-login on custom_role assignment changes —
+  dual enforcement absorbs the staleness window.
+- D-36a-3: revoke-wins documented in 3 places + test.
+- D-36a-4: `grants` / `revokes` are `NOT NULL DEFAULT '{}'::text[]`.
+- D-36a-5: `base_role <> 'owner'` enforced via DB CHECK + Zod.
+- D-36a-6: `team:manage_roles` permission already existed
+  pre-C36a (no new permission added; reuse).
+- D-36a-7: Plan-limit cap enforcement is C36b's responsibility;
+  C36a only declares `maxCustomRoles` + `countCustomRolesByOrg()`
+  helper (test #11 verifies the helper).
+- D-36a-8: `app_permission_check` is `LANGUAGE plpgsql STABLE` —
+  pglite supports PL/pgSQL fully (verified upfront).
+- D-36a-9: NO `SESSION_COOKIE_VERSION` bump; new field is
+  optional + backwards-compatible.
+- D-36a-10: Downgrade Enterprise → Growth preserves
+  `custom_role_id` but resolution falls back to `role` default
+  (UI badge + audit event land in C36b/C39).
+- D-36a-11: `app_*` prefix convention documented in
+  `doc/PATTERNS.md#sql-function-naming-convention`. Phase 11
+  evaluates moving to dedicated `blacknel_internal` schema.
+
+**Risks confronted**
+
+- **R-36a-3 (PL/pgSQL pglite compat)** — verified upfront with a
+  3-case pre-verification test (committed and removed): PL/pgSQL
+  ✅ works, STABLE functions reading tables ✅ work.
+- **R-36a-5 (CHECK with subquery on text[])** — confirmed Postgres
+  standard rejects subqueries in CHECK (not a pglite-only limit).
+  Pre-approved fallback: IMMUTABLE function called from CHECK
+  ✅ works in pglite. `app_valid_permission_format(perms text[])`
+  validates `<area>:<verb>` format on every element.
+- **R-36a-1 (TS↔DB sync drift)** — mitigated by test #13 + the
+  DELETE+INSERT seed pattern that captures every matrix change.
+- **R-36a-2 (perf)** — accepted per user ratification.
+  TODO.md anchor `rbac-permission-check-perf-budget` tracks
+  Phase 11 measurement with action thresholds (10ms → LRU cache;
+  50ms → RLS dynamic policies).
+
+**Code surface**
+
+- Migration `0018_custom_roles.sql` — 1 enum + 2 tables +
+  ALTER organization_members + 2 PL/pgSQL functions
+  (`app_valid_permission_format`, `app_permission_check`).
+- Schemas: `lib/db/schema/{custom-roles, role-permissions}.ts`
+  + organization-members.ts touch.
+- Domain layer: `lib/custom-roles/{types, resolve, queries, validate}.ts`.
+- DB primitive: `lib/permissions/db-check.ts`.
+- Seed: `lib/db/seed-role-permissions.ts` (DELETE+INSERT, always
+  runs).
+- Docs: `doc/PATTERNS.md` (Critical actions section + process
+  rule + SQL function naming convention).
+- TODO.md: 2 anchors (`rbac-rls-dynamic-policies-supabase-auth`,
+  `rbac-permission-check-perf-budget`).
+- Tests: 4 files, 21 cases (9 resolution + 7 RBAC integration +
+  3 defense-in-depth + 2 lifecycle).
+
+**Verification**
+
+- `pnpm verify` ✅ **1131 tests pass** (+21 vs Commit 35 baseline
+  1110). Test #13 confirms TS ↔ DB equivalence on every (Role,
+  Permission) pair.
+- `pnpm build` — Turbopack flake (`TODO.md#turbopack-windows-segfault-flake`)
+  recurred 8+ times this session with materially different errors
+  per retry (STATUS_ACCESS_VIOLATION, SWC parser assertion, 442GB
+  OOM). **Webpack fallback (`next build --webpack`) succeeds
+  cleanly** ✅ — confirms Turbopack-specific. The TODO anchor was
+  updated with "promote-to-immediate when next flake appears
+  outside C36a." `pnpm build` script left unchanged for now; if
+  C36b also hits the flake, switch the script.
+
 ### Added — Phase 9 / Commit 35 (CLOSES PHASE 9 · detail-page polish + charter audit + end-to-end rubric)
 
 Closing commit for Phase 9. No new features — only polish carry-

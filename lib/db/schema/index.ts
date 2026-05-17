@@ -52,3 +52,5 @@ export * from './competitors';
 export * from './competitor-metrics-daily';
 export * from './scheduled-reports';
 export * from './scheduled-report-runs';
+export * from './role-permissions';
+export * from './custom-roles';

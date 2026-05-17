@@ -532,3 +532,14 @@ export const scheduledReportRunStatusEnum = pgEnum(
   'scheduled_report_run_status',
   ['queued', 'running', 'sent', 'failed'],
 );
+
+// ---------------------------------------------------------------------------
+// Custom roles (Phase 10 / Commit 36a) — Enterprise-tier RBAC overlay.
+// `archived` is terminal; archived custom_roles cause permission
+// resolution to fall back to the member's default `role`.
+// ---------------------------------------------------------------------------
+
+export const customRoleStatusEnum = pgEnum('custom_role_status', [
+  'active',
+  'archived',
+]);

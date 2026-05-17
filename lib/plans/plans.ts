@@ -55,6 +55,14 @@ export interface PlanLimits {
    * in PlanLimits and the metric name in `usage_counters`.
    */
   storageBytes: number;
+  /**
+   * Phase 10 / Commit 36a — Custom Roles cap per org. Bool gate
+   * is `PlanFeatures.customRoles`; this limit only matters when
+   * the bool is `true`. Standard/Growth keep this at 0 as a
+   * second line of defense. Enterprise base = 25; Enterprise
+   * Plus (future) → 100; Enterprise White-label (future) → -1.
+   */
+  maxCustomRoles: number;
 }
 
 /** Granularity that a feature is available at, when not a plain boolean. */
@@ -73,6 +81,12 @@ export interface PlanFeatures {
   nps: false | FeatureTier;
   crisis: false | FeatureTier;
   reportBuilder: boolean;
+  /**
+   * Phase 10 / Commit 36a — Custom Roles Enterprise feature.
+   * Standard / Growth: false. Enterprise: true. `requirePlanFeature(plan,
+   * 'custom_roles')` is the gate. Cap lives on `PlanLimits.maxCustomRoles`.
+   */
+  customRoles: boolean;
 }
 
 export interface PlanDefinition {
@@ -101,6 +115,7 @@ export const PLANS = {
       maxAssetSizeBytes: 5_000_000, // 5 MB
       assetsInLibrary: 100,
       storageBytes: 500_000_000, // 500 MB total
+      maxCustomRoles: 0,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp'],
@@ -114,6 +129,7 @@ export const PLANS = {
       nps: false,
       crisis: false,
       reportBuilder: false,
+      customRoles: false,
     },
   },
   growth: {
@@ -130,6 +146,7 @@ export const PLANS = {
       maxAssetSizeBytes: 25_000_000, // 25 MB
       assetsInLibrary: 500,
       storageBytes: 15_000_000_000, // 15 GB total
+      maxCustomRoles: 0,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
@@ -143,6 +160,7 @@ export const PLANS = {
       nps: 'basic',
       crisis: 'basic',
       reportBuilder: false,
+      customRoles: false,
     },
   },
   enterprise: {
@@ -159,6 +177,7 @@ export const PLANS = {
       maxAssetSizeBytes: 100_000_000, // 100 MB
       assetsInLibrary: -1,
       storageBytes: -1, // unlimited
+      maxCustomRoles: 25,
     },
     features: {
       networks: [
@@ -188,6 +207,7 @@ export const PLANS = {
       nps: 'advanced',
       crisis: 'advanced',
       reportBuilder: true,
+      customRoles: true,
     },
   },
 } as const satisfies Record<PlanCode, PlanDefinition>;

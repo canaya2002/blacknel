@@ -62,7 +62,13 @@ export type Permission =
   | 'competitors:manage'
   | 'scheduled_reports:manage';
 
-const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
+/**
+ * Phase 10 / Commit 36a — exported for Zod whitelist in
+ * `lib/custom-roles/validate.ts`. Pre-C36a this was `const`-local;
+ * the export is aditive and doesn't change behavior for the 144
+ * existing callers.
+ */
+export const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'inbox:read',
   'inbox:reply',
   'inbox:assign',

@@ -86,3 +86,77 @@ order is fixed; sections may be omitted but never reordered.
   pattern is intentionally inline because each page's KPI mix
   + chart shape differs enough that a shell would just be a flex
   container. The doc IS the contract.
+
+---
+
+## Critical actions — dual TS + DB enforcement (Phase 10 / Commit 36a)
+
+Some operations are sensitive enough that a bug in the TS auth
+layer (forgetting to call `authorize()`, mis-typing a permission,
+caller bypassing the helper) would cause real harm: data loss,
+auth bypass, billing compromise, compliance violation.
+
+For these operations we apply **dual enforcement**: the TS layer
+checks first (as for all 144+ pre-C36a callers), and the DB
+function `app_permission_check()` cross-checks against live
+state. Bypass of one layer is not enough — the call needs the
+permission in BOTH.
+
+### Canonical list (10 actions)
+
+1. **`billing:manage`** — any operation that touches subscriptions
+   or payment methods.
+2. **`team:manage_roles`** — any default-role change on
+   `organization_members`.
+3. **Custom role assignments** — assigning / un-assigning a member
+   to a `custom_roles` row (`organization_members.custom_role_id`).
+4. **Default role changes** — changing `organization_members.role`
+   itself (owner → admin, manager → agent, etc).
+5. **`reports:export` with `mass=true`** — CSV / JSON exports of
+   >1000 rows.
+6. **`audit:read` with `export` flag** — bulk audit log dumps.
+7. **`posts:delete` massive** — single-action delete of >10 posts.
+8. **`whatsapp:manage_templates`** — template create/edit.
+   Compliance surface (Meta API).
+9. **`integrations:manage`** — disconnect (potential data-loss op).
+10. **Custom role mutations** — create / edit / archive of
+    `custom_roles` rows themselves.
+
+### Process to add a new critical action
+
+When a new operation is proposed, ask:
+
+> Could bypass of the TS layer on this operation cause (a) data
+> loss masiva, (b) auth bypass, (c) billing comprometido, (d)
+> compliance violation?
+
+- **If YES to any** → critical action. Add to the list above.
+  Wire `assertPermissionInDb(session, permission)` from
+  `lib/permissions/db-check.ts` into the Server Action body
+  AFTER the existing `authorize()` call.
+- **If NO** → TS-only enforcement is sufficient. Do not add
+  to the list (every entry is a DB round-trip; the list stays
+  short on purpose).
+
+This rule prevents the failure mode "we forgot to add X to the
+list" because every new action goes through this gate by default.
+
+### SQL function naming convention (D-36a-11)
+
+DB functions implementing internal Blacknel domain logic use the
+**`app_` prefix**. Distinguishes from:
+
+- `pg_*` — Postgres system functions.
+- Unprefixed in `public` schema — potentially shared / exposed.
+
+Current `app_*` functions (Phase 10 / Commit 36a):
+
+- `app_permission_check(user_id, org_id, permission)` — RBAC check.
+- `app_valid_permission_format(perms text[])` — format validation
+  for `custom_roles.grants` / `revokes` CHECK constraints.
+
+### Phase 11 follow-up
+
+In Phase 11 with Supabase Auth, evaluate moving `app_*` functions
+to a dedicated `blacknel_internal` schema for isolation. Tracked
+in `TODO.md#rbac-rls-dynamic-policies-supabase-auth`.
