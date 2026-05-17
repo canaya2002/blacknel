@@ -3,6 +3,7 @@ import 'server-only';
 import { env } from '@/lib/env';
 import { log } from '@/lib/log';
 
+import { runAdsAlertsScanTick } from './ads-alerts-scan';
 import { runAdsSyncTick } from './ads-sync';
 import { runCrisisScanTick } from './crisis-scan';
 import { runPublishTick } from './publish-post';
@@ -53,6 +54,14 @@ const CRISIS_TICK_INTERVAL_MS = 60 * 60_000;
  * attribution revisions.
  */
 const ADS_SYNC_TICK_INTERVAL_MS = 24 * 60 * 60_000;
+/**
+ * Ads-alerts tick — 12h (Commit 29). Producer reads the rollups
+ * that `ads-sync` wrote and runs the heuristic in
+ * `lib/ads/alerts.ts`. Twice a day is plenty: a CTR drop you
+ * miss for 12h isn't materially worse than one you catch in 6,
+ * and you avoid alert-flood on volatile accounts.
+ */
+const ADS_ALERTS_TICK_INTERVAL_MS = 12 * 60 * 60_000;
 
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -63,6 +72,9 @@ let crisisTickInFlight = false;
 
 let adsSyncTimer: ReturnType<typeof setInterval> | null = null;
 let adsSyncTickInFlight = false;
+
+let adsAlertsTimer: ReturnType<typeof setInterval> | null = null;
+let adsAlertsTickInFlight = false;
 
 export function startPublishCron(): void {
   if (started) {
@@ -141,6 +153,28 @@ export function startPublishCron(): void {
   } else {
     log.info('ads-sync cron — disabled via BLACKNEL_ADS_SYNC_ENABLED=false');
   }
+
+  // Phase 8 / Commit 29 — ads-alerts producer tick. 12h interval;
+  // gated independently from ads-sync so a noisy heuristic can be
+  // muted without losing the spend rollup.
+  if (env.BLACKNEL_ADS_ALERTS_ENABLED) {
+    void adsAlertsTickSafe();
+    adsAlertsTimer = setInterval(() => {
+      void adsAlertsTickSafe();
+    }, ADS_ALERTS_TICK_INTERVAL_MS);
+    if (
+      adsAlertsTimer &&
+      typeof (adsAlertsTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (adsAlertsTimer as unknown as { unref: () => void }).unref();
+    }
+    log.info(
+      { tickIntervalMs: ADS_ALERTS_TICK_INTERVAL_MS },
+      'ads-alerts cron — started',
+    );
+  } else {
+    log.info('ads-alerts cron — disabled via BLACKNEL_ADS_ALERTS_ENABLED=false');
+  }
 }
 
 /**
@@ -163,10 +197,15 @@ export function stopPublishCron(): void {
     clearInterval(adsSyncTimer);
     adsSyncTimer = null;
   }
+  if (adsAlertsTimer) {
+    clearInterval(adsAlertsTimer);
+    adsAlertsTimer = null;
+  }
   started = false;
   tickInFlight = false;
   crisisTickInFlight = false;
   adsSyncTickInFlight = false;
+  adsAlertsTickInFlight = false;
 }
 
 /** True when the singleton is currently running. Used by tests. */
@@ -246,5 +285,29 @@ async function adsSyncTickSafe(): Promise<void> {
     );
   } finally {
     adsSyncTickInFlight = false;
+  }
+}
+
+async function adsAlertsTickSafe(): Promise<void> {
+  if (adsAlertsTickInFlight) {
+    log.debug('ads-alerts cron — tick still in-flight, skipping turn');
+    return;
+  }
+  adsAlertsTickInFlight = true;
+  try {
+    const result = await runAdsAlertsScanTick();
+    if (!result.ok) {
+      log.error({ err: result.error.message }, 'ads-alerts cron — tick failed');
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'ads-alerts cron — tick threw',
+    );
+  } finally {
+    adsAlertsTickInFlight = false;
   }
 }

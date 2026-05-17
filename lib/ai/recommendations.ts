@@ -148,6 +148,46 @@ export async function listCrisisRecommendationsWithTx(
 }
 
 /**
+ * Sort helper used by both crisis-rec and ads-alert banners
+ * (Phase 8 / Commit 29, Ajuste 3).
+ *
+ *   1. Severity `critical` first, then `high`, `medium`, `low`.
+ *   2. Within a severity bucket: `createdAt DESC` (newest first).
+ *
+ * The rationale: when an ad account is in `error` for 24h AND
+ * has a CTR-drop alert, the manager should see the critical
+ * one first regardless of insertion order. DB indexes don't
+ * help here because severity is an enum and Postgres doesn't
+ * natively sort enums by declaration order in mixed-severity
+ * queries — the caller does it once in memory after fetch.
+ *
+ * Pure function. Stable sort (preserves relative order on ties).
+ */
+export const SEVERITY_RANK: Readonly<
+  Record<'low' | 'medium' | 'high' | 'critical', number>
+> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+export interface SeverityAndAge {
+  readonly severity: 'low' | 'medium' | 'high' | 'critical';
+  readonly createdAt: Date;
+}
+
+export function sortBySeverityThenAge<T extends SeverityAndAge>(
+  rows: ReadonlyArray<T>,
+): T[] {
+  return [...rows].sort((a, b) => {
+    const sevDiff = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+    if (sevDiff !== 0) return sevDiff;
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+}
+
+/**
  * Counts pending crisis recs — drives the `/reputation` banner
  * conditional render + Phase 12 `/dashboard` widget.
  */

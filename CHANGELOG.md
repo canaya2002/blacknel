@@ -7,6 +7,137 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 8 / Commit 29 (Ads alerts heuristics + /ads banner + /reports Ads tab)
+
+Third Phase-8 commit. Layers two surfaces on top of the
+Commit-28 Ads Intelligence pillar: pending alerts (CTR drop,
+spend spike, account error) and a /reports Ads tab.
+
+**Decisions (revisada D-29-1)**
+
+- **D-29-1 revisada** — tabla dedicada `ads_alerts` (NOT
+  reuse de `ai_recommendations`). Razón: el enum
+  `ai_rec_category` es Fase-7 schema; extenderlo violaría
+  la charter rule. Mitigación: copy de la lifecycle pero
+  per-domain.
+- **D-29-2** — CSV export action separado (`exportAdsCsvAction`)
+  por audit cleanliness.
+- **D-29-3** — relative baseline para CTR drop (vs 7d
+  baseline, no absoluto).
+
+**Ajustes incorporados**
+
+- **Ajuste 1 — statistical floors.** CTR drop fires only if
+  baseline 7d has ≥1000 impressions, ≥20 clicks, baseline
+  CTR ≥ 0.5%, AND current < baseline × 0.5. Spend spike
+  needs median 7d ≥ $5 USD/day + today > median × 2. Account
+  error has no floor (binary infra signal).
+- **Ajuste 2 — 48h merge window**, NOT 7d like crisis. Ad
+  performance signals are more volatile, so 7d would
+  suppress genuinely fresh drops. Same `growthRate >= 0.30`
+  threshold; severity-based escalation when worsening
+  evidence lands.
+- **Ajuste 3 — `sortBySeverityThenAge`** in
+  `lib/ai/recommendations.ts`. Banner orders critical →
+  high → medium → low, then created_at DESC within each
+  tier. Used by both /ads banner and (future) crisis banner.
+
+**Code surface**
+
+- Migration `0013_ads_alerts.sql` (additive only, no Phase
+  1-7 changes):
+  - 3 new enums (`ads_alert_kind`, `ads_alert_severity`,
+    `ads_alert_status`).
+  - `ads_alerts` table with FK to `ads_accounts` +
+    `brands` + `users` + `organizations`.
+  - 3 indexes: `(org, status, created_at DESC)` for banner,
+    `(account, kind, status)` for history, partial
+    `(org, account, kind) WHERE status='pending'` para merge.
+  - RLS por tenant.
+- `lib/ads/alerts.ts` — pure `evaluateAdsAlerts` con tres
+  detectores y los thresholds exportados para pinning de
+  tests. JSDoc bloque "Statistical floors" (Ajuste 1).
+- `lib/jobs/ads-alerts-scan.ts` — producer + `runAdsAlertsScanTick`.
+  Per-org → per-account → baseline 7d + today aggregates
+  vía CTE (`per_day`) sobre `ads_spend_daily`, then
+  evaluateAdsAlerts + 48h merge (Ajuste 2).
+- `lib/jobs/cron-loop.ts` — cron 12h gated por
+  `BLACKNEL_ADS_ALERTS_ENABLED`.
+- `lib/ads/alerts-queries.ts` — `listAdsAlerts` con
+  `sortBySeverityThenAge` aplicado in-process +
+  `getActiveAdsAlertCount`.
+- `app/(app)/ads/alerts-actions.ts` —
+  `acceptAdsAlertAction` + `dismissAdsAlertAction`. Gated
+  `ads_alerts:decide`. Audits `ads_alert.accepted` /
+  `ads_alert.dismissed` con `before.severity` +
+  `after.reason`. CONFLICT en re-decide.
+- `components/ads/ads-alerts-banner.tsx` (Server) +
+  `ads-alert-decision-buttons.tsx` (Client) — banner sobre
+  /ads accounts table, render condicional.
+- `/reports` tab `ads` activado:
+  - `lib/reports/ads-queries.ts` — 4 KPIs (spend USD,
+    impressions, clicks, CTR) con `makeDelta` reused de
+    Commit 27, brand-filter via `ads_accounts.brand_id`.
+  - `components/reports/ads-section.tsx` — reusa
+    `<ReportKpiCard />`.
+  - `app/(app)/reports/ads-export-action.ts` — D-29-2
+    separate CSV action, audit `reports.csv.exported {section:'ads'}`.
+  - `components/reports/ads-export-button.tsx` (Client).
+  - `ReportTabNav` agrega entry 'Ads', `ReportSection` enum
+    extendido a `'ads'` (Commit-27 file, NOT Fase 1-7).
+- `lib/permissions/roles.ts` — 2 nuevos permisos
+  (`ads_alerts:read` para todos los roles con `ads:read`;
+  `ads_alerts:decide` para manager+/admin/owner).
+- `lib/ai/recommendations.ts` — exporta `sortBySeverityThenAge`
+  + `SEVERITY_RANK` pure helpers (Ajuste 3). Compartido con
+  crisis banner futuro.
+- `lib/env.ts` + `tests/helpers/react-act-setup.ts` —
+  `BLACKNEL_ADS_ALERTS_ENABLED` con test gate forced off.
+
+**Phase 8 charter rule — enforced this commit (con un STOP)**
+
+DESCUBIERTO + REPORTADO en plan: `ai_rec_category` enum de
+Fase 7 hubiera requerido `ALTER TYPE` para reuse. Reportado
+al user, decisión revisada (Opción B = tabla nueva). No se
+tocó NADA de Fase 1-7. Migration 0013 es additive-only;
+queries `lib/ads/alerts.ts` + `lib/jobs/ads-alerts-scan.ts`
+leen solo de Commit-28 tables + Commit-29 table. La
+extensión de `ReportSection` (`'overview' | … | 'ads'`) y de
+`SectionPlaceholder` están en archivos de Commit 27 (Phase
+8), no Fase 1-7.
+
+**Carry-overs Fase 1-7 que NO se tocaron (con razón)**
+
+- `ai_rec_category` enum — quería sumar `'ads_alert'`. NO se
+  tocó. Mitigación: tabla `ads_alerts` propia.
+- `audit_events.entity_type` es text (no enum) — encaja
+  `'ads_alert'` sin modificación. Confirmado.
+
+**TODOs nuevos (Fase 9+)**
+
+- `ads-alerts-error-since-column` — hoy `errorSince` se
+  aproxima con `ads_accounts.updated_at`. Fase 9 podría
+  dedicar una columna `ads_accounts.status_changed_at` para
+  precisión exacta.
+- `ads-alerts-budget-anomaly` — el enum reserva el slot
+  `'budget_anomaly_reserved'`; producer + detector landen
+  cuando agreguemos `campaigns.budget_cents` integration.
+
+**Tests (+21 cases / +4 files)**
+
+- `tests/unit/ads-alerts-sort.test.ts` (4) — critical primero,
+  age intra-tier, mixed ordering, immutability.
+- `tests/unit/ads-alerts-floor.test.ts` (8) — small account
+  no fires, exact-floor fires, low-CTR baseline guard, spend
+  spike floors, account error 24h gate + binary signal.
+- `tests/integration/ads-alerts-detection.test.ts` (5) —
+  first tick fires for big account only, 48h idempotency,
+  severity escalation, audit triple, tenant isolation.
+- `tests/integration/ads-alerts-decision.test.ts` (4) —
+  accept transition + audit, dismiss with reason + audit,
+  terminal row CONFLICT-style guard, RBAC matrix (agent +
+  viewer denied; manager+ allowed).
+
 ### Added — Phase 8 / Commit 28 (Ads Intelligence — schema + mock connectors + cron + /ads dashboard)
 
 Second Phase-8 commit. Stands up the Ads Intelligence pillar

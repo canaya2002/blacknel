@@ -25,3 +25,6 @@ if (!process.env.BLACKNEL_PUBLISH_JOB_ENABLED) {
 if (!process.env.BLACKNEL_ADS_SYNC_ENABLED) {
   process.env.BLACKNEL_ADS_SYNC_ENABLED = 'false';
 }
+if (!process.env.BLACKNEL_ADS_ALERTS_ENABLED) {
+  process.env.BLACKNEL_ADS_ALERTS_ENABLED = 'false';
+}

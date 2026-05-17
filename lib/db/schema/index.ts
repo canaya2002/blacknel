@@ -40,3 +40,4 @@ export * from './ai-generations';
 export * from './ai-recommendations';
 export * from './ads-accounts';
 export * from './ads-spend-daily';
+export * from './ads-alerts';

@@ -49,7 +49,7 @@ function logSuspicious(field: string, raw: string, reason: string): void {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const ALLOWED_SECTIONS = ['overview', 'inbox', 'publishing', 'ai'] as const;
+const ALLOWED_SECTIONS = ['overview', 'inbox', 'publishing', 'ai', 'ads'] as const;
 export type ReportSection = (typeof ALLOWED_SECTIONS)[number];
 
 export interface ReportFilters {

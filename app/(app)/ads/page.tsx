@@ -1,12 +1,14 @@
 import { PageHeader } from '@/components/common/page-header';
 import { UpgradePrompt } from '@/components/common/upgrade-prompt';
 import { AdsAccountsTable } from '@/components/ads/ads-accounts-table';
+import { AdsAlertsBanner } from '@/components/ads/ads-alerts-banner';
 import { AdsConnectDialog } from '@/components/ads/ads-connect-dialog';
 import { AdsOverviewCards } from '@/components/ads/ads-overview-cards';
 import { requireUser } from '@/lib/auth/server';
 import { dbAs } from '@/lib/db/client';
 import { authorize, can } from '@/lib/permissions/can';
 import { listBrandOptionsWithTx } from '@/lib/publish/picker-data';
+import { listAdsAlertsWithTx } from '@/lib/ads/alerts-queries';
 import { getAdsOverviewWithTx, listAdsAccountsWithTx } from '@/lib/ads/queries';
 import { getOrgPlanCode } from '@/lib/queries/plan';
 
@@ -52,7 +54,7 @@ export default async function AdsPage(): Promise<React.ReactElement> {
     );
   }
 
-  const [accounts, overview, brandOptions] = await Promise.all([
+  const [accounts, overview, brandOptions, pendingAlerts] = await Promise.all([
     dbAs({ orgId: session.orgId, userId: session.userId }, (tx) =>
       listAdsAccountsWithTx(tx, session.orgId),
     ),
@@ -62,9 +64,20 @@ export default async function AdsPage(): Promise<React.ReactElement> {
     dbAs({ orgId: session.orgId, userId: session.userId }, (tx) =>
       listBrandOptionsWithTx(tx, session.orgId),
     ),
+    can(session.role, 'ads_alerts:read')
+      ? dbAs({ orgId: session.orgId, userId: session.userId }, (tx) =>
+          listAdsAlertsWithTx(tx, {
+            orgId: session.orgId,
+            userId: session.userId,
+            status: ['pending'],
+            limit: 20,
+          }),
+        )
+      : Promise.resolve([]),
   ]);
 
   const canManage = can(session.role, 'ads:manage');
+  const canDecideAlerts = can(session.role, 'ads_alerts:decide');
 
   return (
     <div className="flex flex-col gap-6">
@@ -73,6 +86,12 @@ export default async function AdsPage(): Promise<React.ReactElement> {
         description="Métricas consolidadas de Meta y Google con conversión a USD. Re-sync 24h con ventana de 2 días para atribución tardía."
         actions={canManage ? <AdsConnectDialog brandOptions={brandOptions} /> : null}
       />
+
+      {pendingAlerts.length > 0 ? (
+        <div className="px-6">
+          <AdsAlertsBanner alerts={pendingAlerts} canDecide={canDecideAlerts} />
+        </div>
+      ) : null}
 
       <div className="px-6">
         <AdsOverviewCards overview={overview} />

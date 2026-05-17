@@ -14,6 +14,7 @@ const TABS: ReadonlyArray<{ key: ReportSection; label: string }> = [
   { key: 'inbox', label: 'Inbox' },
   { key: 'publishing', label: 'Publishing' },
   { key: 'ai', label: 'AI' },
+  { key: 'ads', label: 'Ads' },
 ];
 
 /**

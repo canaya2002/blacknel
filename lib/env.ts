@@ -89,6 +89,14 @@ const envSchema = z.object({
    * loop for Inngest with real OAuth-backed connectors.
    */
   BLACKNEL_ADS_SYNC_ENABLED: boolFromString(true),
+  /**
+   * Ads-alerts producer cron (Commit 29). Same lifecycle as
+   * ads-sync. Vitest setup forces off; dev defaults on. The
+   * producer reads from `ads_spend_daily` populated by the
+   * ads-sync tick — they must both be enabled together to see
+   * alerts populate.
+   */
+  BLACKNEL_ADS_ALERTS_ENABLED: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

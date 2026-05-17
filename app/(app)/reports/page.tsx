@@ -1,3 +1,4 @@
+import { AdsSection } from '@/components/reports/ads-section';
 import { OverviewSection } from '@/components/reports/overview-section';
 import { ReportFilterBar } from '@/components/reports/report-filter-bar';
 import { ReportTabNav } from '@/components/reports/report-tab-nav';
@@ -6,6 +7,7 @@ import { PageHeader } from '@/components/common/page-header';
 import { requireUser } from '@/lib/auth/server';
 import { withReportsCache } from '@/lib/reports/cache';
 import { parseReportFilters } from '@/lib/reports/period';
+import { loadAdsReport } from '@/lib/reports/ads-queries';
 import { loadOverviewReport } from '@/lib/reports/queries';
 import { dbAs } from '@/lib/db/client';
 import { authorize, can } from '@/lib/permissions/can';
@@ -38,27 +40,49 @@ export default async function ReportsPage({
   const sp = await searchParams;
   const filters = parseReportFilters(sp);
 
-  const [brandOptions, payload] = await Promise.all([
+  const now = new Date();
+  const [brandOptions, payload, adsPayload] = await Promise.all([
     dbAs({ orgId: session.orgId, userId: session.userId }, (tx) =>
       listBrandOptionsWithTx(tx, session.orgId),
     ),
-    withReportsCache(
-      {
-        orgId: session.orgId,
-        section: filters.section,
-        period: filters.period,
-        brandId: filters.brandId,
-      },
-      filters.fresh,
-      () =>
-        loadOverviewReport({
-          orgId: session.orgId,
-          userId: session.userId,
-          period: filters.period,
-          brandId: filters.brandId,
-          now: new Date(),
-        }),
-    ),
+    filters.section === 'overview'
+      ? withReportsCache(
+          {
+            orgId: session.orgId,
+            section: 'overview',
+            period: filters.period,
+            brandId: filters.brandId,
+          },
+          filters.fresh,
+          () =>
+            loadOverviewReport({
+              orgId: session.orgId,
+              userId: session.userId,
+              period: filters.period,
+              brandId: filters.brandId,
+              now,
+            }),
+        )
+      : Promise.resolve(null),
+    filters.section === 'ads' && can(session.role, 'ads:read')
+      ? withReportsCache(
+          {
+            orgId: session.orgId,
+            section: 'ads',
+            period: filters.period,
+            brandId: filters.brandId,
+          },
+          filters.fresh,
+          () =>
+            loadAdsReport({
+              orgId: session.orgId,
+              userId: session.userId,
+              period: filters.period,
+              brandId: filters.brandId,
+              now,
+            }),
+        )
+      : Promise.resolve(null),
   ]);
 
   const canExport = can(session.role, 'reports:export');
@@ -80,14 +104,21 @@ export default async function ReportsPage({
       />
 
       <div className="flex flex-col gap-4 px-6 py-4">
-        {filters.section === 'overview' ? (
+        {filters.section === 'overview' && payload ? (
           <OverviewSection
             payload={payload}
             period={filters.period}
             brandId={filters.brandId}
             canExport={canExport}
           />
-        ) : (
+        ) : filters.section === 'ads' && adsPayload ? (
+          <AdsSection
+            payload={adsPayload}
+            period={filters.period}
+            brandId={filters.brandId}
+            canExport={canExport}
+          />
+        ) : filters.section === 'overview' ? null : (
           <SectionPlaceholder section={filters.section} />
         )}
       </div>

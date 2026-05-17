@@ -32,3 +32,14 @@ export const disconnectAdsAccountSchema = z.object({
 });
 
 export type DisconnectAdsAccountInput = z.infer<typeof disconnectAdsAccountSchema>;
+
+// Ads-alerts decision validators (Commit 29).
+
+export const acceptAdsAlertSchema = z.object({
+  alertId: z.string().uuid(),
+});
+
+export const dismissAdsAlertSchema = z.object({
+  alertId: z.string().uuid(),
+  reason: z.string().trim().min(1).max(500),
+});

@@ -40,6 +40,8 @@ export type Permission =
   | 'ai:use_advanced'
   | 'ads:read'
   | 'ads:manage'
+  | 'ads_alerts:read'
+  | 'ads_alerts:decide'
   | 'listening:manage'
   | 'reports:create'
   | 'reports:export'
@@ -77,6 +79,8 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'ai:use_advanced',
   'ads:read',
   'ads:manage',
+  'ads_alerts:read',
+  'ads_alerts:decide',
   'listening:manage',
   'reports:create',
   'reports:export',
@@ -121,6 +125,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'ai:use_advanced',
     'ads:read',
     'ads:manage',
+    'ads_alerts:read',
+    'ads_alerts:decide',
     'listening:manage',
     'reports:create',
     'reports:export',
@@ -155,6 +161,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'automations:manage',
     'ai:use_advanced',
     'ads:read',
+    'ads_alerts:read',
+    'ads_alerts:decide',
     'listening:manage',
     'reports:create',
     'reports:export',
@@ -191,6 +199,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'campaigns:read',
     'campaigns:create',
     'crisis:read',
+    'ads_alerts:read',
   ],
 
   // Viewer: read-only, end-of-pipeline visibility for stakeholders.
@@ -200,6 +209,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'posts:read',
     'audit:read',
     'ads:read',
+    'ads_alerts:read',
     'reports:create',
     'approvals:read',
     'campaigns:read',

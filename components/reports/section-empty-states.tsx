@@ -13,7 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
  */
 
 interface PlaceholderProps {
-  section: 'inbox' | 'publishing' | 'ai';
+  section: 'inbox' | 'publishing' | 'ai' | 'ads';
 }
 
 const COPY: Readonly<Record<PlaceholderProps['section'], { title: string; body: string }>> = {
@@ -28,6 +28,10 @@ const COPY: Readonly<Record<PlaceholderProps['section'], { title: string; body: 
   ai: {
     title: 'AI deep-dive próximamente',
     body: 'Cost desglose por skill + cascade rate trend + prompt version distribution. Hoy el dato vive en /audit/ai.',
+  },
+  ads: {
+    title: 'No tenés acceso a Ads',
+    body: 'El tab Ads requiere el permiso `ads:read`. Pedile a un admin que te lo asigne, o cambiá de tab.',
   },
 };
 

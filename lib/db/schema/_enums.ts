@@ -369,3 +369,39 @@ export const adsAccountStatusEnum = pgEnum('ads_account_status', [
   'disconnected',
   'error',
 ]);
+
+// ---------------------------------------------------------------------------
+// Ads alerts (Phase 8 / Commit 29) — dedicated table, NOT a reuse
+// of `ai_rec_category`. The latter is a Phase-7 enum and extending
+// it would violate the Phase-8 charter rule. Three new enums:
+//
+//   * `ads_alert_kind`     — what tripped the heuristic. Includes
+//     `budget_anomaly_reserved` so Phase 9 can land budget alerts
+//     without another `ALTER TYPE`.
+//   * `ads_alert_severity` — same 4-step rank as crisis recs,
+//     deliberately disjoint enum so a future severity bump on one
+//     surface doesn't ripple into the other.
+//   * `ads_alert_status`   — pending → accepted | dismissed
+//     (matches the recs lifecycle, but per-domain to keep updates
+//     isolated).
+// ---------------------------------------------------------------------------
+
+export const adsAlertKindEnum = pgEnum('ads_alert_kind', [
+  'ctr_drop',
+  'spend_spike',
+  'account_error',
+  'budget_anomaly_reserved',
+]);
+
+export const adsAlertSeverityEnum = pgEnum('ads_alert_severity', [
+  'low',
+  'medium',
+  'high',
+  'critical',
+]);
+
+export const adsAlertStatusEnum = pgEnum('ads_alert_status', [
+  'pending',
+  'accepted',
+  'dismissed',
+]);
