@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/common/page-header';
 import { CrisisAlertBanner } from '@/components/reputation/crisis-alert-banner';
+import { CrisisRecommendationsBanner } from '@/components/reputation/crisis-recommendations-banner';
 import { FiltersBar } from '@/components/reputation/filters-bar';
 import { KpiCard } from '@/components/reputation/kpi-card';
 import { RatingDistributionChart } from '@/components/reputation/rating-distribution-chart';
@@ -8,7 +9,8 @@ import { ResponseTimeCard } from '@/components/reputation/response-time-card';
 import { SentimentPie } from '@/components/reputation/sentiment-pie';
 import { TopTagsList } from '@/components/reputation/top-tags-list';
 import { requireUser } from '@/lib/auth/server';
-import { authorize } from '@/lib/permissions/can';
+import { listCrisisRecommendations } from '@/lib/ai/recommendations';
+import { authorize, can } from '@/lib/permissions/can';
 import { parseReputationFilters } from '@/lib/reputation/filters';
 import { loadReputationDashboardData } from '@/lib/reputation/queries';
 
@@ -41,12 +43,21 @@ export default async function ReputationPage({
   const now = new Date();
   const filters = parseReputationFilters(sp, { now });
 
-  const data = await loadReputationDashboardData({
-    orgId: session.orgId,
-    userId: session.userId,
-    filters,
-    now,
-  });
+  const [data, crisisRecs] = await Promise.all([
+    loadReputationDashboardData({
+      orgId: session.orgId,
+      userId: session.userId,
+      filters,
+      now,
+    }),
+    listCrisisRecommendations({
+      orgId: session.orgId,
+      userId: session.userId,
+      status: ['pending'],
+      limit: 10,
+    }),
+  ]);
+  const canDecideCrisis = can(session.role, 'crisis:decide');
 
   return (
     <div className="flex flex-col">
@@ -57,6 +68,10 @@ export default async function ReputationPage({
       <FiltersBar filters={data.filters} />
 
       <div className="flex flex-col gap-4 px-6 py-4">
+        <CrisisRecommendationsBanner
+          recommendations={crisisRecs}
+          canDecide={canDecideCrisis}
+        />
         <CrisisAlertBanner crisis={data.crisis} />
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

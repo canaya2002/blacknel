@@ -3,6 +3,7 @@ import 'server-only';
 import { env } from '@/lib/env';
 import { log } from '@/lib/log';
 
+import { runCrisisScanTick } from './crisis-scan';
 import { runPublishTick } from './publish-post';
 
 /**
@@ -36,10 +37,20 @@ import { runPublishTick } from './publish-post';
  */
 
 const TICK_INTERVAL_MS = 60_000;
+/**
+ * Crisis scan tick interval — 60 minutes (Commit 25 / D-25-1).
+ * Crisis pattern detection rarely benefits from sub-hour
+ * resolution + Opus dominates the cost; halving Haiku-equivalent
+ * cycles per hour is the right tradeoff.
+ */
+const CRISIS_TICK_INTERVAL_MS = 60 * 60_000;
 
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let tickInFlight = false;
+
+let crisisTimer: ReturnType<typeof setInterval> | null = null;
+let crisisTickInFlight = false;
 
 export function startPublishCron(): void {
   if (started) {
@@ -78,6 +89,24 @@ export function startPublishCron(): void {
   if (timer && typeof (timer as unknown as { unref?: () => void }).unref === 'function') {
     (timer as unknown as { unref: () => void }).unref();
   }
+
+  // Phase 7 / Commit 25 — crisis-scan tick. Runs every 60 min
+  // alongside the publish tick. Same env gates; same singleton
+  // lifecycle.
+  void crisisTickSafe();
+  crisisTimer = setInterval(() => {
+    void crisisTickSafe();
+  }, CRISIS_TICK_INTERVAL_MS);
+  if (
+    crisisTimer &&
+    typeof (crisisTimer as unknown as { unref?: () => void }).unref === 'function'
+  ) {
+    (crisisTimer as unknown as { unref: () => void }).unref();
+  }
+  log.info(
+    { tickIntervalMs: CRISIS_TICK_INTERVAL_MS },
+    'crisis cron — started',
+  );
 }
 
 /**
@@ -92,8 +121,13 @@ export function stopPublishCron(): void {
     clearInterval(timer);
     timer = null;
   }
+  if (crisisTimer) {
+    clearInterval(crisisTimer);
+    crisisTimer = null;
+  }
   started = false;
   tickInFlight = false;
+  crisisTickInFlight = false;
 }
 
 /** True when the singleton is currently running. Used by tests. */
@@ -125,5 +159,29 @@ async function tickSafe(): Promise<void> {
     );
   } finally {
     tickInFlight = false;
+  }
+}
+
+async function crisisTickSafe(): Promise<void> {
+  if (crisisTickInFlight) {
+    log.debug('crisis cron — tick still in-flight, skipping turn');
+    return;
+  }
+  crisisTickInFlight = true;
+  try {
+    const result = await runCrisisScanTick();
+    if (!result.ok) {
+      log.error({ err: result.error.message }, 'crisis cron — tick failed');
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'crisis cron — tick threw',
+    );
+  } finally {
+    crisisTickInFlight = false;
   }
 }

@@ -7,6 +7,122 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 7 / Commit 25 (crisis detection real · cron producer + ai_recommendations consumer + banner + history)
+
+First end-to-end AI-driven recommendation lifecycle in
+Blacknel. A 60-min cron tick reads each org's last-24h review
+window, asks `detectCrisis` (Opus) for a verdict, and persists
+results to `ai_recommendations` (Phase-7 table, Commit 22).
+The /reputation banner surfaces pending recs to managers;
+accept / dismiss decisions land in `/reputation/crisis/history`.
+
+Mock determinism per D-25-1: producer uses `mockCrisis`
+(threshold trigger). Phase 11 swaps the adapter; producer
+unchanged.
+
+**3 ajustes incorporados**
+
+  1. **Merge logic determinística (D-25-3 refined).** Producer
+     looks for an existing pending rec in the 7d lookback. Then
+     `growthRate = newIds.length / existing.evidence.ids.length`:
+     - `>= 0.30` → ESCALATE (UPDATE evidence + bump severity
+       per rules, audit `crisis.escalated`).
+     - `<  0.30` → SKIP (audit `crisis.skipped_duplicate`).
+     - No existing rec → INSERT (audit `crisis.created`).
+     JSDoc carries 3 numerical examples + edge cases (0-id
+     existing → 100% growth, strict-subset new → 0% growth,
+     fully-disjoint new set).
+
+  2. **Severity escalation on update.** Merge takes ESCALATE
+     branch + crossed threshold:
+       - 'medium' + total > 10 → 'high'
+       - 'high'   + total > 20 → 'critical'
+     `pickHigherSeverity` honors the AI verdict when higher.
+     Separate audit `crisis.severity_escalated` captures
+     before/after.
+
+  3. **/reputation/crisis/history page.** Accepted + dismissed
+     recs from last 90d. Title, severity, decided_at,
+     decided_by, status, decision reason, recommended action.
+
+**Producer (`lib/jobs/crisis-scan.ts`)**
+
+- `scanForCrisis({ orgId, brandId? }, deps)` — single-org scan.
+  Returns `{ outcome, recommendationId, verdict }`.
+- `runCrisisScanTick(deps)` — iterates orgs. `CrisisScanReport`
+  with counts per outcome + duration.
+- Scope: reviews-only signal. `inbox_messages` doesn't carry
+  per-message sentiment; running classification per message
+  would add ~N Haiku calls per scan. Phase-9 TODO
+  `crisis-include-inbox-sentiment` adds the batch-sentiment pass.
+
+**Cron lifecycle**
+
+- Crisis tick **60min** (D-25-1) — Opus dominates per-tick cost;
+  sub-hour resolution offers no signal benefit.
+- `lib/jobs/cron-loop.ts` extended with `crisisTimer` +
+  `crisisTickInFlight` singleton flag. Same env gates as
+  publish. `stopPublishCron()` clears both timers.
+
+**Server Actions + permissions**
+
+- `lib/permissions/roles.ts` — `crisis:read` (every role),
+  `crisis:decide` (manager+).
+- `app/(app)/reputation/crisis-actions.ts`:
+  - `acceptCrisisAction` — SELECT FOR UPDATE, status='accepted',
+    decided_by/at, audit `crisis.accepted`. CONFLICT when
+    already decided.
+  - `dismissCrisisAction(reason)` — status='dismissed', reason
+    persisted via `jsonb_set` on evidence.decisionReason, audit.
+
+**Read layer (`lib/ai/recommendations.ts`)**
+
+- `listCrisisRecommendations` / `listCrisisRecommendationsWithTx` /
+  `getActiveCrisisCount`. RLS via `dbAs`.
+
+**UI**
+
+- `components/reputation/crisis-recommendations-banner.tsx` —
+  Server Component card per pending rec. Severity badge, title,
+  summary, evidence counts, recommended action, decision
+  toolbar.
+- `components/reputation/crisis-decision-toolbar.tsx` — Client
+  with `useTransition`. Dismiss opens Dialog asking for reason.
+- `app/(app)/reputation/page.tsx` — wires new banner above the
+  Phase-5 `<CrisisAlertBanner />` (the two coexist by design;
+  Phase-9 `crisis-yoy-suppression` may consolidate).
+- `app/(app)/reputation/crisis/history/page.tsx` +
+  `components/reputation/crisis-history-list.tsx` — Ajuste 2.
+
+**Distinction from Phase-5 banner**
+
+`<CrisisAlertBanner />` (Phase 5) = heuristic via
+`lib/reputation/crisis-rule.ts`, non-durable, surfaces only
+while the 72h-spike condition holds. The new
+`<CrisisRecommendationsBanner />` = AI-driven pattern detector
+with `ai_recommendations` durable lifecycle (pending →
+accepted | dismissed). Different signal, different lifecycle —
+both visible until Phase 9 deduplicates them.
+
+**Tests (+13 cases / +3 files)**
+
+- `tests/integration/crisis-detection.test.ts` (7) — background
+  no rec, 3+ low-rating triggers rec, merge growth<0.30 SKIP,
+  merge growth>=0.30 ESCALATE, severity escalation
+  medium→high, tenant isolation, empty-new-set re-scan.
+- `tests/integration/crisis-decision.test.ts` (4) — accept +
+  audit, dismiss + reason persists in jsonb, concurrent
+  locking, RBAC matrix.
+- `tests/integration/crisis-history-page.test.ts` (2) — list
+  filters accepted+dismissed within 90d, ordering DESC.
+
+**TODO refinement (Ajuste 3)**
+
+- `crisis-yoy-suppression` — status updated. Phase-9 delivery
+  (delayed from Phase-7); requires ≥1y historical data which
+  seed orgs lack. Implementation steps + audit shape
+  documented inline.
+
 ### Added — Phase 7 / Commit 24 (caption / review-response / language-detect caller migration · closes the stub→adapter migration path)
 
 Last commit of the "callers migrate from sync stubs to async

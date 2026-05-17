@@ -319,39 +319,58 @@ card, not a hot path.
 
 ## crisis-yoy-suppression
 
-**Problem.** `evaluateCrisis` (Commit 15) fires on a strict spike
-predicate: ≥5 negative reviews in 72h AND ≤1 in the prior 72h. It
-does NOT compare against the same window last year. A location with
-a recurring seasonal negative cluster (holiday week, exam period,
-sale-promo aftermath) will fire CRISIS_TRIGGER every year for the
-same legitimate reason, which is noise.
+**Status update — Commit 25 shipped the AI crisis detector.** The
+Phase-7 producer (`lib/jobs/crisis-scan.ts`) runs every 60min, calls
+`detectCrisis` (Opus), and persists results to
+`ai_recommendations` with the D-25-3 refined merge logic. The TWO
+existing crisis surfaces now coexist on `/reputation`:
 
-**Resolution criteria (Phase 7).** Close when `lib/ai/crisis.ts`
-ships and includes:
+  - `<CrisisAlertBanner />` — Phase-5 heuristic via
+    `lib/reputation/crisis-rule.ts`. Strict 72h spike predicate.
+    No YoY awareness.
+  - `<CrisisRecommendationsBanner />` — Phase-7 AI driver via
+    `ai_recommendations`. Better severity reasoning, durable
+    decision lifecycle (pending → accepted | dismissed). Still
+    no YoY awareness.
 
-1. Same-window-last-year recall: pull negative counts for the
-   matching ISO week from the prior year. If the year-over-year
-   count is within a configurable band (default ±30%), downgrade the
-   severity by one level (`high` → `medium`, `medium` → suppressed).
-2. The Phase-5 `evaluateCrisis` predicate stays as the fallback when
-   year-over-year data is missing (new locations, first year).
-3. A `crisis_suppressed_by` audit field on `crisis_alerts` records
-   the suppression reason so the dashboard can render "Suppressed:
-   matches 2025 holiday week pattern".
+**Remaining problem.** Neither surface compares the current 24h
+window against the same period in prior years. A location with a
+recurring seasonal negative cluster (holiday week, exam period,
+sale-promo aftermath) will fire crisis every year for the same
+legitimate reason.
 
-**Affected files.**
+**Resolution criteria (Phase 9 polish — delayed from Phase 7).**
+Requires ≥1 year of historical review data per org, which most
+seed orgs don't have yet. Implementation when ready:
 
-- `lib/reputation/crisis-rule.ts` — current `evaluateCrisis`
-  predicate; needs a YoY-aware sibling or a wrapper.
-- `lib/reputation/queries.ts` — `getCrisisCountsWithTx` already
-  exposes the counts but not the prior-year slice; will need an
-  extra branch.
-- New file `lib/ai/crisis.ts` (Phase-7) for the IA classifier.
-- `lib/db/schema/crisis-alerts.ts` (new) — the persistent
-  alerts table with `crisis_suppressed_by` field.
+1. Same-window-last-year recall: `lib/jobs/crisis-scan.ts` pulls
+   negative counts for the matching ISO week 1 year prior.
+2. Delta gate: if YoY delta is within ±X% (config default ±30%),
+   suppress the rec OR downgrade severity by one level.
+3. Audit captures the suppression: new audit action
+   `ai_recommendation.crisis.suppressed_yoy` with prior-year
+   counts + delta in `after` metadata.
+4. `<CrisisRecommendationsBanner />` shows a "Suppressed:
+   matches 2025 holiday week pattern" annotation when the
+   rec was downgraded by YoY instead of merged-skipped.
 
-**Target phase.** Phase 7 (IA + crisis detection module). The
-heuristic in Commit 15 is the Phase-5 baseline.
+**Why deferred (Commit 25 explicit decision).** The current data
+volumes in dev / seed orgs don't span a year; testing the YoY
+predicate without real historical data leads to false confidence.
+Phase 9 / 10 is when the earliest production orgs reach the
+12-month mark and the feature actually has signal.
+
+**Affected files (when Phase 9 lands).**
+
+- `lib/jobs/crisis-scan.ts` — extend `scanForCrisis` with the
+  YoY pull + delta check.
+- `components/reputation/crisis-recommendations-banner.tsx` —
+  show the suppression annotation.
+- `lib/ai/recommendations.ts` — surface `suppressedYoy` flag
+  on `CrisisRecListItem`.
+
+**Target phase.** Phase 9 (polish — requires ≥1y historical
+data).
 
 ## usage-counters-rls-scoped
 

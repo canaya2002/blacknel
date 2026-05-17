@@ -47,7 +47,9 @@ export type Permission =
   | 'notes:write'
   | 'campaigns:read'
   | 'campaigns:create'
-  | 'campaigns:update';
+  | 'campaigns:update'
+  | 'crisis:read'
+  | 'crisis:decide';
 
 const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'inbox:read',
@@ -81,6 +83,8 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'campaigns:read',
   'campaigns:create',
   'campaigns:update',
+  'crisis:read',
+  'crisis:decide',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
@@ -121,6 +125,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'campaigns:read',
     'campaigns:create',
     'campaigns:update',
+    'crisis:read',
+    'crisis:decide',
   ],
 
   // Manager: full operational reach (reply, approve, publish, automate,
@@ -152,6 +158,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'campaigns:read',
     'campaigns:create',
     'campaigns:update',
+    'crisis:read',
+    'crisis:decide',
   ],
 
   // Agent: front-line operator. Reads and replies, drafts and
@@ -175,6 +183,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'notes:write',
     'campaigns:read',
     'campaigns:create',
+    'crisis:read',
   ],
 
   // Viewer: read-only, end-of-pipeline visibility for stakeholders.
@@ -187,5 +196,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'reports:create',
     'approvals:read',
     'campaigns:read',
+    'crisis:read',
   ],
 };
