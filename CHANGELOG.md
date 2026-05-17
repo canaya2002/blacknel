@@ -7,6 +7,189 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 7 / Commit 22 (Claude SDK adapter infrastructure + cost dashboard)
+
+Phase 7 opens. Builds the complete Claude SDK client structure
+(types, adapter pattern, prompts with V1 versioning, 9 skills)
+backed by a deterministic mock adapter that reproduces the
+existing Phase-4 / Phase-5 / Phase-6 stubs byte-for-byte. Phase
+11 swaps the adapter with the real Anthropic implementation by
+changing **one file** (`lib/ai/client.ts`).
+
+**No runtime external API calls.** The cost rule + the "mocks
+are product" rule both hold; the dashboard at /audit/ai
+displays mock data ($0 cost, estimated tokens) but exercises
+every read path the real adapter will eventually populate.
+
+**Schema (migration 0010_ai_infrastructure.sql)**
+
+- 4 new ENUMs: `ai_actor_type`, `ai_skill` (9 values),
+  `ai_rec_category`, `ai_rec_status`.
+- `ai_generations` table: one row per `.generate()` call.
+  Columns include `request_hash`, `input_tokens`,
+  `cached_input_tokens`, `output_tokens`, `cost_cents`,
+  `duration_ms`, `cache_hit`, plus `input` / `output` jsonb.
+  Three indexes (`org_created`, `hash`, `entity`) and RLS by
+  org.
+- `ai_recommendations` table: durable, human-decidable
+  surface (lifecycle `pending → accepted | dismissed`). FK to
+  `ai_generations`. Wired by consumers in Commits 24-25.
+- GRANT SELECT/INSERT/UPDATE/DELETE TO authenticated + RLS
+  policies on both tables.
+
+**Core adapter (`lib/ai/`)**
+
+- `types.ts` — `AiClient`, `AiRequest`, `AiGeneration`,
+  `AiContext`, `AiModel` (`claude-haiku-4-5` |
+  `claude-opus-4-7`), `AiError` discriminated union with 6
+  codes (`rate_limit`, `timeout`, `server_error`,
+  `invalid_response`, `schema_violation`, `not_implemented`).
+- `client.ts` — the **single swap point**:
+  `export const aiClient: AiClient = adapterMock;` Phase 11
+  edits one line.
+- `adapter-mock.ts` — exhaustive switch over the 9 skills.
+  Computes request hash, checks LRU + DB dedup (5-min
+  window), runs the mock body, validates against the
+  caller's Zod schema, computes cost via `pricing.ts`,
+  writes one `ai_generations` row. `via='mock'` recorded.
+- `adapter-real.ts` — typed placeholder. Throws
+  `AiError('not_implemented', ...)` with full Phase 11
+  cutover JSDoc (SDK install, prompt caching with
+  `cache_control: ephemeral`, retry policy, schema-violation
+  retry, model degradation).
+- `policy.ts` — `withTimeout`, `withRetry` (per-code retryable
+  set + backoff array), `withFallback` (Opus → Haiku
+  degradation). Mock ignores them; real composes them around
+  the Anthropic call.
+- `cache.ts` — canonical sha256 request hash (key-sorted JSON
+  for stability), in-process LRU (256 entries),
+  cross-process DB dedup (5-min window).
+- `pricing.ts` — `MODEL_PRICING` table in cents-per-million:
+  Haiku 80¢ / 8¢ cached / 400¢ output; Opus 1500¢ / 150¢ /
+  7500¢. `computeCostCents` does the math; cached is 10% of
+  uncached (Anthropic 90% discount).
+- `persistence.ts` — `writeGeneration`, `findRecentByHash`,
+  `listGenerationsForOrg(WithTx)`, `getGenerationKpis(WithTx)`.
+  Test seam (`_setDbDepsForTests`) so vitest can inject a
+  fixture-backed `runAdmin` / `runAs` without `getRawDb()`
+  throwing.
+
+**Prompts with V1 versioning (Ajuste 3)**
+
+`prompts.ts` declares every system + user prompt as
+`X_SYSTEM_PROMPT_V1` + `X_PROMPT_VERSION = 'v1'`. The version
+is recorded in `ai_generations.input.promptVersion` per call
+so dashboards can group by version (A/B test + rollback). The
+JSDoc on the file documents the bump rule + when to invalidate
+v1.
+
+| Skill | Model | Rationale |
+|---|---|---|
+| compliance         | Haiku | Baseline classifier; cascades to Opus on high-risk (Commit 23). |
+| caption            | Haiku | Short generation, brand-voice constrained. |
+| review_response    | Haiku | Short reply, same cost profile. |
+| language_detect    | Haiku | Cheap 4-class classifier. |
+| sentiment          | Haiku | 3-class + confidence. |
+| intent             | Haiku | Multi-label classifier. |
+| **crisis**         | **Opus** | Pattern detection over windows — subtle reasoning wins over token cost. |
+| thread_summary     | Haiku | Extractive-leaning. |
+| review_summary     | Haiku | Volume-sensitive rollup. |
+
+**Mock bodies (`lib/ai/mock-bodies/`)**
+
+- `compliance`, `caption`, `review-response`, `language-detect`
+  — re-export the Phase-4/5/6 stub bodies. Determinism +
+  existing test coverage preserved (`compliance-stub.test.ts`,
+  `caption-stub.test.ts`, etc.).
+- `sentiment`, `intent`, `crisis`, `thread-summary`,
+  `review-summary` — 5 new deterministic implementations.
+  Crisis uses threshold-based trigger rules (3+ low-rating
+  reviews OR 40% ratio OR 5+ negative inbox messages →
+  trigger; 5+ or 50% → high; 7+ or 70% → critical).
+
+**Sync feedback path (Ajuste 1 — REGLA BLACKNEL AI-FEEDBACK PATTERN)**
+
+`lib/ai/compliance-hint.ts` re-exports the synchronous
+keyword body as `complianceHint`. The full rule is documented
+in the file's JSDoc:
+
+> Cualquier feedback en tiempo real al typing (debounce <2s)
+> usa heurística SYNC sin llamada a IA. El gate autoritativo
+> al submit usa IA ASYNC.
+
+Applications:
+- `<CompliancePill>` (composer typing) → `complianceHint` sync.
+- `submitPost` / `sendReply` / `sendReviewResponse` →
+  `lib/ai/skills/compliance.checkCompliance` async via aiClient.
+
+Future render-hot-path AI features (Phase 9+) must follow
+the same split.
+
+**Skill async wrappers (`lib/ai/skills/`)**
+
+9 typed wrappers over `aiClient.generate()` — one per skill.
+Each declares its Zod output schema, model choice, prompt
+version, and substitution logic. Callers don't construct
+`AiRequest` objects directly; they call `checkCompliance`,
+`suggestCaption`, `suggestReviewReply`, `detectLanguageAi`,
+`classifySentiment`, `classifyIntent`, `detectCrisis`,
+`summarizeThread`, `summarizeReviews`.
+
+**Cost dashboard at /audit/ai (Ajuste 2)**
+
+- `app/(app)/audit/ai/page.tsx` — gated by `audit:read`.
+- 4 muted KPIs: cost this month (USD), generations this month,
+  cache hit rate (prompt cache + dedup averaged), most-used
+  model.
+- Table of last 100 generations with columns: timestamp,
+  skill, model, input/cached/output tokens, cost, latency,
+  cache hit, via, entity, prompt version.
+- Filter bar: skill, model, date range (preset 7d / 30d / 90d).
+- `lib/ai/audit-filters.ts` — allow-list + suspicious_input log.
+- 3 components under `components/audit-ai/`.
+- Phase 11 will add budget alerts here when monthly caps
+  trigger.
+
+**Tests (+76 new)**
+
+- `tests/unit/ai-pricing.test.ts` (10 cases) — pricing math
+  including cached discount + Math.ceil rounding.
+- `tests/unit/ai-cache.test.ts` (11 cases) — request hash
+  determinism + canonical JSON + orgId isolation + LRU cap.
+- `tests/unit/ai-prompts.test.ts` (15 cases) — every skill
+  registered, model rationale (Haiku default, Opus for
+  crisis), no empty placeholders, V1 sanity.
+- `tests/unit/ai-policy.test.ts` (12 cases) — timeout, retry
+  with retryable codes, fallback with degrade codes.
+- `tests/unit/ai-audit-filters.test.ts` (6 cases) — allow-list
+  + drop-on-suspect.
+- `tests/unit/ai-mock-bodies.test.ts` (17 cases) — determinism
+  + behavior locks for the 5 new mocks.
+- `tests/integration/ai-generations-persist.test.ts` (4 cases)
+  — adapter writes row + dedup hit + tenant isolation +
+  promptVersion roundtrip (Ajuste 3).
+- `tests/integration/ai-generations-view.test.ts` (5 cases) —
+  /audit/ai data path + tenant isolation + ordering + KPI
+  rollup.
+
+**Backward compat**
+
+The 4 existing stub files (`compliance-stub.ts`,
+`caption-stub.ts`, `reviews-stub.ts`,
+`inbox/detect-language.ts`) **stay functional** — their public
+exports are unchanged. They serve as the mock bodies for the
+adapter. Phase 11 cleanup MAY collapse them into
+`mock-bodies/` once every caller has migrated through the
+skill wrappers. Commits 23-26 migrate callers one by one.
+
+**TODOs added**
+
+- `phase-11-anthropic-cutover` — full migration steps live in
+  `adapter-real.ts` JSDoc. Add SDK, env var, swap client.ts.
+- `prompt-cache-hit-metrics-dashboard` — Phase 11 enriches
+  /audit/ai with separate "prompt cache hits" vs "dedup hits"
+  metrics; today they're collapsed into one number.
+
 ### Added — Phase 6 / Commit 21 (campaigns CRUD + composer campaign-picker + posts cursor + LinkedIn preview · CLOSES PHASE 6)
 
 Final commit of Phase 6. Lands the campaigns surface (list / detail

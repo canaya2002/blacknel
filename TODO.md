@@ -699,3 +699,63 @@ identical apart from the chrome.
 
 **Target phase.** Phase 12 (polish). Purely aesthetic; no
 behavior change.
+
+## phase-11-anthropic-cutover
+
+**Problem.** Commit 22 ships the complete Claude SDK adapter
+structure but with a mock body. The real Anthropic SDK
+integration is gated on Phase 11 (the same phase that swaps
+the entire mock layer for real connectors + Supabase).
+
+**Resolution criteria.** Full migration steps are documented
+inline in `lib/ai/adapter-real.ts` JSDoc:
+
+1. `pnpm add @anthropic-ai/sdk`
+2. `lib/env.ts` declares `ANTHROPIC_API_KEY` (required in
+   production, optional in dev → fall back to mock).
+3. Implement `adapter-real.ts` body using
+   `withTimeout(withRetry(...))` + `cache_control: ephemeral`
+   on system prompts ≥1024 tokens.
+4. Update `lib/ai/client.ts` to export `adapterReal`.
+5. Run the smoke test in `tests/integration/ai-adapter-real-swap.test.ts`
+   (a new test added in Phase 11 that stubs the Anthropic
+   client and asserts every Phase-7 skill still typechecks).
+
+**Affected files.**
+
+- `lib/ai/adapter-real.ts`
+- `lib/ai/client.ts`
+- `lib/env.ts`
+- `package.json`
+
+**Target phase.** Phase 11 (Supabase + real-adapter cutover).
+
+## prompt-cache-hit-metrics-dashboard
+
+**Problem.** `/audit/ai`'s cache hit rate KPI collapses two
+distinct signals into one number:
+
+1. **Anthropic prompt-cache hits** (`cached_input_tokens` /
+   `input_tokens`) — system prompts re-used within Anthropic's
+   5-min cache window get a 90% input discount.
+2. **Dedup hits** (`cache_hit` boolean) — same `(orgId,
+   request_hash)` within our 5-min window returns the
+   cached output without any model call.
+
+These are economically very different (one saves ~70% per
+call; the other saves 100%). Phase 11's budget surface needs
+both visible.
+
+**Resolution criteria.** Split the KPI into two distinct
+numbers; add a stacked-area chart of daily token usage
+broken down by `uncached_input + cached_input + output`.
+Add per-skill cost ranking.
+
+**Affected files.**
+
+- `lib/ai/persistence.ts` (`getGenerationKpis` returns 4
+  metrics instead of 1)
+- `components/audit-ai/ai-generations-kpi-cards.tsx`
+- `components/audit-ai/ai-generations-daily-chart.tsx` (new)
+
+**Target phase.** Phase 11 polish (once real costs flow in).

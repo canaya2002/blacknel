@@ -44,6 +44,41 @@ export const brandStatusEnum = pgEnum('brand_status', ['active', 'archived']);
 
 export const locationStatusEnum = pgEnum('location_status', ['active', 'archived']);
 
+// ---------------------------------------------------------------------------
+// Phase 7 / Commit 22 — AI infrastructure enums.
+//
+// `ai_skill` is the canonical lookup key for the adapter (mock /
+// real). Adding a new skill is a migration; the union type in
+// `lib/ai/types.ts` re-exports the values.
+// ---------------------------------------------------------------------------
+
+export const aiActorTypeEnum = pgEnum('ai_actor_type', ['user', 'system']);
+
+export const aiSkillEnum = pgEnum('ai_skill', [
+  'compliance',
+  'caption',
+  'review_response',
+  'language_detect',
+  'sentiment',
+  'intent',
+  'crisis',
+  'thread_summary',
+  'review_summary',
+]);
+
+export const aiRecCategoryEnum = pgEnum('ai_rec_category', [
+  'crisis',
+  'brand_voice_tone',
+  'response_template',
+  'audience_insight',
+]);
+
+export const aiRecStatusEnum = pgEnum('ai_rec_status', [
+  'pending',
+  'accepted',
+  'dismissed',
+]);
+
 export const auditActorTypeEnum = pgEnum('audit_actor_type', [
   'user',
   'ai',

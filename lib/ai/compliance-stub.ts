@@ -1,5 +1,25 @@
 /**
- * Phase-4 compliance stub.
+ * Phase-4 compliance stub — Commit 22 split.
+ *
+ * As of Commit 22, this file is the source of truth for the
+ * synchronous keyword body. Two consumers:
+ *
+ *   - `lib/ai/compliance-hint.ts` re-exports `complianceCheck`
+ *     as `complianceHint` for the sync typing-time pill
+ *     (REGLA BLACKNEL AI-FEEDBACK PATTERN — render hot paths
+ *     use the sync heuristic; submit boundaries use the async
+ *     `lib/ai/skills/compliance.ts` path).
+ *
+ *   - `lib/ai/mock-bodies/compliance.ts` re-exports it as the
+ *     adapter-mock body for `skill: 'compliance'`. Phase 11's
+ *     real adapter swaps that mock body with an Anthropic call;
+ *     this synchronous file stays as-is.
+ *
+ * Phase 11 cleanup MAY collapse this file into the mock-bodies
+ * directory once every caller has migrated through
+ * `lib/ai/compliance-hint.ts` or `lib/ai/skills/compliance.ts`.
+ *
+ * --- Original notes preserved below ---
  *
  * `complianceCheck` becomes a real Claude Opus call in Phase 7
  * (`lib/ai/compliance.ts`). Until then, this stub returns deterministic
