@@ -3,6 +3,7 @@ import { LayoutDashboard } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/empty-state';
 import { PageHeader } from '@/components/common/page-header';
+import { AdsAlertsWidget } from '@/components/dashboard/ads-alerts-widget';
 import { OnboardingChecklist } from '@/components/dashboard/onboarding-checklist';
 import { requireUser } from '@/lib/auth/server';
 import { getChecklist } from '@/lib/queries/checklist';
@@ -29,6 +30,11 @@ export default async function DashboardPage(): Promise<React.ReactElement> {
           initiallyDismissed={false}
         />
       ) : null}
+      <AdsAlertsWidget
+        orgId={session.orgId}
+        userId={session.userId}
+        role={session.role}
+      />
       <EmptyState
         icon={LayoutDashboard}
         title="Tu dashboard se arma cuando empieces a operar"

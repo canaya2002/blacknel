@@ -51,6 +51,8 @@ export interface ListAdsAlertsOpts {
   readonly orgId: string;
   readonly userId: string;
   readonly status?: ReadonlyArray<AdsAlertStatus>;
+  /** Restrict to one account — drill-down page (Commit 30). */
+  readonly adsAccountId?: string;
   readonly limit?: number;
 }
 
@@ -71,6 +73,9 @@ export async function listAdsAlertsWithTx(
     conditions.push(
       inArray(adsAlerts.status, opts.status as Array<AdsAlertStatus>),
     );
+  }
+  if (opts.adsAccountId) {
+    conditions.push(eq(adsAlerts.adsAccountId, opts.adsAccountId));
   }
 
   type Row = {

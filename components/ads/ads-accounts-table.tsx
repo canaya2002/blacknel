@@ -1,6 +1,7 @@
 'use client';
 
 import { Megaphone } from 'lucide-react';
+import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -66,14 +67,18 @@ export function AdsAccountsTable({
                   <PlatformBadge platform={a.platform} />
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex flex-col">
+                  <Link
+                    href={`/ads/${a.id}`}
+                    prefetch={false}
+                    className="flex flex-col hover:underline"
+                  >
                     <span className="font-medium">
                       {a.accountName ?? a.externalAccountId}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {a.externalAccountId} · {a.currency}
                     </span>
-                  </div>
+                  </Link>
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">
                   {a.brandName ?? '—'}

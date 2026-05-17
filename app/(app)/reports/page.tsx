@@ -1,5 +1,7 @@
 import { AdsSection } from '@/components/reports/ads-section';
+import { InboxSection } from '@/components/reports/inbox-section';
 import { OverviewSection } from '@/components/reports/overview-section';
+import { PublishingSection } from '@/components/reports/publishing-section';
 import { ReportFilterBar } from '@/components/reports/report-filter-bar';
 import { ReportTabNav } from '@/components/reports/report-tab-nav';
 import { SectionPlaceholder } from '@/components/reports/section-empty-states';
@@ -8,6 +10,8 @@ import { requireUser } from '@/lib/auth/server';
 import { withReportsCache } from '@/lib/reports/cache';
 import { parseReportFilters } from '@/lib/reports/period';
 import { loadAdsReport } from '@/lib/reports/ads-queries';
+import { loadInboxReport } from '@/lib/reports/inbox-queries';
+import { loadPublishingReport } from '@/lib/reports/publishing-queries';
 import { loadOverviewReport } from '@/lib/reports/queries';
 import { dbAs } from '@/lib/db/client';
 import { authorize, can } from '@/lib/permissions/can';
@@ -41,49 +45,88 @@ export default async function ReportsPage({
   const filters = parseReportFilters(sp);
 
   const now = new Date();
-  const [brandOptions, payload, adsPayload] = await Promise.all([
-    dbAs({ orgId: session.orgId, userId: session.userId }, (tx) =>
-      listBrandOptionsWithTx(tx, session.orgId),
-    ),
-    filters.section === 'overview'
-      ? withReportsCache(
-          {
-            orgId: session.orgId,
-            section: 'overview',
-            period: filters.period,
-            brandId: filters.brandId,
-          },
-          filters.fresh,
-          () =>
-            loadOverviewReport({
+  const [brandOptions, payload, adsPayload, inboxPayload, publishingPayload] =
+    await Promise.all([
+      dbAs({ orgId: session.orgId, userId: session.userId }, (tx) =>
+        listBrandOptionsWithTx(tx, session.orgId),
+      ),
+      filters.section === 'overview'
+        ? withReportsCache(
+            {
               orgId: session.orgId,
-              userId: session.userId,
+              section: 'overview',
               period: filters.period,
               brandId: filters.brandId,
-              now,
-            }),
-        )
-      : Promise.resolve(null),
-    filters.section === 'ads' && can(session.role, 'ads:read')
-      ? withReportsCache(
-          {
-            orgId: session.orgId,
-            section: 'ads',
-            period: filters.period,
-            brandId: filters.brandId,
-          },
-          filters.fresh,
-          () =>
-            loadAdsReport({
+            },
+            filters.fresh,
+            () =>
+              loadOverviewReport({
+                orgId: session.orgId,
+                userId: session.userId,
+                period: filters.period,
+                brandId: filters.brandId,
+                now,
+              }),
+          )
+        : Promise.resolve(null),
+      filters.section === 'ads' && can(session.role, 'ads:read')
+        ? withReportsCache(
+            {
               orgId: session.orgId,
-              userId: session.userId,
+              section: 'ads',
               period: filters.period,
               brandId: filters.brandId,
-              now,
-            }),
-        )
-      : Promise.resolve(null),
-  ]);
+            },
+            filters.fresh,
+            () =>
+              loadAdsReport({
+                orgId: session.orgId,
+                userId: session.userId,
+                period: filters.period,
+                brandId: filters.brandId,
+                now,
+              }),
+          )
+        : Promise.resolve(null),
+      filters.section === 'inbox' && can(session.role, 'inbox:read')
+        ? withReportsCache(
+            {
+              orgId: session.orgId,
+              section: 'inbox',
+              period: filters.period,
+              brandId: filters.brandId,
+            },
+            filters.fresh,
+            () =>
+              loadInboxReport({
+                orgId: session.orgId,
+                userId: session.userId,
+                period: filters.period,
+                brandId: filters.brandId,
+                now,
+              }),
+          )
+        : Promise.resolve(null),
+      filters.section === 'publishing' && can(session.role, 'posts:read')
+        ? withReportsCache(
+            {
+              orgId: session.orgId,
+              section: 'publishing',
+              period: filters.period,
+              brandId: filters.brandId,
+            },
+            filters.fresh,
+            () =>
+              loadPublishingReport({
+                orgId: session.orgId,
+                userId: session.userId,
+                period: filters.period,
+                brandId: filters.brandId,
+                now,
+              }),
+          )
+        : Promise.resolve(null),
+    ]);
 
   const canExport = can(session.role, 'reports:export');
   const carry = new URLSearchParams();
@@ -118,7 +161,23 @@ export default async function ReportsPage({
             brandId={filters.brandId}
             canExport={canExport}
           />
-        ) : filters.section === 'overview' ? null : (
+        ) : filters.section === 'inbox' && inboxPayload ? (
+          <InboxSection
+            payload={inboxPayload}
+            period={filters.period}
+            brandId={filters.brandId}
+            canExport={canExport}
+          />
+        ) : filters.section === 'publishing' && publishingPayload ? (
+          <PublishingSection
+            payload={publishingPayload}
+            period={filters.period}
+            brandId={filters.brandId}
+            canExport={canExport}
+          />
+        ) : filters.section === 'overview' ? null : filters.section === 'ai' ? (
+          <SectionPlaceholder section="ai" />
+        ) : (
           <SectionPlaceholder section={filters.section} />
         )}
       </div>

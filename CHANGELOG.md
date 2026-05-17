@@ -7,6 +7,136 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 8 / Commit 30 (CLOSES PHASE 8 · /ads drill-down + /reports inbox+publishing tabs + dashboard widget)
+
+Closing commit of Phase 8. Three deliverables + a closing
+summary block:
+
+**1. `/ads/[adsAccountId]` drill-down (D-30-1 full page)**
+
+- `app/(app)/ads/[adsAccountId]/page.tsx` — header con
+  breadcrumbs (Ajuste 1), 30d daily spend table sin chart,
+  alerts history list. Reusa `<AdsAlertsBanner />` para los
+  pending del account.
+- `components/ui/breadcrumbs.tsx` — nuevo helper de UI
+  con `aria-label="breadcrumb"` + `aria-current="page"`.
+  Compose-friendly (la página provee los segments). El
+  helper `components/layout/breadcrumbs.tsx` existente es
+  pathname-derived para el topbar; no compone con segments
+  dinámicos.
+- `lib/ads/queries.ts` extiende con `getAdsAccountDetailWithTx`
+  + `listAdsAccountDailyWithTx`.
+- `lib/ads/alerts-queries.ts` extiende `ListAdsAlertsOpts`
+  con `adsAccountId` filter (Commit-29 file).
+- Account name en `/ads` landing table es ahora un `<Link>`
+  al drill-down.
+
+**2. `/reports` tabs Inbox + Publishing activados (D-30-2 ambos)**
+
+- Pre-flight (Ajuste 2): grep validó que TODAS las queries
+  necesarias usan columnas Phase 4 / Phase 6 existentes.
+  Cero modificaciones a Fase 1-7.
+- `lib/reports/inbox-queries.ts` — `loadInboxReport` con 4
+  KPIs: response time p50 (PERCENTILE_CONT), threads opened,
+  threads closed (vía `inbox_threads.closedAt`),
+  AI-assisted reply ratio (`inbox_messages.authorType='ai'` /
+  total outbound). Brand filter es no-op (documentado en
+  copy del tab).
+- `lib/reports/publishing-queries.ts` — `loadPublishingReport`
+  con 4 KPIs: posts published, posts failed, target success
+  rate, targets with retry. Brand filter via
+  `posts.brandId`.
+- `app/(app)/reports/inbox-export-action.ts` +
+  `publishing-export-action.ts` — D-29-2 pattern reused
+  (acciones separadas por audit cleanliness).
+- `components/reports/inbox-section.tsx` +
+  `publishing-section.tsx` + sus 2 export buttons.
+- `components/reports/section-empty-states.tsx` ya soportaba
+  los 4 sections via SectionPlaceholder — sigue solo para el
+  tab 'ai' que aún placeholder.
+- `app/(app)/reports/page.tsx` extiende el Promise.all con
+  los 2 nuevos loaders + render branches.
+
+**3. `/dashboard` widget de ads alerts (D-30-3, Ajuste 3 safety)**
+
+- `components/dashboard/ads-alerts-widget.tsx` — Server
+  Component con tres guard rails (Ajuste 3):
+  - role sin `ads_alerts:read` → null
+  - count === 0 → null (consistent con crisis banner)
+  - query throws → log.error + null (no rompe parent render)
+- JSDoc explícito en el componente sobre la safety.
+- Inyectado en `/dashboard` arriba del EmptyState.
+
+**Phase 8 charter rule — final scorecard**
+
+- **Cero modificaciones a Fase 1-7** durante los 4 commits.
+- 1 STOP reportado al user en Commit 29 (enum
+  `ai_rec_category` bloqueaba reuse, decisión revisada a
+  tabla nueva).
+- Pre-flight de Commit 30 confirmó que TODAS las queries de
+  inbox + publishing tabs caben sobre columnas/indexes
+  existentes.
+
+**Discrepancia surfaceada (Ajuste 1)**
+
+El spec del Ajuste 1 mencionó que `/publish/campaigns/[id]`
+ya tiene breadcrumbs "Publish · Campaigns · {name}". La
+realidad: ese page usa un `<ArrowLeft />` back-button
+(`app/(app)/publish/campaigns/[id]/page.tsx:83-87`), no un
+trail de breadcrumbs. Implementamos el breadcrumbs pattern
+NUEVO en `/ads/[id]` per el spec. Sugerencia para Fase 9
+polish: unificar los detail pages a un solo pattern
+(decidir back-button vs breadcrumb).
+
+**Tests (+13 cases / +4 files)**
+
+- `tests/integration/ads-account-detail.test.ts` (5) —
+  detail row + brand JOIN, RLS tenant isolation, daily
+  rollup groups by date, alerts filter by adsAccountId,
+  breadcrumb aria-label render.
+- `tests/integration/reports-inbox-tab.test.ts` (3) — empty
+  org payload, seeded counts + p50 ≈ 1h + 50% AI ratio,
+  brand filter no-op.
+- `tests/integration/reports-publishing-tab.test.ts` (3) —
+  empty org, seeded posts + targets + 75% success rate +
+  retry count, brand filter narrows.
+- `tests/unit/dashboard-widgets-ads.test.tsx` (4) — count=0
+  null, count>0 renders with link, query throws → null no
+  crash, viewer role allowed.
+
+---
+
+### Phase 8 — CLOSED
+
+**Scope delivered (Commits 27-30)**
+
+  - Commit 27 — Reports infrastructure
+  - Commit 28 — Ads Intelligence schema + mock connectors + sync
+  - Commit 29 — Ads alerts heuristics + banner + /reports Ads tab
+  - Commit 30 — /ads drill-down + /reports inbox+publishing + dashboard widget
+
+**Tables added (additive only):**
+
+  - `ads_accounts`
+  - `ads_spend_daily`
+  - `ads_alerts`
+
+**Enums added:** `ads_platform`, `ads_account_status`, `ads_alert_kind`, `ads_alert_severity`, `ads_alert_status`.
+
+**Permissions added:** `ads:manage`, `ads_alerts:read`, `ads_alerts:decide`.
+
+**Carry-overs to Phase 9 polish:**
+
+  - `ads-campaign-id-mapping` — bridge `platform_campaign_id` ↔ `campaigns.id`
+  - `ads-real-oauth` — swap mock connectors for Google Ads / Meta APIs (Phase 11)
+  - `ads-alerts-error-since-column` — `ads_accounts.status_changed_at` for exact error duration
+  - `ads-alerts-budget-anomaly` — wire the reserved enum slot
+  - `phase-9-detail-page-back-pattern` — unify breadcrumbs vs back-button across detail pages
+
+**Charter rule scorecard:** ✅ Cero modificaciones a Fase 1-7 across all 4 commits. 1 STOP reportado en Commit 29 (enum reuse blocker), decisión revisada limpiamente.
+
+---
+
 ### Added — Phase 8 / Commit 29 (Ads alerts heuristics + /ads banner + /reports Ads tab)
 
 Third Phase-8 commit. Layers two surfaces on top of the

@@ -147,5 +147,124 @@ export async function getAdsOverviewWithTx(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Single-account drill-down (Commit 30)
+// ---------------------------------------------------------------------------
+
+export interface AdsAccountDetail {
+  readonly id: string;
+  readonly platform: 'google' | 'meta';
+  readonly externalAccountId: string;
+  readonly accountName: string | null;
+  readonly currency: string;
+  readonly status: 'connected' | 'disconnected' | 'error';
+  readonly brandId: string | null;
+  readonly brandName: string | null;
+  readonly connectedAt: Date;
+  readonly lastSyncAt: Date | null;
+}
+
+export async function getAdsAccountDetailWithTx(
+  tx: AnyPgTx,
+  orgId: string,
+  adsAccountId: string,
+): Promise<AdsAccountDetail | null> {
+  type Row = {
+    id: string;
+    platform: 'google' | 'meta';
+    externalAccountId: string;
+    accountName: string | null;
+    currency: string;
+    status: 'connected' | 'disconnected' | 'error';
+    brandId: string | null;
+    brandName: string | null;
+    connectedAt: Date;
+    lastSyncAt: Date | null;
+  };
+  const rows: Row[] = await tx
+    .select({
+      id: adsAccounts.id,
+      platform: adsAccounts.platform,
+      externalAccountId: adsAccounts.externalAccountId,
+      accountName: adsAccounts.accountName,
+      currency: adsAccounts.currency,
+      status: adsAccounts.status,
+      brandId: adsAccounts.brandId,
+      brandName: brands.name,
+      connectedAt: adsAccounts.connectedAt,
+      lastSyncAt: adsAccounts.lastSyncAt,
+    })
+    .from(adsAccounts)
+    .leftJoin(brands, eq(brands.id, adsAccounts.brandId))
+    .where(
+      and(
+        eq(adsAccounts.id, adsAccountId),
+        eq(adsAccounts.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export interface AdsAccountDailyRow {
+  readonly date: string;
+  readonly impressions: number;
+  readonly clicks: number;
+  readonly spendCents: number;
+  readonly spendUsdCents: number;
+  readonly currency: string;
+}
+
+/**
+ * Per-day rollup for the last 30 days of one account. Each row is
+ * one date with totals across all platform_campaign_ids on that
+ * day. Drill-down page table.
+ */
+export async function listAdsAccountDailyWithTx(
+  tx: AnyPgTx,
+  orgId: string,
+  adsAccountId: string,
+): Promise<AdsAccountDailyRow[]> {
+  const since = new Date(Date.now() - THIRTY_DAYS_MS);
+  const sinceIso = since.toISOString().slice(0, 10);
+
+  type Row = {
+    date: string;
+    impressions: number | string | null;
+    clicks: number | string | null;
+    spendCents: number | string | null;
+    spendUsdCents: number | string | null;
+    currency: string;
+  };
+  const rows: Row[] = await tx
+    .select({
+      date: adsSpendDaily.date,
+      impressions: sql<number>`sum(${adsSpendDaily.impressions})::int`,
+      clicks: sql<number>`sum(${adsSpendDaily.clicks})::int`,
+      spendCents: sql<number>`sum(${adsSpendDaily.spendCents})::int`,
+      spendUsdCents: sql<number>`sum(${adsSpendDaily.spendUsdCents})::int`,
+      currency: adsSpendDaily.currency,
+    })
+    .from(adsSpendDaily)
+    .where(
+      and(
+        eq(adsSpendDaily.organizationId, orgId),
+        eq(adsSpendDaily.adsAccountId, adsAccountId),
+        gte(adsSpendDaily.date, sinceIso),
+      ),
+    )
+    .groupBy(adsSpendDaily.date, adsSpendDaily.currency)
+    .orderBy(desc(adsSpendDaily.date));
+
+  return rows.map((r) => ({
+    date: r.date,
+    impressions: Number(r.impressions ?? 0),
+    clicks: Number(r.clicks ?? 0),
+    spendCents: Number(r.spendCents ?? 0),
+    spendUsdCents: Number(r.spendUsdCents ?? 0),
+    currency: r.currency,
+  }));
+}
+
 // Touch unused so future filter() helpers can pick them up.
 void (null as SQL | null);
