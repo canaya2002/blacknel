@@ -41,3 +41,5 @@ export * from './ai-recommendations';
 export * from './ads-accounts';
 export * from './ads-spend-daily';
 export * from './ads-alerts';
+export * from './whatsapp-accounts';
+export * from './whatsapp-templates';

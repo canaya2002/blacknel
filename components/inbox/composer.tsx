@@ -6,6 +6,7 @@ import { useMemo, useRef, useState, useTransition } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { replyAction } from '@/app/(app)/inbox/[threadId]/reply-action';
+import { sendTemplateAction } from '@/app/(app)/integrations/whatsapp/actions';
 import { detectLanguage } from '@/lib/inbox/detect-language';
 import {
   autoFillKnownPlaceholders,
@@ -15,11 +16,25 @@ import {
 import type { SavedReplyOption } from '@/lib/inbox/thread-detail';
 
 import { SavedRepliesPicker } from './saved-replies-picker';
+import { WhatsappTemplatePicker } from './whatsapp-template-picker';
+
+export interface WhatsappTemplateForComposer {
+  readonly id: string;
+  readonly name: string;
+  readonly language: string;
+  readonly body: string;
+  readonly variables: ReadonlyArray<{ position: number; label: string }>;
+}
 
 interface ComposerProps {
   threadId: string;
   initialLanguage: string | null;
   savedReplies: ReadonlyArray<SavedReplyOption>;
+  /**
+   * Approved WhatsApp templates available for this thread.
+   * Empty for non-WhatsApp threads (Phase 9 / Commit 31).
+   */
+  whatsappTemplates?: ReadonlyArray<WhatsappTemplateForComposer>;
   threadContext: {
     contactName: string | null;
     locationName: string | null;
@@ -51,8 +66,10 @@ export function Composer({
   threadId,
   initialLanguage,
   savedReplies,
+  whatsappTemplates,
   threadContext,
 }: ComposerProps): React.ReactElement {
+  const templates = whatsappTemplates ?? [];
   const [body, setBody] = useState('');
   const [pickedSavedReplyId, setPickedSavedReplyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,8 +145,38 @@ export function Composer({
     });
   };
 
+  const sendWhatsappTemplate = (
+    template: WhatsappTemplateForComposer,
+    variables: Record<string, string>,
+  ): void => {
+    setError(null);
+    setOutcome('idle');
+    startTransition(async () => {
+      const result = await sendTemplateAction(null, {
+        threadId,
+        templateId: template.id,
+        variables,
+      });
+      if (result.ok) {
+        setOutcome('sent');
+        setBody('');
+      } else {
+        setError(result.error.message);
+      }
+    });
+  };
+
   return (
     <div className="border-t bg-card/30">
+      {templates.length > 0 ? (
+        <div className="border-b bg-card/20 px-4 py-2">
+          <WhatsappTemplatePicker
+            templates={templates}
+            onSend={sendWhatsappTemplate}
+            pending={pending}
+          />
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-2 px-4 py-2 border-b">
         <div className="flex items-center gap-2">
           <SavedRepliesPicker replies={savedReplies} onPick={insertSavedReply} />

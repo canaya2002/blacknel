@@ -405,3 +405,23 @@ export const adsAlertStatusEnum = pgEnum('ads_alert_status', [
   'accepted',
   'dismissed',
 ]);
+
+// ---------------------------------------------------------------------------
+// WhatsApp Business (Phase 9 / Commit 31) — Growth-tier connector.
+// `whatsapp_template_status` mirrors Meta's review lifecycle —
+// templates submitted to Meta API land as `pending` and resolve
+// to `approved` or `rejected` (with a reason). Until they're
+// approved, you can't send them. The mock connector reproduces
+// the lifecycle so the UI flow is real today.
+// ---------------------------------------------------------------------------
+
+export const whatsappTemplateStatusEnum = pgEnum('whatsapp_template_status', [
+  'pending',
+  'approved',
+  'rejected',
+]);
+
+export const whatsappTemplateCategoryEnum = pgEnum(
+  'whatsapp_template_category',
+  ['utility', 'marketing', 'authentication'],
+);

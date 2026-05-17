@@ -7,6 +7,142 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 9 / Commit 31 (OPENS PHASE 9 · WhatsApp Business connector + plan-gating layer + reusable UpgradePrompt)
+
+Opens Phase 9 (Growth-tier features). Lands the most visible
+Growth-only differentiator: WhatsApp Business connector with
+templates lifecycle + inbox-unified threads.
+
+**Charter touch — Phase 4 ALTER (documented)**
+
+Migration `0014_whatsapp_business.sql` adds a NULLABLE column
+`inbox_messages.whatsapp_template_id` (FK → `whatsapp_templates`,
+ON DELETE SET NULL) + a partial index
+`inbox_messages_whatsapp_template_idx WHERE … NOT NULL`.
+
+**Justificación:** habilita la trazabilidad template-vs-freeform
+exclusiva del Growth-tier WhatsApp Business flow. Modelarlo
+como FK columna tipada (vs. enterrarlo en un `metadata jsonb`)
+es más honesto — Meta misma trackea este atributo en sus
+webhooks. Column es nullable, sin default → no afecta rows
+históricos de Phase 4 ni altera inserts existentes que no
+setean el campo. Partial index restringe el storage cost al
+subset WhatsApp (~5-20% estimado).
+
+Decision path: D-31-Sub-1 (b) elegido tras un STOP en planeación
+— `inbox_messages.metadata` jsonb NO existía, así que la Opción C
+original ("texto libre platform + metadata jsonb") no era viable
+sin tocar Phase 4 igual. Opción A (columna tipada) ganó por
+honestidad de modelado.
+
+**Code surface**
+
+- Migration `0014_whatsapp_business.sql` (additive + ALTER
+  documentado):
+  - 2 enums (`whatsapp_template_status`,
+    `whatsapp_template_category`).
+  - `whatsapp_accounts`: 1 row per `(org, phone_number)`,
+    FK to `connected_accounts` (Phase 3 owns lifecycle).
+  - `whatsapp_templates`: full Meta-API review lifecycle
+    (`pending → approved | rejected` con `rejected_reason`).
+    Unique on `(account, name, language)`.
+  - ALTER `inbox_messages` agrega `whatsapp_template_id` FK
+    nullable + partial index.
+- `lib/connectors/whatsapp/templates-mock.ts` — pure mock
+  runtime: `submitTemplate` (auto-approve, FORBIDDEN→reject),
+  `sendTemplate` (always succeeds — D-31-1 Opción A,
+  deterministic external id), `synthesizeInboundMessage`
+  (test/seed helper).
+- `lib/plans/gates.ts` — facade sobre el existing
+  `lib/plans/gating.ts`. Mapea `PlanFeature` mental-model
+  (`'whatsapp_business'`, `'nps_surveys'`, …) a las predicates
+  underlying (`requirePlatform('whatsapp')`,
+  `requireFeature('nps')`). Reuso del existing infrastructure
+  evita duplicar matrices; el thin facade da vocabulario
+  consistente para Commits 32-34.
+- `lib/whatsapp/queries.ts` + `validate.ts` — read layer
+  (`listTemplatesWithTx`, `listApprovedTemplatesForAccountWithTx`,
+  `getWhatsappAccountByConnectedIdWithTx`) y Zod schemas.
+- `app/(app)/integrations/whatsapp/actions.ts`:
+  - `connectWhatsappAccountAction` (manual dialog, Fase 11 swap
+    a Meta OAuth). Plan-gated `whatsapp_business`.
+  - `createTemplateAction` (insert + mock-verdict + audit dual
+    rows: submitted + verdict).
+  - `sendTemplateAction` (composer entry point; persiste
+    `inbox_messages` row con `whatsapp_template_id` FK — la
+    charter-touch column).
+- `components/whatsapp/templates-section.tsx` +
+  `new-template-dialog.tsx` — UI bajo `/integrations/[accountId]`
+  cuando el platform es WhatsApp.
+- `components/inbox/composer.tsx` — extiende composer con
+  `whatsappTemplates` prop opcional. Sub-componente
+  `whatsapp-template-picker.tsx` (Client) renderiza el dropdown
+  + form fields por variable cuando el thread.platform es
+  whatsapp.
+- `components/billing/upgrade-prompt.tsx` (Ajuste 2) — nuevo
+  reusable component (Server) con `currentPlan` self-hide,
+  `valueBullets` rich layout, y emit del audit event
+  `upgrade_prompt.shown` con `{feature, current_plan,
+  target_plan}`. Coexiste con el existing
+  `components/common/upgrade-prompt.tsx` (passive legacy).
+  Designed para Commits 32-34 reuse.
+- `lib/permissions/roles.ts` — nuevo permiso
+  `whatsapp:manage_templates` (owner + admin + manager).
+- `lib/db/seed-whatsapp.ts` (Ajuste 3) — gated por
+  `BLACKNEL_SEED_WHATSAPP=true` (default on, off en tests):
+  - 2 connected WhatsApp accounts (Trattoria + Solis) en
+    `status='connected'`. El Phase-5 row `'error'` queda
+    intacto para preservar la demo del error state.
+  - 10 templates (5 por cuenta) con status mix: approved,
+    approved, approved, pending, rejected (con
+    `rejected_reason`).
+  - 3 inbound mock messages → contact_profiles + inbox_threads
+    + inbox_messages para demo end-to-end del flow inbound.
+
+**Charter Phase 4 touches mitigados**
+
+- `inbox_messages.whatsapp_template_id` nullable FK + partial
+  index (documentado above).
+- `composer.tsx` extiende props con `whatsappTemplates?`
+  optional — sin breakage para callers no-WhatsApp.
+
+Estos son los UNICOS touches a Fase 1-7 en este commit, y
+caen dentro de "extender features existentes con Growth-only
+sub-features" per el charter Phase 9.
+
+**Decisiones D-31 confirmadas**
+
+- D-31-Sub-1 → (b) column tipada `whatsapp_template_id`
+- D-31-Sub-2 → `getOrgPlanCode(session)` reuse
+- D-31-1 → A: mock send always succeeds
+- D-31-2 → A: full template lifecycle (pending/approved/rejected)
+- D-31-3 → A: inbox unificado (threads WhatsApp en `/inbox`)
+
+**Discrepancia documentada** — el spec D-31-C dijo
+`PLAN_LIMIT_REACHED`, pero el AppErrorCode existente para
+"plan no incluye feature" es `FEATURE_NOT_AVAILABLE_ON_PLAN`
+(distinto de `PLAN_LIMIT_REACHED` que es para capacity caps
+exhausted, e.g. 250 posts/mes). El facade reusa el existing
+helper que ya throw el código correcto.
+
+**Tests (+24 cases / +5 files)**
+
+- `tests/unit/plan-gates.test.ts` (10) — matrix correctness
+  para 6 features × 3 plans + throw/no-throw para
+  `requirePlanFeature`.
+- `tests/unit/whatsapp-mock.test.ts` (5) — `submitTemplate`
+  approve/reject, `sendTemplate` determinism + variable
+  render, `synthesizeInboundMessage` determinism.
+- `tests/unit/upgrade-prompt.test.tsx` (3) — render null
+  when plan suficiente, render + audit emit cuando falta,
+  audit failure no crashea render.
+- `tests/integration/whatsapp-templates-lifecycle.test.ts`
+  (6) — connect flow inserta ambas filas, list filtra
+  approved-only, unique constraint, FK on `inbox_messages`
+  persiste + SET NULL on template delete, tenant isolation.
+
+---
+
 ### Added — Phase 8 / Commit 30 (CLOSES PHASE 8 · /ads drill-down + /reports inbox+publishing tabs + dashboard widget)
 
 Closing commit of Phase 8. Three deliverables + a closing

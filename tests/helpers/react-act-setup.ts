@@ -28,3 +28,6 @@ if (!process.env.BLACKNEL_ADS_SYNC_ENABLED) {
 if (!process.env.BLACKNEL_ADS_ALERTS_ENABLED) {
   process.env.BLACKNEL_ADS_ALERTS_ENABLED = 'false';
 }
+if (!process.env.BLACKNEL_SEED_WHATSAPP) {
+  process.env.BLACKNEL_SEED_WHATSAPP = 'false';
+}

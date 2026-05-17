@@ -53,7 +53,8 @@ export type Permission =
   | 'campaigns:update'
   | 'crisis:read'
   | 'crisis:decide'
-  | 'brand_voice:manage';
+  | 'brand_voice:manage'
+  | 'whatsapp:manage_templates';
 
 const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'inbox:read',
@@ -93,6 +94,7 @@ const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'crisis:read',
   'crisis:decide',
   'brand_voice:manage',
+  'whatsapp:manage_templates',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
@@ -139,6 +141,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'crisis:read',
     'crisis:decide',
     'brand_voice:manage',
+    'whatsapp:manage_templates',
   ],
 
   // Manager: full operational reach (reply, approve, publish, automate,
@@ -175,6 +178,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'crisis:read',
     'crisis:decide',
     'brand_voice:manage',
+    'whatsapp:manage_templates',
   ],
 
   // Agent: front-line operator. Reads and replies, drafts and

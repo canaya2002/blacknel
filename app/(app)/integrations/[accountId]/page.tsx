@@ -13,11 +13,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { WhatsappTemplatesSection } from '@/components/whatsapp/templates-section';
 import { requireUser } from '@/lib/auth/server';
 import { type Capability, type PlatformCode } from '@/lib/connectors/base';
 import { getCapabilities } from '@/lib/connectors/registry';
 import { dbAs } from '@/lib/db/client';
 import { connectedAccounts, connectorSyncRuns } from '@/lib/db/schema';
+import { can } from '@/lib/permissions/can';
+import {
+  getWhatsappAccountByConnectedIdWithTx,
+  listTemplatesWithTx,
+} from '@/lib/whatsapp/queries';
 
 import {
   disconnectAccountFormAction,
@@ -110,6 +116,24 @@ export default async function AccountDetailPage({
 
   const platform = account.platform as PlatformCode;
   const declared = getCapabilities(platform);
+
+  // WhatsApp-only side data (Phase 9 / Commit 31). Loaded lazily
+  // so the integration detail page stays fast for non-WhatsApp
+  // accounts. Server-side fetch only when platform matches.
+  const isWhatsapp = platform === 'whatsapp';
+  const whatsappData = isWhatsapp
+    ? await dbAs({ orgId: session.orgId, userId: session.userId }, async (tx) => {
+        const wa = await getWhatsappAccountByConnectedIdWithTx(
+          tx,
+          session.orgId,
+          account.id,
+        );
+        if (!wa) return null;
+        const templates = await listTemplatesWithTx(tx, session.orgId, wa.id);
+        return { wa, templates };
+      })
+    : null;
+  const canManageTemplates = can(session.role, 'whatsapp:manage_templates');
   const accountCaps = Array.isArray(account.capabilities)
     ? (account.capabilities as Capability[])
     : declared.supported;
@@ -194,6 +218,15 @@ export default async function AccountDetailPage({
           ))}
         </CardContent>
       </Card>
+
+      {whatsappData ? (
+        <WhatsappTemplatesSection
+          whatsappAccountId={whatsappData.wa.id}
+          phoneNumber={whatsappData.wa.phoneNumber}
+          templates={whatsappData.templates}
+          canManage={canManageTemplates}
+        />
+      ) : null}
 
       <Card>
         <CardHeader>

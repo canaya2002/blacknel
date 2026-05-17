@@ -97,6 +97,15 @@ const envSchema = z.object({
    * alerts populate.
    */
   BLACKNEL_ADS_ALERTS_ENABLED: boolFromString(true),
+  /**
+   * Whether `seedDatabase()` seeds WhatsApp Business demo data
+   * (Phase 9 / Commit 31). 1 wa_account per brand + 5 mixed-
+   * status templates + 3 inbound mock messages. Default `true`
+   * so a fresh `pnpm db:seed` shows the full Growth-tier flow
+   * end-to-end without manual SQL. Integration tests flip off
+   * via `tests/helpers/react-act-setup.ts`.
+   */
+  BLACKNEL_SEED_WHATSAPP: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

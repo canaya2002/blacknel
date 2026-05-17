@@ -413,4 +413,14 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
     const { seedPosts } = await import('./seed-posts');
     await seedPosts(tx);
   }
+
+  // --- WhatsApp Business demo (Phase 9 / Commit 31, Ajuste 3) ---
+  // Gated by env so tests skip the ~20 rows. Adds 2 NEW
+  // connected_accounts rows (distinct ids from the Phase-5
+  // 'error' WhatsApp row) + whatsapp_accounts + 10 templates
+  // with mixed statuses + 3 inbound thread+message pairs.
+  if (env.BLACKNEL_SEED_WHATSAPP) {
+    const { seedWhatsapp } = await import('./seed-whatsapp');
+    await seedWhatsapp(tx);
+  }
 }

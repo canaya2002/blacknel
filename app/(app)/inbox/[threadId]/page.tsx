@@ -9,8 +9,12 @@ import { ThreadDetailView } from '@/components/inbox/thread-detail-view';
 import { ThreadHeaderBar } from '@/components/inbox/thread-header-bar';
 import { pendingApprovalsForThread } from '@/lib/approvals/queries';
 import { requireUser } from '@/lib/auth/server';
+import { dbAs } from '@/lib/db/client';
 import { getThreadDetail, savedRepliesForOrg } from '@/lib/inbox/thread-detail';
 import { authorize } from '@/lib/permissions/can';
+import { listApprovedTemplatesForAccount } from '@/lib/whatsapp/queries';
+import { connectedAccounts, whatsappAccounts } from '@/lib/db/schema';
+import { and, eq } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +40,15 @@ export default async function ThreadDetailPage({
   ]);
   if (!detail) notFound();
 
+  // WhatsApp templates only when the thread is WhatsApp (Phase 9 /
+  // Commit 31). We hop thread → connected_account → whatsapp_account
+  // and pull approved templates for that WABA. Non-WhatsApp threads
+  // skip the query entirely.
+  const whatsappTemplates =
+    detail.thread.platform === 'whatsapp'
+      ? await loadApprovedWaTemplatesForThread(session, detail.thread.id)
+      : [];
+
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
       <ThreadDetailPolling />
@@ -52,6 +65,7 @@ export default async function ThreadDetailPage({
             threadId={detail.thread.id}
             initialLanguage={detail.thread.contactLanguage}
             savedReplies={savedReplies}
+            whatsappTemplates={whatsappTemplates}
             threadContext={{
               contactName: detail.thread.contactName,
               locationName: detail.thread.locationName,
@@ -69,4 +83,56 @@ export default async function ThreadDetailPage({
       </div>
     </div>
   );
+}
+
+async function loadApprovedWaTemplatesForThread(
+  session: { orgId: string; userId: string },
+  threadId: string,
+): Promise<
+  ReadonlyArray<{
+    id: string;
+    name: string;
+    language: string;
+    body: string;
+    variables: ReadonlyArray<{ position: number; label: string }>;
+  }>
+> {
+  // Find the whatsapp_account behind this thread via
+  // inbox_threads.connected_account_id (Phase 4) → whatsapp_accounts.
+  // Returns [] when the thread has no connected account or no WABA
+  // pair (defensive — should not happen for synced WhatsApp threads).
+  const waAccountId = await dbAs<Array<{ waId: string }>>(
+    { orgId: session.orgId, userId: session.userId },
+    (tx) =>
+      tx
+        .select({ waId: whatsappAccounts.id })
+        .from(whatsappAccounts)
+        .innerJoin(
+          connectedAccounts,
+          eq(connectedAccounts.id, whatsappAccounts.connectedAccountId),
+        )
+        .where(
+          and(
+            eq(whatsappAccounts.organizationId, session.orgId),
+            eq(connectedAccounts.platform, 'whatsapp'),
+          ),
+        )
+        .limit(1),
+  );
+  if (waAccountId.length === 0) return [];
+  // Touch `threadId` so a future commit that wants per-thread scoping
+  // (e.g. WABA-per-brand) has a single point to wire.
+  void threadId;
+  const templates = await listApprovedTemplatesForAccount({
+    orgId: session.orgId,
+    userId: session.userId,
+    whatsappAccountId: waAccountId[0]!.waId,
+  });
+  return templates.map((t) => ({
+    id: t.id,
+    name: t.name,
+    language: t.language,
+    body: t.body,
+    variables: t.variables,
+  }));
 }

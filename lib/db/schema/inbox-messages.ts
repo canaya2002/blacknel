@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import {
@@ -7,6 +8,7 @@ import {
 } from './_enums';
 import { inboxThreads } from './inbox-threads';
 import { organizations } from './organizations';
+import { whatsappTemplates } from './whatsapp-templates';
 
 /**
  * Append-only message log.
@@ -44,6 +46,22 @@ export const inboxMessages = pgTable(
     sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
     externalMessageId: text('external_message_id'),
     idempotencyKey: text('idempotency_key'),
+    /**
+     * WhatsApp template provenance (Phase 9 / Commit 31).
+     *
+     * NULL for free-form messages and for every non-WhatsApp
+     * platform. Populated when an outbound message originated
+     * from `sendTemplateAction` via a `whatsapp_templates` row.
+     *
+     * Charter touch: column es nullable, sin default, FK ON
+     * DELETE SET NULL → no afecta rows históricos de Phase 4 ni
+     * altera inserts existentes que no setean el campo.
+     * Partial index restringe el storage al subset WhatsApp.
+     */
+    whatsappTemplateId: uuid('whatsapp_template_id').references(
+      (): AnyPgColumn => whatsappTemplates.id,
+      { onDelete: 'set null' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -53,6 +71,9 @@ export const inboxMessages = pgTable(
     threadIdempotencyUnique: uniqueIndex('inbox_messages_thread_idempotency_unique')
       .on(table.threadId, table.idempotencyKey)
       .where(sql`idempotency_key IS NOT NULL`),
+    whatsappTemplateIdx: index('inbox_messages_whatsapp_template_idx')
+      .on(table.whatsappTemplateId)
+      .where(sql`whatsapp_template_id IS NOT NULL`),
   }),
 );
 
