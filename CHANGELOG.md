@@ -7,6 +7,95 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 10 / Commit 38 (Enterprise Networks · 5 platforms · polymorphic review cards · platform_specific render-only)
+
+Opens 5 Enterprise-tier verticals — **Yelp**, **TripAdvisor**,
+**Trustpilot**, **BBB**, **Avvo** — landing the schema extension,
+deterministic mock data, polymorphic UI, and capability matrix
+updates without touching any external API (Phase 11 turns these
+into real connectors).
+
+**Highlights**
+
+1. **`reviews.platform_specific jsonb`** — render-only per-platform
+   extension field. ALTER landed in `0020_enterprise_networks.sql`;
+   strict **render-only rule** documented in 4 places
+   (`lib/db/schema/reviews.ts`, `lib/reviews/platform-specific-schemas.ts`,
+   migration header, this CHANGELOG). Zero indexes — promotion to
+   typed column required if field ever becomes query-relevant.
+2. **5 Zod schemas per platform** (Ajuste 1) — Yelp / TripAdvisor /
+   Trustpilot / BBB / Avvo each get a `.strict()` schema with their
+   own field allowlist + dispatcher `validatePlatformSpecific()`.
+3. **Deterministic review generator** (`lib/connectors/base/review-generator.ts`)
+   with volume bands per platform (yelp 0-5, tripadvisor 1-10,
+   trustpilot 2-15, bbb 0-2, avvo 0-1) + BBB lifecycle states
+   (pending → assigned → resolved → closed, Ajuste 2).
+4. **Polymorphic review row** — `<PlatformExtras>` augments standard
+   rows with platform-specific chips (Yelp Elite, TripAdvisor
+   category ratings, Trustpilot verified-buyer + trust score, Avvo
+   case type). **`<BBBComplaintCard>` replaces the whole row** for
+   `platform === 'bbb'` (red left border, FileWarning icon,
+   complaint_status pill, case_id mono). Ajuste 3.
+5. **`/integrations` vertical hints** (D-38-4) — short audience cue
+   per platform tile (Yelp = "Hospitality · restaurantes", BBB =
+   "Consumer trust · queja-resolución", etc.).
+6. **Capability matrix updates** (D-38-5) — `review_dispute` and
+   `complaint_response` capabilities added to the enum;
+   per-platform supported lists extended.
+7. **Demo seed** (`seed-enterprise-networks.ts`) — 5 platforms × 7
+   days deterministic data, gated by `BLACKNEL_SEED_ENTERPRISE_NETWORKS`.
+
+**BBB force-fit** (D-38-2) — `reviews.rating` stays `NOT NULL CHECK 1..5`;
+BBB rows use sentinel `rating = 1` + UI hides stars. The structural
+model revisit lands in Phase 11 — see TODO anchor
+`bbb-complaint-model-revisit-phase-11`.
+
+**Charter touches (Phase 1, 5 infrastructure)**
+
+| File | Phase | Change |
+|---|---|---|
+| `lib/db/schema/reviews.ts` | 5 | `platform_specific jsonb` (render-only doc) |
+| `lib/reviews/queries.ts` | 5 | surface `platformSpecific` in `ReviewListItem` |
+| `lib/connectors/base/types.ts` | 3 | +2 capabilities (`complaint_response`, `review_dispute`) |
+| `lib/connectors/{yelp,tripadvisor,trustpilot,bbb,avvo}/capabilities.ts` | 3 | extended supported lists per D-38-5 |
+| `lib/env.ts` | 1 | +1 env var (`BLACKNEL_SEED_ENTERPRISE_NETWORKS`) |
+| `lib/db/seed.ts` | 1 | wires new seed (gated) |
+| `tests/unit/capabilities.test.ts` | 3 | updated contract per D-38-5 with comments |
+| `components/reviews/review-row.tsx` | 5 | short-circuits to `<BBBComplaintCard>` for bbb |
+| `components/integrations/platform-tile.tsx` | 3 | vertical hints (D-38-4) |
+
+All aditive. Cero modificaciones a rows históricos de Phase 5 —
+`platform_specific` es nullable, pre-C38 rows quedan en `NULL`.
+
+**D-38-1..5 confirmadas**
+
+- D-38-1 (a) — `platform_specific jsonb` single column, render-only.
+- D-38-2 — BBB force-fit, sentinel rating = 1, revisit Phase 11.
+- D-38-3 — 5 sub-anchors in TODO.md
+  (`yelp-fusion-real`, `tripadvisor-business-real`,
+  `trustpilot-business-real`, `bbb-complaint-model-revisit-phase-11`,
+  `avvo-legal-tos-review`).
+- D-38-4 — Vertical hints en `/integrations` tiles.
+- D-38-5 — `review_dispute` (yelp, tripadvisor),
+  `complaint_response` (bbb), `send_review_request` (trustpilot),
+  `reply_reviews` (avvo Pro).
+
+**Tests (+34, total 1218 pasando · target ≥1209)**
+
+- `tests/unit/enterprise-review-generator.test.ts` (21 cases) —
+  determinism, volume bands, BBB lifecycle, Zod validation per
+  platform, dispatcher edge cases, externalId stability, rating
+  contract.
+- `tests/integration/enterprise-networks-seed.test.ts` (13 cases) —
+  seed roundtrip, idempotency, BBB sentinel, render-only index
+  guard, capability assertions, plan gating defense-in-depth.
+
+**Build status** — `pnpm verify` ✅ 1218/1225 pasando, 7 skipped.
+`pnpm build --webpack` ✅ verde primer intento (Turbopack
+fallback aplicado en C36b, sigue en webpack para producción).
+
+---
+
 ### Added — Phase 10 / Commit 37 (Advanced Audit · SOC 2 ready · anomaly detection · retention policies · mass export)
 
 Promotes the Phase-7 audit table to Enterprise-grade. Adds 4

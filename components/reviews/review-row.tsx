@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils/cn';
 
 import type { ReviewListItem } from '@/lib/reviews/queries';
 
+import { BBBComplaintCard, PlatformExtras } from './platform-extras';
 import { Stars } from './stars';
 
 interface ReviewRowProps {
@@ -70,6 +71,22 @@ function timeAgo(date: Date): string {
 }
 
 export function ReviewRow({ review }: ReviewRowProps): React.ReactElement {
+  // BBB is structurally different (complaint, not review). Render
+  // the distinct card and short-circuit the standard layout.
+  // See `components/reviews/platform-extras/index.tsx`.
+  if (review.platform === 'bbb') {
+    return (
+      <BBBComplaintCard
+        data={review.platformSpecific}
+        authorName={review.authorName}
+        bodyExcerpt={review.bodyExcerpt}
+        postedAt={review.postedAt}
+        locationName={review.locationName}
+        href={`/reviews/${review.id}`}
+      />
+    );
+  }
+
   const initials =
     review.authorName
       ?.split(' ')
@@ -156,6 +173,11 @@ export function ReviewRow({ review }: ReviewRowProps): React.ReactElement {
             </span>
           ) : null}
         </div>
+
+        <PlatformExtras
+          platform={review.platform}
+          platformSpecific={review.platformSpecific}
+        />
       </div>
     </Link>
   );

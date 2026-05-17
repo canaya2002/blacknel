@@ -461,4 +461,18 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
     );
     await seedCompetitorsReports(tx);
   }
+
+  // --- Enterprise Networks demo (Phase 10 / Commit 38) ---
+  // 5 Enterprise platforms (yelp, tripadvisor, trustpilot, bbb,
+  // avvo) × 7 days of deterministic mock reviews with
+  // per-platform `platform_specific` jsonb. Demo org runs on
+  // Growth so these rows are gated behind the upgrade banner on
+  // /reviews — mirrors the Phase-5 yelp seed precedent. Gated by
+  // env; tests turn it off to keep their seeded worlds minimal.
+  if (env.BLACKNEL_SEED_ENTERPRISE_NETWORKS) {
+    const { seedEnterpriseNetworks } = await import(
+      './seed-enterprise-networks'
+    );
+    await seedEnterpriseNetworks(tx);
+  }
 }

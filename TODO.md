@@ -1106,3 +1106,144 @@ Tests live.test.ts pueden simular load con un loop de 1000
 checks contra DB real para sanity baseline.
 
 **Target phase.** Phase 11.
+
+## yelp-fusion-real
+
+**Problem.** El connector `lib/connectors/yelp/` es stub Phase 10:
+`MockConnector` declarando capability `read_reviews` + el seed
+`seed-enterprise-networks.ts` puebla rows deterministas. Yelp
+Fusion API es **read-only** (no reply), 5000 calls/día tier
+gratuito.
+
+**Why deferred.** Master-prompt rule: CERO APIs externas en
+Fases 1-10. Mocks SON producto hasta Fase 11.
+
+**Resolution criteria.** Phase 11:
+
+1. Implementar `YelpFusionClient` con OAuth client_credentials
+   + rate limit guard (tracker que respete `X-RateLimit-Remaining`).
+2. Mapear `business/reviews` → `reviews` schema (Yelp expone
+   solo 3 reviews/business máximo via API; documentar
+   limitación en `/integrations` connector tile como `notes`).
+3. Mapear `elite_reviewer` (Yelp lo expone via author profile
+   detail) → `platform_specific.elite_reviewer`. Si el detail
+   call cuesta otra request, hacer en batch off-cycle.
+4. Reply capability sigue OFF: Fusion API no soporta posting
+   reviews. La UI ya lo refleja vía `canReply = false`.
+5. Retirar `BLACKNEL_SEED_ENTERPRISE_NETWORKS` cuando demo
+   tenants ya tengan rows reales.
+
+**Target phase.** Phase 11.
+
+## tripadvisor-business-real
+
+**Problem.** Connector `lib/connectors/tripadvisor/` es stub
+Phase 10. TripAdvisor Content API (B2B) requiere partner
+agreement + per-property API key.
+
+**Why deferred.** Onboarding TripAdvisor partner es proceso
+contractual de semanas. No bloquea demo Phase 10.
+
+**Resolution criteria.** Phase 11:
+
+1. Solicitar partner access (TripAdvisor Business).
+2. Implementar `TripAdvisorClient` con per-property auth.
+3. Mapear `category_ratings` + `traveler_choice` → jsonb
+   `platform_specific` (mantener render-only rule).
+4. `dispute_review` capability requiere flujo manual via
+   TripAdvisor Management Center — surface link, no auto.
+
+**Target phase.** Phase 11.
+
+## trustpilot-business-real
+
+**Problem.** Connector `lib/connectors/trustpilot/` es stub
+Phase 10. Trustpilot Business API tiene 3 tiers (Free / Plus /
+Premium); algunas capabilities sólo van en Plus+.
+
+**Why deferred.** Misma regla: CERO APIs externas en Phases
+1-10.
+
+**Resolution criteria.** Phase 11:
+
+1. Implementar `TrustpilotClient` con OAuth2 + business unit
+   scoping.
+2. Mapear `verified_buyer` + `invitation_based` → jsonb
+   `platform_specific`.
+3. `send_review_request` capability ya declarada — cablear
+   `/reviews/requests` para hablar Trustpilot Invitation API.
+4. Surface tier requirements en `/integrations` tile (notes
+   field): "Send-request requiere Trustpilot Plus o superior".
+
+**Target phase.** Phase 11.
+
+## bbb-complaint-model-revisit-phase-11
+
+**Problem.** BBB **no es review-based** — son consumer
+complaints con lifecycle (pending → assigned → resolved →
+closed). Phase 10 / Commit 38 hace **force-fit**:
+
+- `reviews.rating` queda con CHECK BETWEEN 1 AND 5; BBB rows
+  almacenan `rating = 1` sentinel + UI oculta stars cuando
+  `platform === 'bbb'`.
+- Toda la información lifecycle vive en
+  `platform_specific` jsonb (`complaint_status`,
+  `complaint_type`, `case_id`, `resolution_summary`,
+  `filed_at`).
+- `<BBBComplaintCard>` reemplaza el row layout entero —
+  red left border, FileWarning icon, status pill desde
+  complaint_status (no review status).
+
+**Why deferred.** Reorganizar el modelo de datos (nullable
+rating, tabla `complaints` separada, o promoción de campos
+jsonb → typed columns) tendría impacto cross-fase. Phase 10
+prioriza shipping coherent UX over schema purity.
+
+**Resolution criteria.** Phase 11. Elegir UNA opción:
+
+**Opción A** — `rating` nullable. ALTER reviews + actualizar
+CHECK a `(rating IS NULL OR rating BETWEEN 1 AND 5)`. Update
+seed + UI para no asumir rating. **Pros:** minimal diff.
+**Contras:** semántica weird (reviews sin rating).
+
+**Opción B** — `complaints` table separada con FK a brand +
+location. Mover BBB rows + retirar `platform_specific`
+complaint fields. Migration de los seeded rows. **Pros:**
+modelo limpio; querying complaints != reviews. **Contras:**
+duplica /reviews list logic (Union query? Tabbed view?).
+
+**Opción C** — Promote `complaint_status` + `case_id` a
+typed columns nullable en `reviews`. Híbrido entre A y B.
+**Pros:** querying por complaint_status disponible (filtros
+de "complaints pendientes"). **Contras:** sigue mezclando
+complaints con reviews.
+
+Decisión final pendiente. Reabrir al iniciar Phase 11.
+
+**Target phase.** Phase 11.
+
+## avvo-legal-tos-review
+
+**Problem.** Connector `lib/connectors/avvo/` es stub Phase
+10. Avvo no expone API pública oficial. Scrape via partner
+sería camino, pero TOS de Avvo prohíbe scraping.
+
+**Why deferred.** Requiere review legal + posible partnership
+agreement con Avvo Pro tier. No es decisión técnica.
+
+**Resolution criteria.** Phase 11:
+
+1. Confirmar via legal counsel: ¿Avvo Pro tier expone API
+   privada? ¿O sigue siendo scraping prohibido?
+2. Si SÍ API privada: implementar cliente, mapear
+   `attorney_response_count` + `case_type` →
+   `platform_specific`. Surface Avvo Pro requirement en
+   `/integrations` connector tile.
+3. Si sigue prohibido: convertir connector en **CSV upload**
+   manual (mismo patrón que BBB Phase 11). Bot del usuario
+   sube CSV mensual export de Avvo dashboard.
+4. Documentar la decisión en `doc/PATTERNS.md` para que
+   pattern de "CSV upload connectors" quede explícito si
+   adoptamos Opción CSV.
+
+**Target phase.** Phase 11.

@@ -68,6 +68,27 @@ export const reviews = pgTable(
     escalated: boolean('escalated').notNull().default(false),
     tags: jsonb('tags').notNull().default(sql`'[]'::jsonb`),
     metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
+    /**
+     * Phase 10 / Commit 38 — per-platform extension surface.
+     *
+     * **RENDER-ONLY RULE — STRICT**
+     *
+     * `platform_specific` jsonb captures per-platform fields that
+     * are RENDERED in the UI but never queried/filtered. Examples:
+     *   - Yelp `elite_reviewer: boolean`
+     *   - TripAdvisor `category_ratings: { food, service, … }`
+     *   - BBB `complaint_status / case_id / resolution_summary`
+     *   - Avvo `case_type / client_testimonial: boolean`
+     *
+     * If any field becomes query-relevant (WHERE / GROUP BY /
+     * needs an index / compliance constraint), it MUST be
+     * promoted to a typed column via dedicated migration.
+     *
+     * This rule prevents jsonb from becoming the "Drupal sink"
+     * of the codebase. Validation per platform lives in
+     * `lib/reviews/platform-specific-schemas.ts` (Zod).
+     */
+    platformSpecific: jsonb('platform_specific'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

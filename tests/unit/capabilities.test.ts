@@ -50,11 +50,25 @@ const EXPECTED: Record<Exclude<PlatformCode, 'mock'>, ReadonlyArray<Capability>>
   ],
   linkedin: ['publish_post', 'schedule_post', 'read_insights'],
   x: ['publish_post', 'schedule_post', 'read_dms', 'send_dms', 'read_mentions'],
-  yelp: ['read_reviews'], // intentionally no reply_reviews — API is read-only
-  tripadvisor: ['read_reviews', 'reply_reviews'],
-  trustpilot: ['read_reviews', 'reply_reviews'],
-  bbb: ['read_reviews'],
-  avvo: ['read_reviews'],
+  // Phase 10 / Commit 38 extended yelp to declare `review_dispute`
+  // (Yelp Fusion exposes a dispute submission endpoint distinct
+  // from reply). reply_reviews stays OFF — Fusion is read-only.
+  yelp: ['read_reviews', 'review_dispute'],
+  // Phase 10 / Commit 38 extended tripadvisor to declare
+  // `review_dispute` for owner-flagged complaints workflow via
+  // Management Center.
+  tripadvisor: ['read_reviews', 'reply_reviews', 'review_dispute'],
+  // Phase 10 / Commit 38 extended trustpilot to declare
+  // `send_review_request` (Trustpilot Invitation API).
+  trustpilot: ['read_reviews', 'reply_reviews', 'send_review_request'],
+  // Phase 10 / Commit 38 extended bbb to declare
+  // `complaint_response` — BBB is complaint-resolution, not
+  // review-based; the "reply" surface is a structured response
+  // to the complaint case.
+  bbb: ['read_reviews', 'complaint_response'],
+  // Phase 10 / Commit 38 extended avvo to declare `reply_reviews`
+  // — Avvo Pro tier exposes attorney response workflow.
+  avvo: ['read_reviews', 'reply_reviews'],
   // Commit 17 extended youtube to declare publish_post + schedule_post
   // covering both Community posts and video uploads via Videos.insert.
   youtube: [

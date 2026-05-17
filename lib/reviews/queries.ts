@@ -79,6 +79,15 @@ export interface ReviewListItem {
    * imports reviews from. The UI uses this to hide the reply button.
    */
   readonly canReply: boolean;
+  /**
+   * Phase 10 / Commit 38 — render-only per-platform extension fields
+   * (Yelp elite_reviewer, BBB complaint_status, TripAdvisor
+   * category_ratings, …). Validated by
+   * `lib/reviews/platform-specific-schemas.ts`. The UI consumes via
+   * `<components/reviews/platform-extras>`. STRICT RENDER-ONLY RULE
+   * — never used in WHERE / ORDER BY / GROUP BY.
+   */
+  readonly platformSpecific: Record<string, unknown> | null;
 }
 
 export interface ReviewListPage {
@@ -245,6 +254,7 @@ export async function listReviewsWithTx(
     locationId: string | null;
     locationName: string | null;
     hasPublishedResponse: boolean;
+    platformSpecific: unknown;
   };
 
   const rows: Row[] = await tx
@@ -271,6 +281,7 @@ export async function listReviewsWithTx(
         WHERE r.review_id = ${reviews.id}
           AND r.status = 'published'
       )`.as('has_published_response'),
+      platformSpecific: reviews.platformSpecific,
     })
     .from(reviews)
     .leftJoin(locations, eq(locations.id, reviews.locationId))
@@ -306,6 +317,10 @@ export async function listReviewsWithTx(
         locationName: r.locationName,
         hasPublishedResponse: Boolean(r.hasPublishedResponse),
         canReply: REPLY_CAPABLE_PLATFORMS.has(r.platform),
+        platformSpecific:
+          r.platformSpecific && typeof r.platformSpecific === 'object'
+            ? (r.platformSpecific as Record<string, unknown>)
+            : null,
       }),
     ),
     nextCursor,

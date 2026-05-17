@@ -54,6 +54,10 @@ export const CAPABILITIES = [
   'send_review_request',
   'read_ads',
   'pause_ads',
+  // Phase 10 / Commit 38 — Enterprise Networks specifics.
+  // Declared by connectors whose API supports each verb.
+  'complaint_response', // BBB-specific (resolve / respond to complaint)
+  'review_dispute', // Yelp + TripAdvisor — formal dispute filing
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];

@@ -162,6 +162,15 @@ const envSchema = z.object({
    * delete (5000 rows/tick) for safety. Vitest forces off.
    */
   BLACKNEL_AUDIT_RETENTION_JOB_ENABLED: boolFromString(true),
+  /**
+   * Whether `seedDatabase()` seeds the Enterprise Networks demo
+   * (Phase 10 / Commit 38). 5 Enterprise-tier platforms (yelp,
+   * tripadvisor, trustpilot, bbb, avvo) × 7 days of deterministic
+   * mock reviews. Gated so integration tests can opt out and keep
+   * their seeded worlds focused on Phase-5 base reviews. Default
+   * `true`.
+   */
+  BLACKNEL_SEED_ENTERPRISE_NETWORKS: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

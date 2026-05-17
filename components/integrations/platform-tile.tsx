@@ -52,6 +52,32 @@ const PLATFORM_INITIALS: Record<PlatformCode, string> = {
   mock: 'MOCK',
 };
 
+/**
+ * Phase 10 / Commit 38 · D-38-4 — vertical hint per platform.
+ *
+ * Short audience cue so users browsing /integrations understand
+ * which industry a connector targets before they click Connect.
+ * Surfaced under the connector title as a muted-tone string.
+ */
+const PLATFORM_VERTICAL: Record<PlatformCode, string | null> = {
+  facebook: null,
+  instagram: null,
+  gbp: null,
+  whatsapp: null,
+  tiktok: null,
+  linkedin: null,
+  x: null,
+  youtube: null,
+  pinterest: null,
+  reddit: null,
+  yelp: 'Hospitality · restaurantes',
+  tripadvisor: 'Hospitality · hoteles + experiencias',
+  trustpilot: 'E-commerce + SaaS · verified buyers',
+  bbb: 'Consumer trust · queja-resolución',
+  avvo: 'Legal · perfiles de abogado',
+  mock: null,
+};
+
 const PLATFORM_HUE: Record<PlatformCode, string> = {
   facebook: 'bg-blue-600',
   instagram: 'bg-gradient-to-br from-pink-500 via-fuchsia-500 to-amber-400',
@@ -91,6 +117,7 @@ export function PlatformTile({
   const label = PLATFORM_LABEL[platform];
   const initials = PLATFORM_INITIALS[platform];
   const hue = PLATFORM_HUE[platform];
+  const vertical = PLATFORM_VERTICAL[platform];
 
   return (
     <Card className={cn(!available && 'opacity-70')}>
@@ -112,6 +139,14 @@ export function PlatformTile({
                 {capabilities.supported.length} capability
                 {capabilities.supported.length === 1 ? '' : 'ies'}
               </CardDescription>
+              {vertical ? (
+                <span
+                  className="mt-0.5 block text-[10px] uppercase tracking-wide text-muted-foreground"
+                  data-testid={`vertical-hint-${platform}`}
+                >
+                  {vertical}
+                </span>
+              ) : null}
             </div>
           </div>
           {!available && gatedBy ? <PlanBadge plan={gatedBy} /> : null}
