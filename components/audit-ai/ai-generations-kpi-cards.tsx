@@ -1,4 +1,4 @@
-import { Coins, Database, Gauge, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Coins, Database, Gauge, Sparkles } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
 import type { GenerationKpis } from '@/lib/ai/persistence';
@@ -15,14 +15,19 @@ const USD_FMT = new Intl.NumberFormat('en-US', {
 });
 
 /**
- * 4 muted KPIs for /audit/ai. Same visual shape as the /publish
+ * 5 muted KPIs for /audit/ai. Same visual shape as the /publish
  * dashboard (Commit 18) and /publish/campaigns KPIs (Commit 21).
+ *
+ * **Cascade rate (Commit 23)** measures qué % de los high-risk
+ * baselines triggered the Opus second-pass. Critical cost lever
+ * for Phase 11 — if it hits 50% the compliance gate's cost
+ * doubles vs Haiku-only.
  */
 export function AiGenerationsKpiCards({
   kpis,
 }: AiGenerationsKpiCardsProps): React.ReactElement {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       <Kpi
         label="Costo este mes"
         value={USD_FMT.format(kpis.costCentsMonth / 100)}
@@ -37,6 +42,11 @@ export function AiGenerationsKpiCards({
         label="Cache hit rate"
         value={`${(kpis.cacheHitRate * 100).toFixed(0)}%`}
         Icon={Database}
+      />
+      <Kpi
+        label="Cascade rate"
+        value={`${(kpis.cascadeRate * 100).toFixed(0)}%`}
+        Icon={ArrowUpRight}
       />
       <Kpi
         label="Modelo más usado"

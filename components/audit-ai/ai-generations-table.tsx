@@ -1,4 +1,4 @@
-import { Database, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Database, Sparkles } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import type { GenerationListItem } from '@/lib/ai/persistence';
@@ -53,6 +53,7 @@ export function AiGenerationsTable({
             <th className="px-3 py-2 text-right">Costo</th>
             <th className="px-3 py-2 text-right">Latencia</th>
             <th className="px-3 py-2">Cache</th>
+            <th className="px-3 py-2">Cascada</th>
             <th className="px-3 py-2">Via</th>
             <th className="px-3 py-2">Entidad</th>
             <th className="px-3 py-2">Prompt v</th>
@@ -96,6 +97,19 @@ export function AiGenerationsTable({
                   <span className="inline-flex items-center gap-1 text-emerald-600">
                     <Database className="h-3 w-3" aria-hidden />
                     hit
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                {g.parentGenerationId ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-sky-600"
+                    title={`Cascada del baseline ${g.parentGenerationId.slice(0, 8)}…`}
+                  >
+                    <ArrowUpRight className="h-3 w-3" aria-hidden />
+                    cascade
                   </span>
                 ) : (
                   <span className="text-muted-foreground">—</span>

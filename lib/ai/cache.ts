@@ -81,7 +81,18 @@ function canonicalJson(value: unknown): string {
 
 interface CacheEntry {
   readonly output: unknown;
+  /**
+   * Real DB generation id from the first call. Commit 23 needs
+   * this so an LRU-hit baseline can still serve as a valid parent
+   * for the cascade row's `parent_generation_id` FK.
+   */
+  readonly generationId: string;
   readonly insertedAt: number;
+}
+
+export interface CachedHit {
+  readonly output: unknown;
+  readonly generationId: string;
 }
 
 /**
@@ -101,9 +112,9 @@ class LruCache {
     return entry;
   }
 
-  set(key: string, output: unknown): void {
+  set(key: string, output: unknown, generationId: string): void {
     if (this.store.has(key)) this.store.delete(key);
-    this.store.set(key, { output, insertedAt: Date.now() });
+    this.store.set(key, { output, generationId, insertedAt: Date.now() });
     while (this.store.size > LRU_MAX_ENTRIES) {
       const first = this.store.keys().next().value;
       if (first === undefined) break;
@@ -125,7 +136,8 @@ class LruCache {
 const lru = new LruCache();
 
 /**
- * In-process dedup lookup. Returns the cached output when:
+ * In-process dedup lookup. Returns the cached output + the
+ * original DB generation id when:
  *
  *   - Same `(orgId, requestHash)` is in the LRU AND
  *   - the cached entry is younger than the dedup window.
@@ -137,22 +149,23 @@ const lru = new LruCache();
 export function getCached(
   ctx: Pick<AiContext, 'orgId'>,
   requestHash: string,
-): unknown | undefined {
+): CachedHit | undefined {
   const key = `${ctx.orgId}|${requestHash}`;
   const entry = lru.get(key);
   if (!entry) return undefined;
   if (Date.now() - entry.insertedAt > DEDUP_WINDOW_MS) {
     return undefined;
   }
-  return entry.output;
+  return { output: entry.output, generationId: entry.generationId };
 }
 
 export function setCached(
   ctx: Pick<AiContext, 'orgId'>,
   requestHash: string,
   output: unknown,
+  generationId: string,
 ): void {
-  lru.set(`${ctx.orgId}|${requestHash}`, output);
+  lru.set(`${ctx.orgId}|${requestHash}`, output, generationId);
 }
 
 // Test seams

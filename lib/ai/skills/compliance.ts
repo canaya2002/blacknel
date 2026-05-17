@@ -5,6 +5,9 @@ import { z } from 'zod';
 import { aiClient } from '../client';
 import { mockCompliance, type ComplianceMockInput } from '../mock-bodies/compliance';
 import {
+  COMPLIANCE_CASCADE_PROMPT_VERSION,
+  COMPLIANCE_CASCADE_SYSTEM_PROMPT_V1,
+  COMPLIANCE_CASCADE_USER_TEMPLATE_V1,
   COMPLIANCE_PROMPT_VERSION,
   COMPLIANCE_SYSTEM_PROMPT_V1,
   COMPLIANCE_USER_TEMPLATE_V1,
@@ -14,23 +17,34 @@ import type { AiContext } from '../types';
 import type { ComplianceContext, ComplianceResult } from '../compliance-stub';
 
 /**
- * Async compliance gate (Commit 22). The authoritative check
- * before publishing — Server Actions await this; the sync pill
- * uses `complianceHint` instead (REGLA BLACKNEL AI-FEEDBACK
- * PATTERN in `lib/ai/compliance-hint.ts`).
+ * Async compliance gate with dual-model cascade (Commit 23).
  *
- * # Cascade (Phase 7 plan, wired in Commit 23)
+ * # The cascade
  *
- * Commit 22 only ships the Haiku baseline call. Commit 23 adds:
+ *   1. Baseline call:  Haiku, COMPLIANCE_SYSTEM_PROMPT_V1.
+ *   2. If `result.riskLevel ∈ {'high', 'critical'}` → cascade
+ *      call: Opus, COMPLIANCE_CASCADE_SYSTEM_PROMPT_V1,
+ *      `parentGenerationId = baseline.generationId`.
+ *   3. Cascade output is the authoritative return value.
  *
- *   - If baseline returns `riskLevel ∈ {high, critical}` →
- *     re-run with `claude-opus-4-7` for second-pass judgment.
- *   - Audit row records both calls (linked by `request_hash`
- *     prefix).
+ * **Mock determinism (D-23-1 Opción A)**: the adapter-mock runs
+ * the same keyword body for both calls, so cascade output is
+ * byte-equal to baseline. The CAUSAL linkage (parent_generation_id)
+ * still lands on the second row — the audit trail captures "we
+ * ran a second pass" even when the answer doesn't change.
  *
- * The mock adapter doesn't escalate (the body is byte-equal to
- * the existing stub) but the contract is the same so callers
- * don't need to know which model fired.
+ * Phase 11's real adapter (Opus) genuinely re-evaluates the
+ * draft and may upgrade / downgrade the verdict. The skill
+ * signature stays the same.
+ *
+ * # Why bypass dedup on cascade (cf. adapter-mock.ts)
+ *
+ * Same `(orgId, requestHash)` inside the 5-min window normally
+ * dedups. But cascade rows carry a `parentGenerationId` that
+ * MUST reflect the current baseline — returning a row pointing
+ * at a stale parent is wrong. The adapter detects the cascade
+ * path (`req.parentGenerationId != null`) and skips dedup for
+ * those calls.
  */
 
 const COMPLIANCE_FLAG = z.enum([
@@ -69,19 +83,33 @@ export interface CheckComplianceInput {
   readonly complianceContext?: ComplianceContext;
 }
 
+export interface CheckComplianceMeta {
+  readonly baselineGenerationId: string;
+  readonly cascadeGenerationId: string | null;
+  readonly cascadeFired: boolean;
+}
+
+export interface CheckComplianceResult {
+  readonly result: ComplianceResult;
+  readonly meta: CheckComplianceMeta;
+}
+
 /**
- * Server-side compliance check. Returns the same shape as the
- * legacy synchronous hint so callers can swap path without
- * reshaping the rendering code.
+ * Server-side compliance check with cascade. Returns the
+ * authoritative `ComplianceResult` (cascade verdict when it fires,
+ * baseline otherwise) plus the `meta` describing whether the
+ * cascade ran and the generation ids for both passes.
  */
 export async function checkCompliance(
   input: CheckComplianceInput,
-): Promise<ComplianceResult> {
+): Promise<CheckComplianceResult> {
   const mockInput: ComplianceMockInput = {
     text: input.text,
     ...(input.complianceContext ? { context: input.complianceContext } : {}),
   };
-  const result = await aiClient.generate({
+
+  // 1. Baseline (Haiku).
+  const baseline = await aiClient.generate({
     skill: 'compliance',
     model: 'claude-haiku-4-5',
     systemPrompt: COMPLIANCE_SYSTEM_PROMPT_V1,
@@ -91,9 +119,66 @@ export async function checkCompliance(
     context: input.context,
     cachingHint: 'always',
     promptVersion: COMPLIANCE_PROMPT_VERSION,
+    parentGenerationId: null,
   });
+
+  const baselineOutput = baseline.output as ComplianceResult;
+  const triggersCascade =
+    baselineOutput.riskLevel === 'high' || baselineOutput.riskLevel === 'critical';
+
+  if (!triggersCascade) {
+    return {
+      result: baselineOutput,
+      meta: {
+        baselineGenerationId: baseline.meta.generationId,
+        cascadeGenerationId: null,
+        cascadeFired: false,
+      },
+    };
+  }
+
+  // 2. Cascade (Opus) — fires only when baseline flagged high/critical.
+  const cascadeUserPrompt = COMPLIANCE_CASCADE_USER_TEMPLATE_V1.replace(
+    '{industry}',
+    input.complianceContext?.industry ?? '',
+  )
+    .replace('{locale}', input.complianceContext?.locale ?? '')
+    .replace('{entityType}', input.complianceContext?.entityType ?? '')
+    .replace('{brandName}', input.complianceContext?.brandName ?? '')
+    .replace('{locationName}', input.complianceContext?.locationName ?? '')
+    .replace(
+      '{rating}',
+      input.complianceContext?.rating !== undefined
+        ? String(input.complianceContext.rating)
+        : '',
+    )
+    .replace('{baselineRisk}', baselineOutput.riskLevel)
+    .replace('{baselineFlags}', baselineOutput.flags.join(','))
+    .replace('{text}', input.text);
+
+  const cascade = await aiClient.generate({
+    skill: 'compliance',
+    model: 'claude-opus-4-7',
+    systemPrompt: COMPLIANCE_CASCADE_SYSTEM_PROMPT_V1,
+    userPrompt: cascadeUserPrompt,
+    input: mockInput,
+    outputSchema: COMPLIANCE_OUTPUT_SCHEMA,
+    context: input.context,
+    cachingHint: 'always',
+    promptVersion: COMPLIANCE_CASCADE_PROMPT_VERSION,
+    parentGenerationId: baseline.meta.generationId,
+  });
+
   // Keep the mockCompliance reference live so tree-shaking
   // doesn't drop the dependency the adapter relies on.
   void mockCompliance;
-  return result.output as ComplianceResult;
+
+  return {
+    result: cascade.output as ComplianceResult,
+    meta: {
+      baselineGenerationId: baseline.meta.generationId,
+      cascadeGenerationId: cascade.meta.generationId,
+      cascadeFired: true,
+    },
+  };
 }

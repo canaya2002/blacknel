@@ -125,6 +125,15 @@ export interface AiRequest<TInput, TOutput> {
    * `input.promptVersion` for A/B testing and rollback.
    */
   readonly promptVersion: string;
+  /**
+   * Causal linkage for dual-model cascade calls (Commit 23 /
+   * Ajuste 1). NULL on the baseline call; set to the baseline
+   * row's `generationId` for the second-pass (Opus) call.
+   *
+   * Skill modules orchestrate the cascade — the adapter just
+   * threads the value into `ai_generations.parent_generation_id`.
+   */
+  readonly parentGenerationId?: string | null;
 }
 
 export interface AiGenerationMeta {
@@ -141,6 +150,12 @@ export interface AiGenerationMeta {
   readonly cacheHit: boolean;
   readonly via: 'mock' | 'real';
   readonly promptVersion: string;
+  /**
+   * Echoed back from the request. Lets the skill module chain a
+   * cascade call by passing this baseline `generationId` as the
+   * cascade call's `parentGenerationId`.
+   */
+  readonly parentGenerationId: string | null;
 }
 
 export interface AiGeneration<TOutput> {

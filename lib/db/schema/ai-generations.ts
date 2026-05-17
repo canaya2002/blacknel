@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -79,6 +80,17 @@ export const aiGenerations = pgTable(
     output: jsonb('output').notNull().default(sql`'{}'::jsonb`),
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
+    /**
+     * Causal linkage for the compliance dual-model cascade
+     * (Commit 23 / Ajuste 1). NULL for baseline calls; set to
+     * the baseline row's `id` for the Opus second-pass row.
+     * The partial index (`ai_generations_parent_idx`) covers
+     * the non-null slice.
+     */
+    parentGenerationId: uuid('parent_generation_id').references(
+      (): AnyPgColumn => aiGenerations.id,
+      { onDelete: 'set null' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -98,6 +110,10 @@ export const aiGenerations = pgTable(
       table.entityId,
       table.skill,
     ),
+    // Partial index — only non-null parent rows (cascades).
+    parentIdx: index('ai_generations_parent_idx')
+      .on(table.organizationId, table.parentGenerationId)
+      .where(sql`${table.parentGenerationId} IS NOT NULL`),
   }),
 );
 

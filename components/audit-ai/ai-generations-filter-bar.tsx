@@ -107,6 +107,20 @@ export function AiGenerationsFilterBar({
           <SelectItem value="90d">Últimos 90 días</SelectItem>
         </SelectContent>
       </Select>
+
+      <Select
+        value={filters.cascade ?? NONE}
+        onValueChange={(v) => pushFilter('cascade', v === NONE ? undefined : v)}
+      >
+        <SelectTrigger className="h-8 w-36 text-xs">
+          <SelectValue placeholder="Cascada" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>Todos</SelectItem>
+          <SelectItem value="baseline">Solo baseline</SelectItem>
+          <SelectItem value="cascade">Solo cascadas</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 }

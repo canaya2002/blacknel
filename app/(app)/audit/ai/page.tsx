@@ -52,6 +52,7 @@ export default async function AiAuditPage({
       ...(filters.skill ? { skill: filters.skill } : {}),
       ...(filters.model ? { model: filters.model } : {}),
       ...(filters.since ? { since: filters.since } : {}),
+      ...(filters.cascade ? { cascade: filters.cascade } : {}),
       limit: 100,
     }),
   ]);

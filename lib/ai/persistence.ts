@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, gte, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 
 import { dbAdmin, dbAs, type AnyPgTx } from '../db/client';
 import { aiGenerations } from '../db/schema';
@@ -79,6 +79,12 @@ export interface WriteGenerationInput {
   readonly output: Record<string, unknown>;
   readonly errorCode?: AiErrorCode;
   readonly errorMessage?: string;
+  /**
+   * Causal linkage for the dual-model cascade (Commit 23 /
+   * Ajuste 1). NULL on baseline rows; set to the baseline
+   * row's id for the second-pass row.
+   */
+  readonly parentGenerationId?: string | null;
 }
 
 export async function writeGeneration(
@@ -107,6 +113,9 @@ export async function writeGeneration(
           output: data.output,
           ...(data.errorCode ? { errorCode: data.errorCode } : {}),
           ...(data.errorMessage ? { errorMessage: data.errorMessage } : {}),
+          ...(data.parentGenerationId
+            ? { parentGenerationId: data.parentGenerationId }
+            : {}),
         })
         .returning({
           id: aiGenerations.id,
@@ -150,6 +159,7 @@ export async function findRecentByHash(
       outputTokens: number;
       costCents: number;
       durationMs: number;
+      parentGenerationId: string | null;
     }>
   >((tx) =>
     tx
@@ -164,6 +174,7 @@ export async function findRecentByHash(
         outputTokens: aiGenerations.outputTokens,
         costCents: aiGenerations.costCents,
         durationMs: aiGenerations.durationMs,
+        parentGenerationId: aiGenerations.parentGenerationId,
       })
       .from(aiGenerations)
       .where(
@@ -199,6 +210,7 @@ export async function findRecentByHash(
       cacheHit: true,
       via: 'mock',
       promptVersion,
+      parentGenerationId: row.parentGenerationId,
     },
   };
 }
@@ -224,7 +236,17 @@ export interface GenerationListItem {
   readonly actorType: AiActorType;
   readonly userId: string | null;
   readonly promptVersion: string;
+  /** NULL for baseline rows; baseline `id` for cascade rows. */
+  readonly parentGenerationId: string | null;
 }
+
+/**
+ * Cascade filter for /audit/ai (Commit 23 / Ajuste 3).
+ *   - `'cascade'`  — only second-pass rows.
+ *   - `'baseline'` — only baseline rows.
+ *   - `undefined`  — both.
+ */
+export type CascadeFilter = 'cascade' | 'baseline';
 
 export interface ListGenerationsOpts {
   readonly orgId: string;
@@ -232,6 +254,7 @@ export interface ListGenerationsOpts {
   readonly skill?: AiSkillKey;
   readonly model?: AiModel;
   readonly since?: Date;
+  readonly cascade?: CascadeFilter;
   readonly limit?: number;
 }
 
@@ -252,6 +275,11 @@ export async function listGenerationsForOrgWithTx(
   if (opts.skill) conditions.push(eq(aiGenerations.skill, opts.skill));
   if (opts.model) conditions.push(eq(aiGenerations.model, opts.model));
   if (opts.since) conditions.push(gte(aiGenerations.createdAt, opts.since));
+  if (opts.cascade === 'cascade') {
+    conditions.push(isNotNull(aiGenerations.parentGenerationId));
+  } else if (opts.cascade === 'baseline') {
+    conditions.push(isNull(aiGenerations.parentGenerationId));
+  }
 
   type Row = GenerationListItem & { input: Record<string, unknown> };
   const rows = (await tx
@@ -272,6 +300,7 @@ export async function listGenerationsForOrgWithTx(
       actorType: aiGenerations.actorType,
       userId: aiGenerations.userId,
       input: aiGenerations.input,
+      parentGenerationId: aiGenerations.parentGenerationId,
     })
     .from(aiGenerations)
     .where(and(...conditions))
@@ -300,6 +329,7 @@ export async function listGenerationsForOrgWithTx(
       actorType: r.actorType,
       userId: r.userId,
       promptVersion,
+      parentGenerationId: r.parentGenerationId,
     };
   });
 }
@@ -314,6 +344,19 @@ export interface GenerationKpis {
   /** (prompt-cache hits + dedup hits) / total. 0 when no calls. */
   readonly cacheHitRate: number;
   readonly mostUsedModel: AiModel | null;
+  /**
+   * Commit 23 / Ajuste 3 — fraction of high-risk baselines that
+   * triggered the Opus cascade. Formula:
+   *
+   *   cascadeRate = COUNT(cascade rows in window) /
+   *                 COUNT(baseline rows in window where
+   *                       output->>'riskLevel' IN ('high', 'critical'))
+   *
+   * 0 when no high-risk baselines exist. 1.0 in the mock (every
+   * high baseline cascades). Real adapter (Phase 11) may drop
+   * below 1 if cascade is skipped (rate limit, timeout, etc).
+   */
+  readonly cascadeRate: number;
 }
 
 export async function getGenerationKpis(opts: {
@@ -385,11 +428,44 @@ export async function getGenerationKpisWithTx(
     .orderBy(desc(sql`COUNT(${aiGenerations.id})`))
     .limit(1)) as ModelRow[];
 
+  // Cascade-rate query (Commit 23 / Ajuste 3): fraction of
+  // high-risk baselines that triggered the Opus cascade.
+  type CascadeRow = {
+    eligibleBaselines: string | number | null;
+    cascades: string | number | null;
+  };
+  const cascadeRows = (await tx
+    .select({
+      eligibleBaselines: sql<string | number | null>`
+        COALESCE(SUM(CASE
+          WHEN ${aiGenerations.parentGenerationId} IS NULL
+           AND ${aiGenerations.skill} = 'compliance'
+           AND (${aiGenerations.output} ->> 'riskLevel') IN ('high', 'critical')
+          THEN 1 ELSE 0 END), 0)::int
+      `,
+      cascades: sql<string | number | null>`
+        COALESCE(SUM(CASE
+          WHEN ${aiGenerations.parentGenerationId} IS NOT NULL
+          THEN 1 ELSE 0 END), 0)::int
+      `,
+    })
+    .from(aiGenerations)
+    .where(
+      and(
+        eq(aiGenerations.organizationId, orgId),
+        gte(aiGenerations.createdAt, sinceMonth),
+      ),
+    )) as CascadeRow[];
+  const eligible = toNum(cascadeRows[0]?.eligibleBaselines) ?? 0;
+  const cascades = toNum(cascadeRows[0]?.cascades) ?? 0;
+  const cascadeRate = eligible > 0 ? cascades / eligible : 0;
+
   return {
     costCentsMonth: toNum(rows[0]?.costCents) ?? 0,
     generationsMonth: total,
     cacheHitRate,
     mostUsedModel: (modelRows[0]?.model as AiModel | undefined) ?? null,
+    cascadeRate,
   };
 }
 

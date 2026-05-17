@@ -1,18 +1,19 @@
 import { log } from '../log';
 
+import type { CascadeFilter } from './persistence';
 import type { AiModel, AiSkillKey } from './types';
 
 /**
- * URL filter parser for /audit/ai (Phase 7 / Commit 22, Ajuste 2).
+ * URL filter parser for /audit/ai (Phase 7 / Commit 22, Ajuste 2 +
+ * Commit 23 cascade filter).
  *
  * Same allow-list-or-drop posture as the rest of the dashboards.
- * Suspicious input logs a `ai_audit.filter.suspicious_input` row
- * so a malformed URL surfaces in observability.
  *
  * Supported params:
  *   - `?skill=<skill>` — single skill
  *   - `?model=<claude-haiku-4-5|claude-opus-4-7>`
  *   - `?range=7d|30d|90d` — converted to a `since` Date
+ *   - `?cascade=cascade|baseline` — Commit 23 cascade view
  */
 
 const ALLOWED_SKILLS: ReadonlyArray<AiSkillKey> = [
@@ -34,11 +35,14 @@ const ALLOWED_MODELS: ReadonlyArray<AiModel> = [
 
 const ALLOWED_RANGES: ReadonlyArray<'7d' | '30d' | '90d'> = ['7d', '30d', '90d'];
 
+const ALLOWED_CASCADES: ReadonlyArray<CascadeFilter> = ['cascade', 'baseline'];
+
 export interface AiAuditFilters {
   readonly skill?: AiSkillKey;
   readonly model?: AiModel;
   readonly range?: '7d' | '30d' | '90d';
   readonly since?: Date;
+  readonly cascade?: CascadeFilter;
 }
 
 function pickFirst(
@@ -87,6 +91,15 @@ export function parseAiAuditFilters(
       Object.assign(out, { range, since });
     } else {
       logSuspicious('range', rangeRaw, 'not_in_allow_list');
+    }
+  }
+
+  const cascadeRaw = pickFirst(searchParams.cascade);
+  if (cascadeRaw) {
+    if ((ALLOWED_CASCADES as ReadonlyArray<string>).includes(cascadeRaw)) {
+      Object.assign(out, { cascade: cascadeRaw as CascadeFilter });
+    } else {
+      logSuspicious('cascade', cascadeRaw, 'not_in_allow_list');
     }
   }
 

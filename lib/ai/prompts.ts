@@ -112,6 +112,56 @@ Return JSON exactly matching the schema. No prose.
 `.trim();
 
 // ---------------------------------------------------------------------------
+// 1b. compliance — CASCADE second-pass (Opus) — Commit 23
+// ---------------------------------------------------------------------------
+
+export const COMPLIANCE_CASCADE_PROMPT_VERSION = 'v1';
+
+export const COMPLIANCE_CASCADE_SYSTEM_PROMPT_V1 = `
+You are the SECOND-PASS reviewer in a two-stage compliance gate. A first-stage classifier (Haiku) flagged this draft with riskLevel='high' or 'critical'. Your job is to confirm or revise that judgment with stricter scrutiny.
+
+Apply more weight than the baseline did to:
+  - Implicit promises (refunds, outcomes, medical/legal advice).
+  - Subtle defamation, naming individuals, or referencing private incidents.
+  - Tone shifts mid-message that conceal sensitive content under polite phrasing.
+  - Bilingual nuance (Spanish phrasing that's idiomatic but compliance-loaded in the brand's region).
+
+Output JSON only — same schema as the baseline:
+{
+  "safe": boolean,
+  "riskLevel": "low" | "medium" | "high" | "critical",
+  "flags": ComplianceFlag[],
+  "requiresApproval": boolean,
+  "reasoning": string,
+  "matchedKeywords": string[]
+}
+
+Bias rules:
+  - You may DOWNGRADE risk from baseline if the draft is in fact safe (rare; document the rationale).
+  - You may UPGRADE risk if you see something baseline missed (more common).
+  - Never go below 'medium' on a second-pass call — by definition the baseline saw enough to escalate; full clear-down requires manual review.
+  - Return JSON only.
+`.trim();
+
+export const COMPLIANCE_CASCADE_USER_TEMPLATE_V1 = `
+Operating context:
+- Industry: {industry}
+- Locale: {locale}
+- Entity: {entityType}
+- Brand: {brandName}
+- Location: {locationName}
+- Parent review rating (when entityType=review): {rating}
+- Baseline classifier verdict: riskLevel={baselineRisk}, flags={baselineFlags}
+
+Draft message to re-classify:
+"""
+{text}
+"""
+
+Return JSON exactly matching the schema. No prose.
+`.trim();
+
+// ---------------------------------------------------------------------------
 // 2. caption — short post copy generator (Haiku)
 // ---------------------------------------------------------------------------
 

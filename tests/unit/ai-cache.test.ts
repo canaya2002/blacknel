@@ -63,15 +63,18 @@ describe('computeRequestHash', () => {
 describe('LRU dedup', () => {
   const ctx = { orgId: '11111111-1111-4111-8111-aa00aa00aa00' };
 
-  it('returns cached output for the same (orgId, hash)', () => {
+  it('returns cached output + generationId for the same (orgId, hash)', () => {
     const h = computeRequestHash(baseInput);
-    setCached(ctx, h, { ok: true });
-    expect(getCached(ctx, h)).toEqual({ ok: true });
+    const gid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    setCached(ctx, h, { ok: true }, gid);
+    const hit = getCached(ctx, h);
+    expect(hit?.output).toEqual({ ok: true });
+    expect(hit?.generationId).toBe(gid);
   });
 
   it('isolates by orgId — orgB cannot see orgA cached value', () => {
     const h = computeRequestHash(baseInput);
-    setCached(ctx, h, { ok: true });
+    setCached(ctx, h, { ok: true }, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
     const ctxB = { orgId: '11111111-1111-4111-8111-bb00bb00bb00' };
     expect(getCached(ctxB, h)).toBeUndefined();
   });
@@ -81,7 +84,12 @@ describe('LRU dedup', () => {
     // pin the exact cap (256) but assert size stays bounded.
     for (let i = 0; i < 1000; i++) {
       const h = computeRequestHash({ ...baseInput, input: { i } });
-      setCached(ctx, h, { i });
+      setCached(
+        ctx,
+        h,
+        { i },
+        `bbbbbbbb-bbbb-4bbb-8bbb-${i.toString(16).padStart(12, '0')}`,
+      );
     }
     expect(_lruSizeForTests()).toBeLessThanOrEqual(256);
   });

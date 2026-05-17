@@ -7,6 +7,110 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 7 / Commit 23 (compliance dual-model cascade + caller migration + dashboard cascade-aware)
+
+Phase 7's first real-feature commit. Wires the dual-model
+cascade pattern proposed in the Commit 22 plan: baseline call
+on Haiku, escalate to Opus when the baseline flags
+`riskLevel ∈ {high, critical}`. Mock adapter stays
+deterministic per D-23-1 — cascade output is byte-equal to
+baseline but the CAUSAL linkage (`parent_generation_id`) lands
+on the second row.
+
+Plus 3 ajustes the user authorized before execution:
+
+  1. **Explicit parent linkage** — `ai_generations` gains
+     `parent_generation_id` (migration 0011) with a partial
+     index for the cascade slice.
+  2. **Partial index on parent_generation_id** — only the
+     non-null cascades, ~20% of rows.
+  3. **Dashboard cascade-aware** — `/audit/ai` gains a new
+     KPI (`cascadeRate`), a column ("Cascada" with the ↗
+     icon), and a filter (Solo cascadas / Solo baseline / Todos).
+
+**Migration 0011_ai_cascade_linkage.sql**
+
+- `ALTER TABLE ai_generations ADD parent_generation_id uuid FK
+  ai_generations(id) ON DELETE SET NULL`.
+- Partial index `(organization_id, parent_generation_id) WHERE
+  parent_generation_id IS NOT NULL`.
+
+**Schema + adapter wiring**
+
+- `lib/db/schema/ai-generations.ts` — `parentGenerationId`
+  column + index (self-FK via `AnyPgColumn` cast).
+- `lib/ai/types.ts` — `AiRequest.parentGenerationId` +
+  `AiGenerationMeta.parentGenerationId`.
+- `lib/ai/persistence.ts` — `WriteGenerationInput` accepts
+  `parentGenerationId`. `listGenerationsForOrgWithTx` accepts
+  a `cascade: 'cascade' | 'baseline'` filter.
+  `getGenerationKpis.cascadeRate` = cascadeRows / highRiskBaselines.
+- `lib/ai/cache.ts` — LRU stores `{ output, generationId }`
+  pairs so an LRU-hit baseline serves as a valid
+  `parentGenerationId` for the cascade row's FK.
+- `lib/ai/adapter-mock.ts` — threads `parentGenerationId` +
+  **cascade calls bypass dedup** (both LRU and DB lookup);
+  returning a row that references a stale parent would be
+  incorrect.
+
+**Cascade prompt V1**
+
+- `lib/ai/prompts.ts` — `COMPLIANCE_CASCADE_SYSTEM_PROMPT_V1`
+  + `COMPLIANCE_CASCADE_USER_TEMPLATE_V1` +
+  `COMPLIANCE_CASCADE_PROMPT_VERSION = 'v1'`. System prompt
+  instructs Opus to apply stricter scrutiny than baseline.
+
+**Skill orchestration**
+
+- `lib/ai/skills/compliance.ts` — `checkCompliance` returns
+  `{ result, meta: { baselineGenerationId, cascadeGenerationId,
+  cascadeFired } }`:
+  - Call 1: Haiku baseline, `parentGenerationId: null`.
+  - If risk ∈ {high, critical}: Call 2 Opus with
+    `parentGenerationId: baseline.meta.generationId`.
+  - Returns cascade output (or baseline when no cascade).
+
+**Caller migration (2 — not 3)**
+
+The plan originally listed `apply-schedule.ts` as a third
+caller. Investigation confirmed it does NOT use compliance —
+its `approval-rules` module is brand-voice-based, not
+compliance-heuristic. Migrated:
+
+- `lib/inbox/send-reply.ts` — async `checkCompliance` with
+  `AiContext.entityType='inbox_thread'`. Composer pill keeps
+  `complianceHint` sync per REGLA BLACKNEL AI-FEEDBACK PATTERN.
+- `lib/reviews/send-response.ts` — async with
+  `entityType='review'`.
+
+Existing inbox-reply + reviews-send-response tests gained
+`_setDbDepsForTests` seam in beforeAll so the new compliance
+path writes to fixture pglite.
+
+**Dashboard cascade-aware (Ajuste 3)**
+
+- `components/audit-ai/ai-generations-kpi-cards.tsx` — 5 KPIs
+  now: adds Cascade rate with `ArrowUpRight` icon.
+- `components/audit-ai/ai-generations-filter-bar.tsx` —
+  Cascada select: Todos / Solo baseline / Solo cascadas.
+- `components/audit-ai/ai-generations-table.tsx` — new Cascada
+  column showing `↗ cascade` for rows with a parent.
+- `lib/ai/audit-filters.ts` — `?cascade` param.
+
+**Tests (+15 cases / +3 files)**
+
+- `tests/integration/compliance-cascade.test.ts` (5 cases) —
+  low-risk no cascade, high-risk triggers cascade + parent
+  linkage lands, linkage query returns disjoint sets, dedup
+  bypass writes fresh pair, baseline=Haiku + cascade=Opus.
+- `tests/integration/ai-audit-dashboard-cascade.test.ts` (4) —
+  cascade/baseline filters + cascadeRate=1.0 mock determinism.
+- `tests/integration/compliance-caller-migration.test.ts` (3)
+  — inbox + reviews write baseline rows with correct entity
+  context; tenant isolation via RLS.
+- `tests/unit/ai-cache.test.ts` — updated for new LRU
+  `{ output, generationId }` shape.
+
 ### Added — Phase 7 / Commit 22 (Claude SDK adapter infrastructure + cost dashboard)
 
 Phase 7 opens. Builds the complete Claude SDK client structure

@@ -1,6 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { _clearLruForTests } from '../../lib/ai/cache';
+import {
+  _resetDbDepsForTests,
+  _setDbDepsForTests,
+} from '../../lib/ai/persistence';
 import { type AnyPgTx, runAdmin, runAs } from '../../lib/db/client';
 import {
   approvals,
@@ -68,6 +73,12 @@ const deps = (): ReplyDeps => ({
 
 beforeAll(async () => {
   fixture = await createTestDb();
+  // Commit 23 — sendReviewResponse now calls checkCompliance which
+  // goes through aiClient → persistence. Wire the seam.
+  _setDbDepsForTests({
+    asAdmin: (fn) => runAdmin(fixture.db, fn),
+    asUser: (ctx, fn) => runAs(fixture.db, ctx, fn),
+  });
   await runAdmin(fixture.db, async (tx) => {
     await tx.insert(plans).values({
       id: planId,
@@ -161,6 +172,8 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  _resetDbDepsForTests();
+  _clearLruForTests();
   await fixture.dispose();
 });
 

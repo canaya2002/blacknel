@@ -2,8 +2,10 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { complianceCheck } from '../ai/compliance-stub';
+import { checkCompliance } from '../ai/skills/compliance';
 import { type AnyPgTx, dbAdmin, dbAs } from '../db/client';
+
+import type { ComplianceResult } from '../ai/compliance-stub';
 import {
   approvals,
   auditEvents,
@@ -181,13 +183,24 @@ export async function sendReviewResponse(
     });
   }
 
-  // ---- 3. Compliance check with review context (Ajuste 2) ----
-  const compliance = complianceCheck(trimmed, {
-    entityType: 'review',
-    rating: review.rating,
-    brandName: review.brandName ?? undefined,
-    locationName: review.locationName ?? undefined,
+  // ---- 3. Compliance check (Commit 23 — async via aiClient + cascade) ----
+  const complianceResponse = await checkCompliance({
+    text: trimmed,
+    context: {
+      orgId: ctx.orgId,
+      userId: ctx.userId,
+      actorType: 'user',
+      entityType: 'review',
+      entityId: review.id,
+    },
+    complianceContext: {
+      entityType: 'review',
+      rating: review.rating,
+      brandName: review.brandName ?? undefined,
+      locationName: review.locationName ?? undefined,
+    },
   });
+  const compliance = complianceResponse.result;
 
   // Phase-4 stub never returns safe=false; wired for Phase-7's
   // critical-class block-on-content path.
@@ -278,7 +291,7 @@ interface PublishDirectArgs {
   body: string;
   aiGenerated: boolean;
   idempotencyKey: string;
-  compliance: ReturnType<typeof complianceCheck>;
+  compliance: ComplianceResult;
 }
 
 async function publishDirect(
@@ -354,7 +367,7 @@ interface RouteArgs {
   body: string;
   aiGenerated: boolean;
   idempotencyKey: string;
-  compliance: ReturnType<typeof complianceCheck>;
+  compliance: ComplianceResult;
 }
 
 async function routeToApproval(

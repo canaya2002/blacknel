@@ -84,46 +84,57 @@ export const adapterMock: AiClient = {
       promptVersion: req.promptVersion,
     });
 
-    // 1. In-process dedup.
-    const lruHit = getCached(req.context, requestHash);
-    if (lruHit !== undefined) {
-      const parsed = req.outputSchema.safeParse(lruHit);
-      if (parsed.success) {
-        return {
-          output: parsed.data,
-          meta: buildMeta({
-            generationId: 'lru-cache',
-            req,
-            requestHash,
-            inputTokens: 0,
-            cachedInputTokens: 0,
-            outputTokens: 0,
-            costCents: 0,
-            durationMs: Date.now() - startMs,
-            cacheHit: true,
-          }),
-        };
-      }
-      // Stale schema in LRU — fall through to DB lookup + fresh body.
-    }
+    // Cascade calls (`parentGenerationId` set) bypass dedup —
+    // the parent linkage MUST land on the row exactly as
+    // requested, and a dedup hit would return a row pointing at
+    // a different parent. The performance hit is negligible
+    // because cascade calls are rare (only fire on high-risk
+    // baselines).
+    const isCascade =
+      typeof req.parentGenerationId === 'string' && req.parentGenerationId.length > 0;
 
-    // 2. DB dedup (handles cross-process / restart cases).
-    const dbHit = await findRecentByHash(req.context.orgId, requestHash);
-    if (dbHit) {
-      const parsed = req.outputSchema.safeParse(dbHit.output);
-      if (parsed.success) {
-        setCached(req.context, requestHash, parsed.data);
-        return {
-          output: parsed.data,
-          meta: {
-            ...dbHit.meta,
-            durationMs: Date.now() - startMs,
-            cacheHit: true,
-            via: 'mock',
-          },
-        };
+    // 1. In-process dedup.
+    if (!isCascade) {
+      const lruHit = getCached(req.context, requestHash);
+      if (lruHit !== undefined) {
+        const parsed = req.outputSchema.safeParse(lruHit.output);
+        if (parsed.success) {
+          return {
+            output: parsed.data,
+            meta: buildMeta({
+              generationId: lruHit.generationId,
+              req,
+              requestHash,
+              inputTokens: 0,
+              cachedInputTokens: 0,
+              outputTokens: 0,
+              costCents: 0,
+              durationMs: Date.now() - startMs,
+              cacheHit: true,
+            }),
+          };
+        }
+        // Stale schema in LRU — fall through to DB lookup + fresh body.
       }
-      // Stale row — fall through.
+
+      // 2. DB dedup (handles cross-process / restart cases).
+      const dbHit = await findRecentByHash(req.context.orgId, requestHash);
+      if (dbHit) {
+        const parsed = req.outputSchema.safeParse(dbHit.output);
+        if (parsed.success) {
+          setCached(req.context, requestHash, parsed.data, dbHit.meta.generationId);
+          return {
+            output: parsed.data,
+            meta: {
+              ...dbHit.meta,
+              durationMs: Date.now() - startMs,
+              cacheHit: true,
+              via: 'mock',
+            },
+          };
+        }
+        // Stale row — fall through.
+      }
     }
 
     // 3. Fresh body call. Switch on skill.
@@ -184,6 +195,9 @@ export const adapterMock: AiClient = {
       cacheHit: false,
       entityType: req.context.entityType,
       entityId: req.context.entityId,
+      ...(req.parentGenerationId
+        ? { parentGenerationId: req.parentGenerationId }
+        : {}),
       // Record promptVersion in the input jsonb (Ajuste 3).
       input: {
         promptVersion: req.promptVersion,
@@ -195,7 +209,13 @@ export const adapterMock: AiClient = {
       output: parsed.data as unknown as Record<string, unknown>,
     });
 
-    setCached(req.context, requestHash, parsed.data);
+    // Cascade rows skip the LRU too — see the dedup-bypass note
+    // above. Cache only baseline rows. Store the real DB
+    // generation id alongside the output so a later cascade can
+    // reference it as `parent_generation_id`.
+    if (!isCascade) {
+      setCached(req.context, requestHash, parsed.data, persisted.generationId);
+    }
 
     return {
       output: parsed.data,
@@ -280,6 +300,7 @@ function buildMeta<TIn, TOut>(b: BuildMetaInput<TIn, TOut>): AiGenerationMeta {
     cacheHit: b.cacheHit,
     via: 'mock',
     promptVersion: b.req.promptVersion,
+    parentGenerationId: b.req.parentGenerationId ?? null,
   };
 }
 

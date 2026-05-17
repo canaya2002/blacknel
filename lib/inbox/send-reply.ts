@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { complianceCheck } from '../ai/compliance-stub';
+import { checkCompliance } from '../ai/skills/compliance';
 import { type AnyPgTx, dbAdmin, dbAs } from '../db/client';
 import {
   approvals,
@@ -42,7 +42,9 @@ const defaultDeps: ReplyDeps = {
  *   1. RLS-checked thread fetch (caller must already be authenticated).
  *   2. Reject unresolved placeholders — defense in depth against a
  *      composer that didn't filter.
- *   3. Run `complianceCheck` (Phase-4 stub; Phase-7 real IA).
+ *   3. Run `checkCompliance` (Commit 23 — async, cascade Haiku→Opus).
+ *      Pill in composer keeps using `complianceHint` sync per
+ *      REGLA BLACKNEL AI-FEEDBACK PATTERN.
  *   4. Branch:
  *        a. safe + !requiresApproval → insert `inbox_messages` row,
  *           bump `last_message_at`, audit `inbox.reply.sent`.
@@ -126,9 +128,20 @@ export async function sendReplyToThread(
     );
   }
 
-  // ---- 3. Compliance check (stub Phase 4; real IA Phase 7) ----
+  // ---- 3. Compliance check (Commit 23 — async via aiClient + cascade) ----
   const detected = input.language ?? detectLanguage(trimmed);
-  const compliance = complianceCheck(trimmed);
+  const complianceResponse = await checkCompliance({
+    text: trimmed,
+    context: {
+      orgId: ctx.orgId,
+      userId: ctx.userId,
+      actorType: 'user',
+      entityType: 'inbox_thread',
+      entityId: input.threadId,
+    },
+    complianceContext: { entityType: 'inbox' },
+  });
+  const compliance = complianceResponse.result;
 
   if (!compliance.safe) {
     // Phase 4 stub never reaches this branch; wired for Phase 7's
