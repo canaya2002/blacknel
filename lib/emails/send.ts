@@ -37,8 +37,20 @@ export interface SendEmailInput {
   kind: EmailKind;
   to: string;
   subject: string;
-  /** Plain-text body. HTML can be added in Phase 11 alongside the Resend wiring. */
+  /** Plain-text body. Always populated, even when `html` is set. */
   text: string;
+  /**
+   * Optional HTML body (Phase 9 / Commit 34, R-34-2 charter touch).
+   *
+   * Today: stored in the dev outbox alongside the plain-text body
+   * so the `/settings/dev-outbox` UI can preview it. Tomorrow
+   * (Phase 11): Resend's `html` field on the multipart send.
+   *
+   * Backwards-compatible — every existing caller passes only
+   * `text` and continues to work. Scheduled reports (Growth-only)
+   * are the first feature to set this field.
+   */
+  html?: string;
   /** Per-email structured metadata for logs / analytics. */
   meta?: Record<string, unknown>;
 }
@@ -65,6 +77,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     to: input.to,
     subject: input.subject,
     text: input.text,
+    ...(input.html ? { html: input.html } : {}),
     meta: input.meta,
     sentAt: new Date(),
   });

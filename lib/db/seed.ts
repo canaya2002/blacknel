@@ -443,4 +443,15 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
     const { seedListening } = await import('./seed-listening');
     await seedListening(tx);
   }
+
+  // --- Competitors + scheduled reports demo (Phase 9 / Commit 34) ---
+  // 3 competitors × 30 days × platforms ≈ 600 metric rows + 1 weekly
+  // scheduled report. Deterministic mock — re-running the seed is
+  // a no-op.
+  if (env.BLACKNEL_SEED_COMPETITORS_REPORTS) {
+    const { seedCompetitorsReports } = await import(
+      './seed-competitors-reports'
+    );
+    await seedCompetitorsReports(tx);
+  }
 }

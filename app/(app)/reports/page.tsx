@@ -4,6 +4,7 @@ import { OverviewSection } from '@/components/reports/overview-section';
 import { PublishingSection } from '@/components/reports/publishing-section';
 import { ReportFilterBar } from '@/components/reports/report-filter-bar';
 import { ReportTabNav } from '@/components/reports/report-tab-nav';
+import { ScheduledSection } from '@/components/reports/scheduled-section';
 import { SectionPlaceholder } from '@/components/reports/section-empty-states';
 import { PageHeader } from '@/components/common/page-header';
 import { requireUser } from '@/lib/auth/server';
@@ -13,6 +14,7 @@ import { loadAdsReport } from '@/lib/reports/ads-queries';
 import { loadInboxReport } from '@/lib/reports/inbox-queries';
 import { loadPublishingReport } from '@/lib/reports/publishing-queries';
 import { loadOverviewReport } from '@/lib/reports/queries';
+import { listScheduledReports } from '@/lib/scheduled-reports/queries';
 import { dbAs } from '@/lib/db/client';
 import { authorize, can } from '@/lib/permissions/can';
 import { listBrandOptionsWithTx } from '@/lib/publish/picker-data';
@@ -133,6 +135,18 @@ export default async function ReportsPage({
   carry.set('period', filters.period);
   if (filters.brandId) carry.set('brandId', filters.brandId);
 
+  // Scheduled-reports tab (Phase 9 / Commit 34, D-34-6 a). Loaded
+  // only when the user is on this section to avoid the extra query
+  // on every Overview / Inbox / Publishing view.
+  const scheduledReports =
+    filters.section === 'scheduled'
+      ? await listScheduledReports({
+          orgId: session.orgId,
+          userId: session.userId,
+        })
+      : [];
+  const canManageScheduled = can(session.role, 'scheduled_reports:manage');
+
   return (
     <div className="flex flex-col">
       <PageHeader
@@ -174,6 +188,11 @@ export default async function ReportsPage({
             period={filters.period}
             brandId={filters.brandId}
             canExport={canExport}
+          />
+        ) : filters.section === 'scheduled' ? (
+          <ScheduledSection
+            reports={scheduledReports}
+            canManage={canManageScheduled}
           />
         ) : filters.section === 'overview' ? null : filters.section === 'ai' ? (
           <SectionPlaceholder section="ai" />

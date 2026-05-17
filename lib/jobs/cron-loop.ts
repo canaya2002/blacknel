@@ -9,6 +9,7 @@ import { runCrisisScanTick } from './crisis-scan';
 import { runListeningScanTickEntry } from './listening-scan';
 import { runNpsScanTick } from './nps-scan';
 import { runPublishTick } from './publish-post';
+import { runScheduledReportsTickEntry } from './scheduled-reports-tick';
 
 /**
  * In-process cron singleton for the publish-job (Commit 20a).
@@ -81,6 +82,15 @@ const NPS_TICK_INTERVAL_MS = 30 * 60_000;
  * Mention.com) keeps the same cadence.
  */
 const LISTENING_TICK_INTERVAL_MS = 60 * 60_000;
+/**
+ * Scheduled-reports tick — 15 minutes (Phase 9 / Commit 34). Short
+ * cadence so a schedule defined at "mon 09:00" fires within ~15
+ * min of its target across the org's local clock. The cron tick
+ * is cheap — a partial index over `(next_run_at) WHERE
+ * status='active'` keeps the selector constant-time even for
+ * thousands of schedules.
+ */
+const SCHEDULED_REPORTS_TICK_INTERVAL_MS = 15 * 60_000;
 
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -100,6 +110,9 @@ let npsTickInFlight = false;
 
 let listeningTimer: ReturnType<typeof setInterval> | null = null;
 let listeningTickInFlight = false;
+
+let scheduledReportsTimer: ReturnType<typeof setInterval> | null = null;
+let scheduledReportsTickInFlight = false;
 
 export function startPublishCron(): void {
   if (started) {
@@ -248,6 +261,31 @@ export function startPublishCron(): void {
       'listening cron — disabled via BLACKNEL_LISTENING_JOB_ENABLED=false',
     );
   }
+
+  // Phase 9 / Commit 34 — scheduled-reports dispatcher tick.
+  // 15-min cadence; gated by BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED.
+  // The selector reads the partial index `scheduled_reports_due_idx`
+  // so the cost stays constant even at scale.
+  if (env.BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED) {
+    void scheduledReportsTickSafe();
+    scheduledReportsTimer = setInterval(() => {
+      void scheduledReportsTickSafe();
+    }, SCHEDULED_REPORTS_TICK_INTERVAL_MS);
+    if (
+      scheduledReportsTimer &&
+      typeof (scheduledReportsTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (scheduledReportsTimer as unknown as { unref: () => void }).unref();
+    }
+    log.info(
+      { tickIntervalMs: SCHEDULED_REPORTS_TICK_INTERVAL_MS },
+      'scheduled-reports cron — started',
+    );
+  } else {
+    log.info(
+      'scheduled-reports cron — disabled via BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED=false',
+    );
+  }
 }
 
 /**
@@ -282,6 +320,10 @@ export function stopPublishCron(): void {
     clearInterval(listeningTimer);
     listeningTimer = null;
   }
+  if (scheduledReportsTimer) {
+    clearInterval(scheduledReportsTimer);
+    scheduledReportsTimer = null;
+  }
   started = false;
   tickInFlight = false;
   crisisTickInFlight = false;
@@ -289,6 +331,7 @@ export function stopPublishCron(): void {
   adsAlertsTickInFlight = false;
   npsTickInFlight = false;
   listeningTickInFlight = false;
+  scheduledReportsTickInFlight = false;
 }
 
 /** True when the singleton is currently running. Used by tests. */
@@ -440,5 +483,32 @@ async function listeningTickSafe(): Promise<void> {
     );
   } finally {
     listeningTickInFlight = false;
+  }
+}
+
+async function scheduledReportsTickSafe(): Promise<void> {
+  if (scheduledReportsTickInFlight) {
+    log.debug('scheduled-reports cron — tick still in-flight, skipping turn');
+    return;
+  }
+  scheduledReportsTickInFlight = true;
+  try {
+    const result = await runScheduledReportsTickEntry();
+    if (!result.ok) {
+      log.error(
+        { err: result.error.message },
+        'scheduled-reports cron — tick failed',
+      );
+    }
+  } catch (cause) {
+    log.error(
+      {
+        err: (cause as Error).message,
+        stack: (cause as Error).stack,
+      },
+      'scheduled-reports cron — tick threw',
+    );
+  } finally {
+    scheduledReportsTickInFlight = false;
   }
 }

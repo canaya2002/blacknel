@@ -17,6 +17,8 @@ export interface DevOutboxMessage {
   to: string;
   subject: string;
   text: string;
+  /** Optional HTML body (Phase 9 / Commit 34, R-34-2). */
+  html?: string;
   meta?: Record<string, unknown>;
   sentAt: Date;
 }

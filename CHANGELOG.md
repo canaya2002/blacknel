@@ -7,6 +7,156 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 9 / Commit 34 (Competitors tracking · scheduled report emails · email html infra)
+
+Last two Growth-tier features before Phase 9 closes:
+
+  - **Competitors tracking** — `competitors` watchlist + daily
+    `competitor_metrics_daily` rollup. Volume, engagement,
+    sentiment, and share-of-voice per (competitor, platform, day).
+    Deterministic mock today; Phase 11 swaps to Brand24 /
+    SimilarWeb.
+
+  - **Scheduled report emails** — `scheduled_reports` +
+    `scheduled_report_runs`. 7th cron timer (15-min) picks due
+    rows, builds an HTML report via the new vanilla template
+    builder, pushes through the dev outbox (Phase 11 = Resend).
+
+**Charter touches (Phase 1 + Phase 8 infrastructure)**
+
+- `lib/emails/send.ts` (Phase 1) gets an optional `html?: string`
+  field on `SendEmailInput` (R-34-2). Backwards compatible —
+  every existing caller (`invite`, `verification`, `password_
+  reset`, `review_request`, `nps_prompt`, `crisis_alert`) keeps
+  working with `text` only. Scheduled-reports is the first
+  feature to set `html`. The dev outbox now records both bodies
+  so the future `/settings/dev-outbox` can preview rendered
+  HTML.
+- `lib/reports/period.ts` + `components/reports/report-tab-nav.tsx`
+  (Phase 8) extend `ReportSection` with `'scheduled'` and add a
+  6th tab. Justified per D-34-6 (a) — scheduled-reports is
+  Growth-only and `/reports` is its natural home.
+
+**R-34-1 outcome — timezone-aware `next_run_at`**
+
+`lib/scheduled-reports/schedule.ts` resolves "mon 09:00" to the
+correct UTC instant for the org's `timezone`. Verified in
+`scheduled-reports-schedule.test.ts`:
+
+```
+"mon 09:00" in America/Mexico_City → 09:00 CDMX = 15:00 UTC
+"mon 09:00" in UTC                  → 09:00 UTC
+```
+
+Probe-based, no IANA dependency — uses
+`Intl.DateTimeFormat({ timeZone })` to resolve the local clock
+and steps minute-by-minute from `from + 1min` forward. Bounded
+(weekly ≤ 10080 mins, monthly ≤ 40320 mins). Phase 11 with
+Inngest swaps to a real cron library.
+
+**R-34-2 outcome — `lib/emails/send.ts` optional `html` field**
+
+Single-line type addition + dev-outbox passthrough. 0 existing
+callers changed; the scheduled-reports dispatcher is the only
+writer.
+
+**R-34-3 outcome — report-builder vanilla, 217 LOC**
+
+Below the 300 LOC threshold. No dependency added. Tagged
+template literals + a handful of helpers. Table-based layout
+for cross-client compatibility (Outlook, Gmail, Apple Mail).
+Phase 11 may swap to `react-email` for component templates if
+the report grows past ~5 sections.
+
+**Decisions D-34-1..6 confirmed**
+
+- D-34-1 (a) — dedicated `competitors` + `competitor_metrics_
+  daily` tables (NOT a `connected_accounts.kind='competitor'`
+  reuse).
+- D-34-2 (b) — single cron tick filters by `next_run_at <= now`.
+  No per-cadence timers; the partial index
+  `scheduled_reports_due_idx WHERE status='active'` keeps the
+  selector constant-time.
+- D-34-3 (b) — multipart text + html via the new optional `html`
+  field (R-34-2).
+- D-34-4 (b) — org timezone respected when computing
+  `next_run_at`. Falls back to `'UTC'` if the org has no
+  timezone set.
+- D-34-5 (b) — daily mock cron writes
+  `competitor_metrics_daily` (pattern from Phase 8
+  `ads_spend_daily`).
+- D-34-6 (a) — `'scheduled'` tab added to `/reports`. Charter
+  touch documented.
+
+**Ajuste A — HTML template minimal base**
+
+`lib/scheduled-reports/report-builder.ts` exports
+`renderReportHtml(payload)` + `renderReportText(payload)`.
+Sections: header (brand + period) → 4 KPI cards → Inbox table →
+Reviews table → Top mentions (hidden when empty) → footer.
+Table-based layout, inline CSS only, no flexbox/grid.
+
+**Ajuste B — Scheduled report audit trail**
+
+`scheduled_report.dispatched` audit event per successful run
+with metadata `{ scheduled_report_id, brand_id, kind,
+recipients_count, next_run_at, html_size_bytes }`. Failure
+branch writes `scheduled_report.failed` with `{ error_code,
+error_message_truncated, retry_count }` (truncated to 200
+chars). Justification: Phase 11 with Resend will need this
+trail for "why didn't client X get their weekly report?"
+debugging.
+
+**Ajuste C — Share-of-voice semantics documented**
+
+`competitor_metrics_daily.share_of_voice` JSDoc + migration
+comment carry the formal definition:
+
+```
+SoV = competitor_posts / (competitor_posts + own_posts)
+```
+
+Vol-only ratio, range [0, 1], NULL-safe (returns 0 when both
+sides are zero). Verified in `competitor-mock-connector.test.ts`
+with boundary cases (0%, parity 50%, dominance 100%).
+
+**Code surface**
+
+- Migration `0017_competitors_and_scheduled_reports.sql` — 4
+  enums + 4 tables + RLS + checks + partial-unique indexes.
+- Schemas: `lib/db/schema/{competitors,competitor-metrics-daily,
+  scheduled-reports,scheduled-report-runs}.ts`.
+- Mock: `lib/connectors/competitors/mock.ts` (deterministic,
+  vol bands per platform, SoV helper).
+- Domain layer: `lib/competitors/{queries,validate}.ts`,
+  `lib/scheduled-reports/{queries,validate,schedule,report-builder}.ts`.
+- Cron: `lib/jobs/scheduled-reports-tick.ts` + 7th timer in
+  `lib/jobs/cron-loop.ts` (15-min cadence).
+- Server Actions: `app/(app)/competitors/actions.ts` (add /
+  remove), `app/(app)/reports/scheduled-actions.ts` (create /
+  pause / run-now).
+- App UI: `app/(app)/competitors/{page,new/page}.tsx` (replaces
+  Phase-1 stub), `app/(app)/reports/scheduled/new/page.tsx`.
+  Components: `competitors/{sov-bar,competitor-form}.tsx`,
+  `reports/{scheduled-section,scheduled-report-form}.tsx`.
+- `app/(app)/reports/page.tsx` extended with the `'scheduled'`
+  tab branch.
+- Seed: `lib/db/seed-competitors-reports.ts` (3 competitors × 30
+  days metrics + 1 active weekly schedule).
+- Tests: 8 archivos, +37 cases (`competitor-mock-connector`,
+  `scheduled-reports-schedule`, `scheduled-reports-builder`,
+  `competitors-crud`, `scheduled-reports-crud`,
+  `scheduled-reports-cron`, `email-multipart`,
+  `upgrade-prompt-competitors`).
+
+**Verification**
+
+- `pnpm verify` ✅ 1103 tests pass (+37 vs Commit 33 baseline 1066).
+- `pnpm build` ✅ clean on first invocation — no Turbopack flake
+  this round (the
+  `TODO.md#turbopack-windows-segfault-flake` is
+  non-deterministic).
+
 ### Added — Phase 9 / Commit 33 (Social listening · deterministic mock connector · AI sentiment + intent pipeline · CSV export)
 
 Third Growth-tier feature for Phase 9. Lands the full listening

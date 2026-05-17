@@ -135,6 +135,21 @@ const envSchema = z.object({
    * invoked from seed). Default `true`.
    */
   BLACKNEL_SEED_LISTENING: boolFromString(true),
+  /**
+   * Scheduled-reports dispatcher cron (Phase 9 / Commit 34).
+   * 15-min cadence selects active rows where `next_run_at <= now`,
+   * builds HTML reports + pushes through the dev outbox. Phase 11
+   * swap routes through Resend with the same calling convention
+   * (the `html` field on `sendEmail`).
+   */
+  BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED: boolFromString(true),
+  /**
+   * Whether `seedDatabase()` seeds competitor watchlist + scheduled
+   * report demo data (Phase 9 / Commit 34). 3 competitors per
+   * demo org with 30 days of pre-computed metrics + 1 active
+   * weekly scheduled report. Default `true`.
+   */
+  BLACKNEL_SEED_COMPETITORS_REPORTS: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

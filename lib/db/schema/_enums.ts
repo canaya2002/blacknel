@@ -502,3 +502,33 @@ export const listeningMentionStatusEnum = pgEnum(
   'listening_mention_status',
   ['new', 'triaged', 'archived', 'converted'],
 );
+
+// ---------------------------------------------------------------------------
+// Competitors + Scheduled reports (Phase 9 / Commit 34).
+// `scheduled_report_run_status` reuses the `queued → running → sent
+// | failed` shape Phase-6 publish jobs already use — same operational
+// vocabulary across the codebase.
+// ---------------------------------------------------------------------------
+
+export const competitorStatusEnum = pgEnum('competitor_status', [
+  'active',
+  'paused',
+  'archived',
+]);
+
+export const scheduledReportKindEnum = pgEnum('scheduled_report_kind', [
+  'weekly',
+  'monthly',
+  'custom',
+]);
+
+export const scheduledReportStatusEnum = pgEnum('scheduled_report_status', [
+  'active',
+  'paused',
+  'archived',
+]);
+
+export const scheduledReportRunStatusEnum = pgEnum(
+  'scheduled_report_run_status',
+  ['queued', 'running', 'sent', 'failed'],
+);

@@ -43,3 +43,9 @@ if (!process.env.BLACKNEL_LISTENING_JOB_ENABLED) {
 if (!process.env.BLACKNEL_SEED_LISTENING) {
   process.env.BLACKNEL_SEED_LISTENING = 'false';
 }
+if (!process.env.BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED) {
+  process.env.BLACKNEL_SCHEDULED_REPORTS_JOB_ENABLED = 'false';
+}
+if (!process.env.BLACKNEL_SEED_COMPETITORS_REPORTS) {
+  process.env.BLACKNEL_SEED_COMPETITORS_REPORTS = 'false';
+}

@@ -15,6 +15,8 @@ const TABS: ReadonlyArray<{ key: ReportSection; label: string }> = [
   { key: 'publishing', label: 'Publishing' },
   { key: 'ai', label: 'AI' },
   { key: 'ads', label: 'Ads' },
+  // Phase 9 / Commit 34 — D-34-6 (a) scheduled reports tab.
+  { key: 'scheduled', label: 'Scheduled' },
 ];
 
 /**

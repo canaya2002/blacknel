@@ -49,7 +49,18 @@ function logSuspicious(field: string, raw: string, reason: string): void {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const ALLOWED_SECTIONS = ['overview', 'inbox', 'publishing', 'ai', 'ads'] as const;
+// `scheduled` added in Phase 9 / Commit 34 (D-34-6 a) for the
+// scheduled-reports tab. Charter touch on Phase 8 surface
+// justified: scheduled_report_emails is a Growth-only feature and
+// /reports is the natural home for the tab.
+const ALLOWED_SECTIONS = [
+  'overview',
+  'inbox',
+  'publishing',
+  'ai',
+  'ads',
+  'scheduled',
+] as const;
 export type ReportSection = (typeof ALLOWED_SECTIONS)[number];
 
 export interface ReportFilters {
