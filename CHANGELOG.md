@@ -7,6 +7,68 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 8 / Commit 27 (Reports infrastructure · /reports Overview + period delta + cache + CSV export)
+
+Opens Phase 8. Reports = pure read-aggregation layer on top
+de cada tabla Fase 1-7 — **never modifies their schema or
+queries** (Phase 8 charter rule).
+
+**Code surface**
+
+- `lib/reports/period.ts` — `ReportPeriod` (7d/30d/90d),
+  `parseReportFilters`, `computeRange` (current + previous
+  window), `makeDelta` con flat threshold 5%.
+- `lib/reports/queries.ts` — `loadOverviewReport` +
+  `loadAiSkillCosts`. Aggregations: inbox response time
+  + thread count, reviews avg/count/response rate,
+  posts published/failed, AI cost/generations, crisis
+  pending + accepted ratio. Cada KPI con
+  `{current, previous, delta, trend}` (Ajuste 1).
+- `lib/reports/cache.ts` — LRU in-process (cap 100, TTL 60s,
+  Ajuste 2). Bypass `?fresh=1`.
+- `/reports` page replaces Phase-1 placeholder. URL tabs
+  (`?section=overview|inbox|publishing|ai`, D-27-1),
+  30d default (D-27-2), brand filter.
+- `components/reports/*` — `<ReportKpiCard />` con trend
+  arrow + signed delta + "vs prev"; tone branches on
+  (trend × goodDirection). `<ReportFilterBar />`,
+  `<ReportTabNav />`, `<OverviewSection />` (8 KPIs +
+  crisis summary), `<SectionPlaceholder />` (inbox /
+  publishing / ai deep-dives land en Commits 28-29).
+- CSV export Overview-only (D-27-3) via
+  `exportOverviewCsvAction`. **Audit (Ajuste 3)** emite
+  `reports.csv.exported` con
+  `{section, period, brandId, rowCount, sizeBytes}`.
+
+**Phase 8 charter rule — enforced this commit**
+
+Aggregations build on existing tables only — no new columns,
+no new indexes, no refactors de Phase 1-7 queries. La
+inbox-response-time subquery usa el existing
+`inbox_messages_thread_sent_idx`; reviews / posts / AI
+rollups usan los existing org+created_at indexes.
+
+**Carry-overs descubiertos durante Fase 8 (Commit 27)**
+
+**NONE en este commit.** Las aggregations land cleanly sobre
+los indexes existentes. Si Commit 28 encuentra algo que
+quiere un touch en Phase 1-7, se reporta acá.
+
+**Tests (+28 cases / +4 files)**
+
+- `tests/unit/reports-period.test.ts` (13) — filter parsing
+  defaults + drop-on-suspect, `computeRange` window math,
+  `makeDelta` trend semantics + 5% flat threshold + previous=0
+  edge case.
+- `tests/unit/reports-cache.test.ts` (6) — `buildKey`
+  determinism + field isolation, hit/miss + bypass, key
+  independence, LRU cap bounded.
+- `tests/integration/reports-queries.test.ts` (6) — empty-org
+  payload, seeded reviews avg/count, posts published/failed,
+  response-time ≈ 1h, inbox thread count, tenant isolation.
+- `tests/integration/reports-export-csv.test.ts` (3) — CSV
+  flatten (12 rows), audit row shape, RBAC matrix.
+
 ### Added — Phase 7 / Commit 26 (brand-voice editable + approvalRules UI · CLOSES PHASE 7)
 
 Last commit of Phase 7. Ships the manager-facing editor for
