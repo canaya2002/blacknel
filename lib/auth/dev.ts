@@ -25,6 +25,16 @@ export async function loginAsDevUser(session: Session): Promise<void> {
       'Dev impersonation is not available in production.',
     );
   }
+  if (env.BLACKNEL_USE_REAL_AUTH) {
+    // Phase 11 / C42a — dev impersonation cannot mint a Supabase-format
+    // session because the signing key lives with Supabase Auth. When the
+    // flag is on, the only sign-in path is the magic-link flow at /login.
+    throw new AppError(
+      'FORBIDDEN',
+      'Dev impersonation is disabled when BLACKNEL_USE_REAL_AUTH=true. ' +
+        'Use the magic-link flow at /login instead.',
+    );
+  }
   log.warn({ userId: session.userId, orgId: session.orgId, role: session.role }, 'auth.dev.login');
   await setSession(session);
 }

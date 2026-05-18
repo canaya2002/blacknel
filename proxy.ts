@@ -1,6 +1,8 @@
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { SESSION_COOKIE_NAME, verifySession } from '@/lib/auth/cookie';
+import { env } from '@/lib/env';
 import { getKillSwitchState, shouldBlock } from '@/lib/kill-switch/check';
 
 /**
@@ -13,16 +15,17 @@ import { getKillSwitchState, shouldBlock } from '@/lib/kill-switch/check';
  *      Retry-After OR redirects HTML requests to `/maintenance`.
  *      Procedure: `doc/runbooks/kill-switch.md`.
  *
- *   2. **Session validation** (Phase 1) — best-effort. Malformed
- *      cookie → dropped so user lands on `/login` cleanly.
+ *   2. **Session validation / refresh** — branches on
+ *      `BLACKNEL_USE_REAL_AUTH`:
+ *        - false → verify JOSE cookie (Phase 1-10 path).
+ *        - true  → `@supabase/ssr` refreshes the access token if near
+ *                  expiry and writes the rotated cookie on the response.
+ *                  Validation is implicit: `auth.getUser()` returns null
+ *                  on a tampered / expired cookie.
  *
  *   3. **Route protection** (Phase 1) — unauthenticated traffic
- *      into `/(app)/*` redirects to `/login`. Public marketing
- *      routes and `/auth/*` callbacks stay open.
- *
- * Phase 11 expands this to refresh Supabase Auth tokens before
- * they expire. Until then, the cookie is self-contained (JWT) —
- * no refresh roundtrip required.
+ *      into non-public routes redirects to `/login`. Marketing routes
+ *      and `/auth/*` callbacks stay open.
  */
 
 const PUBLIC_PATHS = ['/', '/pricing', '/login', '/signup', '/feedback'];
@@ -63,6 +66,62 @@ function maintenanceResponse(
   );
 }
 
+/**
+ * Phase 11 / C42a — Supabase session refresh. Mirrors the official
+ * `@supabase/ssr` middleware pattern: build a client that reads / writes
+ * cookies on the incoming request + outgoing response, then call
+ * `auth.getUser()` which silently rotates an expired access token using
+ * the refresh token. Returns the user (or null) plus the prepared
+ * response so the caller can decide where to send the request next.
+ */
+async function refreshSupabaseSession(request: NextRequest): Promise<{
+  response: NextResponse;
+  isAuthenticated: boolean;
+}> {
+  let response = NextResponse.next({ request });
+
+  if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    // Misconfigured deploy: flag is on but Supabase URL/key missing. Fail
+    // closed — treat as unauthenticated so the route-protection branch
+    // bounces protected paths to /login (which will then show its own
+    // error if BLACKNEL_USE_REAL_AUTH is set but unusable).
+    return { response, isAuthenticated: false };
+  }
+
+  const supabase = createServerClient(
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(
+          cookiesToSet: ReadonlyArray<{
+            name: string;
+            value: string;
+            options: CookieOptions;
+          }>,
+        ) {
+          for (const { name, value } of cookiesToSet) {
+            request.cookies.set(name, value);
+          }
+          response = NextResponse.next({ request });
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  return { response, isAuthenticated: Boolean(user) };
+}
+
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
@@ -81,7 +140,22 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return maintenanceResponse(request, killSwitchState);
   }
 
-  // (2) Session validation.
+  // (2) Session validation / refresh — branches by flag.
+  if (env.BLACKNEL_USE_REAL_AUTH) {
+    const { response, isAuthenticated } = await refreshSupabaseSession(request);
+
+    if (isPublicPath(pathname)) {
+      return response;
+    }
+    if (!isAuthenticated) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('next', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    return response;
+  }
+
+  // Mock path (Phase 1-10): JOSE cookie verification.
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
 

@@ -23,6 +23,22 @@ import type { AnyPgTx } from './client';
  *   4. `vercel env rm BLACKNEL_SEED_DEMO_ORG production`
  *
  * After step 4, subsequent deploys do NOT re-seed.
+ *
+ * # Phase 11 / C42a — known gap under BLACKNEL_USE_REAL_AUTH=true
+ *
+ * The seed populates `public.users` with the deterministic
+ * `SEED_IDS.user.*` UUIDs but does NOT create corresponding
+ * `auth.users` rows. Under Supabase Auth that means the seeded
+ * demo accounts cannot sign in via magic link out of the box —
+ * a manual sign-up by the operator is needed for each account,
+ * or a separate one-shot script that uses the REST admin API
+ * (the typed SDK omits `id` from `AdminUserAttributes` so the
+ * deterministic-UUID flow requires raw REST).
+ *
+ * Tracked as `phase-11-supabase-auth-seed-bridge` in TODO.md.
+ * Workaround for the C42a soak: operator signs up using their
+ * own email; the magic-link flow + Custom Access Token Hook
+ * exercise end-to-end without seeded demo accounts.
  */
 export async function seedDemoOrgForProd(tx: AnyPgTx): Promise<void> {
   log.info({ phase: 11 }, 'demo_org.seed.start');

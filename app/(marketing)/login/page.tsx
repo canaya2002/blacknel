@@ -8,10 +8,12 @@ import {
   organizations as orgsTable,
   users as usersTable,
 } from '@/lib/db/schema';
+import { env } from '@/lib/env';
 import type { Role } from '@/lib/permissions/roles';
 
 import { startFreshAccountAction } from './actions';
 import { LoginForm } from './login-form';
+import { MagicLinkForm } from './magic-link-form';
 
 // /login lists the seeded users — the row set lives in pglite, which only
 // exists at request time. Skip SSG.
@@ -27,15 +29,48 @@ interface SeedAccount {
 }
 
 /**
- * Dev-only impersonation login. Lists every (user × organization) row
- * in the local pglite. Selecting one signs a session cookie via the
- * Server Action and bounces the user into the app.
+ * Login page. Branches by `BLACKNEL_USE_REAL_AUTH`:
  *
- * Phase 11 replaces this page entirely with Supabase Auth's magic-link
- * sign-in. The interface (cookie + getSession) stays — only the
- * issuer changes.
+ *   false → dev impersonation (Phase 1-10): list seeded users +
+ *           "fresh account" shortcut.
+ *   true  → magic-link sign-in (Phase 11 / C42a): single email input,
+ *           Supabase sends the link, callback handler exchanges code
+ *           for session.
+ *
+ * The DB query that builds the seed account list only runs in the mock
+ * branch — under real auth the page is static aside from the form.
  */
 export default async function LoginPage(): Promise<React.ReactElement> {
+  if (env.BLACKNEL_USE_REAL_AUTH) {
+    return (
+      <section className="mx-auto flex max-w-md flex-col gap-6 px-6 py-16">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            Blacknel · acceso
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight">Inicia sesión</h1>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Ingresa tu correo y te enviaremos un enlace para entrar. No
+            necesitas contraseña — el link expira en 1 hora y solo
+            funciona desde tu bandeja.
+          </p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Enlace mágico</CardTitle>
+            <CardDescription>
+              Si es tu primera vez, te crearemos la cuenta al confirmar
+              el correo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MagicLinkForm />
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
+
   const rows = await dbAdmin<SeedAccount[]>(async (tx) =>
     tx
       .select({

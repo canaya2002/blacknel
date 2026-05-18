@@ -193,6 +193,26 @@ const envSchema = z.object({
    */
   BLACKNEL_USE_REAL_POSTHOG: boolFromString(false),
   /**
+   * Phase 11 / Commit 42a — Supabase Auth cutover flag.
+   *
+   *   `false` (default) → JOSE-signed session cookie (`lib/auth/cookie.ts`)
+   *                        + dev impersonation `/login`. Phase 1-10 behavior.
+   *   `true`            → Supabase Auth magic links via `@supabase/ssr`;
+   *                        `getSession()` reads custom claims (org_id, role,
+   *                        custom_role_id) injected by the
+   *                        `add_org_claims` Custom Access Token Hook.
+   *
+   * The public auth API (`requireUser`, `requireOrg`, `requirePermission`)
+   * is intentionally identical across both paths so the ~95 call sites
+   * don't change. Switch lives in `lib/auth/server.ts`.
+   *
+   * Production rollout: false in Preview at code-deploy time → flip
+   * true in Preview for 3-5 day soak → flip true in Production during
+   * low-traffic window. JOSE path stays as fallback until C50 closure
+   * pass removes it.
+   */
+  BLACKNEL_USE_REAL_AUTH: boolFromString(false),
+  /**
    * Phase 11 / Commit 40 — Sentry DSN. Public-safe value but rate-
    * limit-attackable; Sentry Spike Protection mitigates.
    */
