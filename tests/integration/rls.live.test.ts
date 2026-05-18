@@ -3,20 +3,30 @@
  *
  * MANUAL ONLY. Skipped by default; runs only when both of:
  *
- *   RLS_LIVE_TEST=true
+ *   BLACKNEL_LIVE_TEST=true
  *   DATABASE_URL=postgres://...
  *
  * are set. Having `DATABASE_URL` alone is NOT enough — the explicit
- * `RLS_LIVE_TEST` flag prevents an accidental run when a developer's
+ * `BLACKNEL_LIVE_TEST` flag prevents an accidental run when a developer's
  * `.env.local` happens to point at a real DB. CI does not set the flag,
  * so this file silently skips there.
  *
- * Invocation:
+ * Phase 11 / C41 — unified `BLACKNEL_LIVE_TEST` flag across all live
+ * tests (previously this file used `RLS_LIVE_TEST`; renamed for parity
+ * with `login-seed.live.test.ts`, `reviews-list.live.test.ts`,
+ * `posts-create.live.test.ts`, etc.).
  *
- *   RLS_LIVE_TEST=true \
+ * Invocation (recommended pattern against Supabase staging):
+ *
+ *   BLACKNEL_LIVE_TEST=true \
  *   BLACKNEL_USE_MOCKS=false \
- *   DATABASE_URL=postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres \
+ *   DATABASE_URL=postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres \
  *   pnpm vitest run tests/integration/rls.live.test.ts
+ *
+ * Use the Supabase **Session pooler** (port 5432, host
+ * `aws-0-<region>.pooler.supabase.com`) — IPv4, supports DDL, and survives
+ * the residential-IPv6-routing trap the direct host hits. See
+ * `doc/runbooks/staging-environment.md` for the full operator setup.
  *
  * The `BLACKNEL_USE_MOCKS=false` flag is what routes `getRawDb()` to
  * postgres-js instead of the pglite dev runtime — leaving it on
@@ -25,13 +35,8 @@
  *
  * Reproduces the seven cases from `rls.test.ts` against real Postgres.
  * Inserts rows under sentinel UUIDs (prefix `9e9e`) so they are easy to
- * spot in audits and easy to clean up if the run is interrupted:
- *
- *   DELETE FROM brands               WHERE id::text         LIKE '9e9e%';
- *   DELETE FROM organization_members WHERE user_id::text    LIKE '9e9e%'
- *                                       OR organization_id::text LIKE '9e9e%';
- *   DELETE FROM organizations        WHERE id::text         LIKE '9e9e%';
- *   DELETE FROM users                WHERE id::text         LIKE '9e9e%';
+ * spot in audits and easy to clean up if the run is interrupted. Full
+ * cleanup query lives in `doc/runbooks/staging-environment.md`.
  *
  * Pre-requisites: migrations 0000–0003 applied; `plans` seeded (the
  * standard plan id is looked up at the start of the run).
@@ -52,7 +57,7 @@ import {
 import { env } from '../../lib/env';
 
 const LIVE_ENABLED =
-  process.env.RLS_LIVE_TEST === 'true' && Boolean(env.DATABASE_URL);
+  process.env.BLACKNEL_LIVE_TEST === 'true' && Boolean(env.DATABASE_URL);
 
 const describeLive = LIVE_ENABLED ? describe : describe.skip;
 

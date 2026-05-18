@@ -7,6 +7,210 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 11 / Commit 41 (Supabase Postgres cutover · DB only, Auth queda JOSE)
+
+Lands the first risky cutover of Phase 11: the Drizzle runtime
+switches from pglite (dev / preview pre-C41) to Supabase-hosted
+Postgres against `DATABASE_URL`. **Auth stays on JOSE-signed
+session cookies** — that swap is C42 and is deliberately separate
+to keep blast radius small. This commit is **operationally
+significant** even though the code surface is tiny: the cutover
+was performed live during the commit and three production
+hotfixes were captured in code + runbook before the commit landed.
+
+**Why this works without a 14-day staging soak.** The DB path
+is deterministic — same SQL, same Drizzle queries, no platform
+latency variance to learn over time. Live tests opt-in (4 of
+them, listed below) cover the load-bearing read + write + RLS
+paths against Supabase staging; CI keeps pglite for speed.
+Staging soak resumes at C42 (Auth — session shape changes,
+latency-variable, 14-day rule applies).
+
+**The three hotfixes captured during the live cutover** —
+documented in `doc/runbooks/staging-environment.md` (new section
+"Connecting from operator machine"):
+
+1. **IPv6-only direct connection trap.** Supabase Free / Pro
+   tiers expose `db.<ref>.supabase.co:5432` as IPv6-only (AAAA
+   only, no A record). Residential LATAM ISPs do not route IPv6
+   outbound → `getaddrinfo ENOTFOUND`. The IPv4 add-on costs $4/mo;
+   the Session pooler (`aws-0-<region>.pooler.supabase.com:5432`)
+   is free, IPv4, and supports DDL. The runbook now mandates
+   Session pooler for migrations / scripts, Transaction pooler
+   (port 6543) for runtime.
+
+2. **`supautils` blocks `ALTER ROLE service_role`.** Supabase's
+   `supautils` extension protects reserved roles; the defensive
+   `ALTER ROLE service_role WITH BYPASSRLS` in `0000_setup.sql`
+   would fail with `insufficient_privilege`. Wrapped in a
+   `DO $$ … EXCEPTION WHEN insufficient_privilege THEN NULL; END $$`
+   block. No-op on Supabase (where the attribute is pre-set);
+   writes the attribute on pglite as before. **In-place edit to
+   an applied migration** — see "Migration drift note" below.
+
+3. **Partial unique index inference in `ON CONFLICT`.** Real
+   Postgres refuses to use a partial unique index as an arbiter
+   unless the conflict clause carries the same predicate. pglite
+   is more lenient → code that "worked in dev" failed on
+   Supabase. Fixed in `seed-whatsapp.ts` via the `where:` option
+   on `onConflictDoNothing` (Drizzle 0.36 reads `where`, NOT
+   `targetWhere`, on that method — `targetWhere` only exists on
+   `onConflictDoUpdate`).
+
+**Code surface**
+
+- `lib/db/dev-runtime.ts` — `bootDevDb()` now fails fast with a
+  legible error if invoked in a serverless context
+  (`process.env.VERCEL === '1'` or `AWS_LAMBDA_FUNCTION_NAME`
+  set). Defense-in-depth: if a future deploy ships with
+  `BLACKNEL_USE_MOCKS=true` by accident, the operator sees the
+  flag mismatch instead of a `mkdir /var/task/.blacknel` ENOENT
+  crash. Aditivo — does not affect dev / test paths (those env
+  vars are unset locally).
+- `lib/db/migrations/0000_setup.sql` — `ALTER ROLE` wrapped in
+  the `DO/EXCEPTION` block described above.
+- `lib/db/seed-whatsapp.ts` — `where: sql\`external_thread_id IS
+  NOT NULL\`` predicate added to the `inbox_threads`
+  `onConflictDoNothing` so the partial unique index is matched
+  as arbiter against real Postgres.
+
+**Live tests (opt-in, default-skip in CI)**
+
+Four integration tests gated on `BLACKNEL_LIVE_TEST=true` AND
+`DATABASE_URL`. CI never sets the flag.
+
+- `tests/integration/rls.live.test.ts` — pre-existing.
+  Re-gated from `RLS_LIVE_TEST` → `BLACKNEL_LIVE_TEST` for
+  parity with the new tests. JSDoc updated to recommend Session
+  pooler.
+- `tests/integration/login-seed.live.test.ts` — **new**.
+  Read-only smoke for the `/login` Server Component query
+  (`organizationMembers ⋈ users ⋈ organizations`). Asserts the
+  6 seeded demo accounts are present with the expected role
+  mix.
+- `tests/integration/reviews-list.live.test.ts` — **new**. RLS
+  scope: demo owner sees seeded reviews, phantom org context
+  (valid UUID, no rows) sees zero — confirming
+  `current_setting('app.current_org_id')` filters at the
+  policy layer, not at the WHERE clause.
+- `tests/integration/posts-create.live.test.ts` — **new**.
+  Write smoke under `dbAs`: inserts a draft `posts` row with
+  sentinel UUID `9e9e9e9e-0007-*`, reads it back through the
+  same context, cleans up in `afterAll`. Verifies RLS WITH
+  CHECK and any DB triggers fire correctly.
+
+All four use the `9e9e9e9e-*` sentinel UUID range so leftover
+rows from an interrupted run are greppable + cleanup-able. The
+runbook now carries a sentinel-DELETE query covering every
+range.
+
+**Charter touches**
+
+| File | Phase | Change | Justification |
+|---|---|---|---|
+| `lib/db/dev-runtime.ts` | 1 (C2) | +Guard for `process.env.VERCEL` / `AWS_LAMBDA_FUNCTION_NAME` | Aditivo. Failure mode upgrade only — dev / test paths unchanged. |
+| `lib/db/migrations/0000_setup.sql` | 1 (C2) | `ALTER ROLE` wrapped in `DO/EXCEPTION` | **In-place edit** to a previously-attempted migration (the original ALTER rolled back under `supautils` and was never recorded in `_migrations`). See "Migration drift note". |
+| `lib/db/seed-whatsapp.ts` | 9 (C31) | `where:` predicate on `onConflictDoNothing` | Aditivo. Compatible with pglite AND postgres-js. |
+| `tests/integration/rls.live.test.ts` | 2 (C3) | Env-flag rename `RLS_LIVE_TEST` → `BLACKNEL_LIVE_TEST` | Cosmético. Test default-skips, so CI is unaffected. |
+
+Four pre-Phase-11 files touched. All aditivos except the in-place
+migration edit (mitigated by the dev-reset note below).
+
+**Migration drift note for devs pulling C41**
+
+The fix to `0000_setup.sql` is an in-place content edit. The
+`applyMigrations` runner stores `sha256(filename)` in
+`_migrations` and refuses to re-run a file whose sha changed:
+
+```
+Error: migration drift: 0000_setup.sql was edited after it was applied.
+```
+
+If you see this after pulling C41, the local pglite still has
+the pre-C41 sha. Resolution:
+
+```powershell
+pnpm db:reset
+```
+
+Safe — the dev pglite is disposable, seed re-applies idempotently.
+Supabase staging is unaffected: the file's sha there was recorded
+post-fix (the original attempt rolled back before insertion into
+`_migrations`).
+
+**D-41-1..8 confirmed**
+
+- D-41-1 — Session pooler (5432) for migrations + CLI; Transaction
+  pooler (6543) for runtime app. IPv4 free, supports DDL,
+  prepared-statement-tolerant on both.
+- D-41-2 — `postgres()` client keeps `prepare: false`. Required
+  for Transaction pooler; harmless on Session pooler.
+- D-41-3 — `ALTER ROLE service_role` wrapped in `DO/EXCEPTION
+  WHEN insufficient_privilege`. Defensive no-op on Supabase;
+  writes the attribute on pglite.
+- D-41-4 — ON CONFLICT against `inbox_threads_org_platform_external_unique`
+  carries `where: external_thread_id IS NOT NULL` in Drizzle.
+  Drizzle 0.36 reads `where` (not `targetWhere`) on
+  `onConflictDoNothing`.
+- D-41-5 — Serverless guard in `dev-runtime.ts` is **Option A**
+  (fail fast) not Option B (`/tmp` redirect). Per-cold-start
+  ephemeral DBs would degrade demos non-deterministically.
+- D-41-6 — **NO migration 0024.** The three indexes proposed
+  during planning already exist (or are functionally covered
+  by existing indexes). Speculative indexing penalises writes —
+  if a query is slow post-cutover, `EXPLAIN ANALYZE` first, then
+  a targeted index migration with measured justification.
+- D-41-7 — Live tests gated on the unified `BLACKNEL_LIVE_TEST`
+  flag (NOT a per-test-family flag). One env knob, one CI gate.
+- D-41-8 — Scripts (`migrate.ts`, `seed.ts`) do NOT autoload
+  `.env.local`. The `tsx --env-file=.env.local` pattern is
+  documented in the runbook; no new `dotenv` dependency.
+
+**R-41-1..5 mitigated**
+
+- R-41-1 — Migration drift pglite vs Supabase (partial unique
+  index was the example): mitigated by the 4 live tests
+  covering load-bearing paths.
+- R-41-2 — sha256 drift on `0000_setup.sql` for devs pulling
+  the commit: mitigated by the `pnpm db:reset` note above.
+- R-41-3 — Session pooler 30-conn cap on Free tier: adequate
+  for current ops volume; upgrade trigger lives in the runbook.
+- R-41-4 — Sentinel UUID leftovers from interrupted live tests:
+  cleanup query in the runbook; safe to run quarterly.
+- R-41-5 — Cookie secret differing across environments breaks
+  cross-env sessions: documented as a feature (security
+  boundary), not a bug.
+
+**TODO.md anchors re-targeted**
+
+- `dbas-tx-type` — Target re-stated as Phase 11 / C50 (closure
+  pass). C41 did NOT consolidate adapters; postgres-js runs in
+  prod while tests stay on pglite.
+- `audit-events-atomicity` — Re-targeted to C50. The 13 audit
+  call sites need a coordinated change that's out of C41 scope.
+- `usage-counters-rls-scoped` — Re-targeted to C50 (charter
+  audit). Production traffic data will inform path (a) vs (b).
+- `rbac-rls-dynamic-policies-supabase-auth` — Sharpened: this
+  is a **C42 prerequisite**, NOT a parallel C41 task. Session
+  shape changes in C42 are the unlock.
+
+**Tests (target ≥1270; no mock-path changes)**
+
+Mock-path test count unchanged from C40. The 3 new live tests +
+the renamed `rls.live.test.ts` ALL default-skip in CI because
+`BLACKNEL_LIVE_TEST` is unset there. The live tests run on demand
+against Supabase staging with the operator incantation in the
+runbook.
+
+**Build status** — see commit metrics for `pnpm verify` and
+`pnpm build --webpack` results.
+
+**Next** — C42 (Supabase Auth cutover) is the next commit.
+14-day staging soak applies. See
+`doc/phase-11/cutover-checklist.md`.
+
+---
+
 ### Added — Phase 11 / Commit 40 (Observability + kill switch + demo org + Phase 11 runbooks · OPENS PHASE 11)
 
 Opens Phase 11 (cutover APIs reales) with **operational foundation

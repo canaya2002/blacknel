@@ -1,6 +1,8 @@
 # Runbook: Staging environment
 
-Phase 11 / Commit 40. **Owner**: Carlos.
+Phase 11 / Commit 40 (initial draft) + Commit 41 (operator setup
+section: pooler matrix, IPv6 trap, sentinel UUID cleanup).
+**Owner**: Carlos.
 
 ## What it is
 
@@ -140,3 +142,148 @@ Promotion is **manual** for foundational cutovers (C41, C42):
   If it's small enough to skip, it doesn't need a feature flag.
 - ❌ Allowing real customer credentials in staging.
 - ❌ Granting non-master-org-owner Vercel project access.
+
+---
+
+## Connecting from operator machine (C41 addendum)
+
+### The IPv6 trap
+
+Supabase exposes three connection strings per project. The
+"Direct connection" host (`db.<ref>.supabase.co:5432`) only has
+an **AAAA (IPv6)** record. Most residential ISPs and corporate
+networks in LATAM do not route IPv6 outbound, so any `psql` /
+`postgres-js` / migration script against the direct host fails
+with `getaddrinfo ENOTFOUND`. Supabase sells an **IPv4 add-on**
+(~$4/mo) but the same outcome is reachable for free by using
+the pooler hosts.
+
+### Pooler matrix
+
+| Connection | Host | Port | IPv4 | DDL OK | Prepared statements | Use for |
+|---|---|---|---|---|---|---|
+| Direct | `db.<ref>.supabase.co` | 5432 | ❌ (IPv6-only) | ✅ | ✅ | nothing (without IPv4 add-on) |
+| **Session pooler** | `aws-0-<region>.pooler.supabase.com` | **5432** | ✅ | ✅ | ✅ | **migrations, seed, scripts CLI, live tests** |
+| Transaction pooler | `aws-0-<region>.pooler.supabase.com` | 6543 | ✅ | ❌ (rejects some DDL + multi-statement) | ❌ | **runtime app** (serverless) |
+
+Username format differs from the direct connection: the pooler
+strings use `postgres.<project-ref>` (note the dot-prefix) rather
+than `postgres`. Copy the exact string from the dashboard —
+`Project Settings → Database → Connection string → Session pooler`.
+
+The Drizzle client in `lib/db/client.ts` sets `prepare: false` on
+the `postgres()` factory — Transaction pooler requires it,
+Session pooler tolerates it. One config covers both.
+
+### Env-var matrix (Vercel)
+
+| Var | Preview | Production | Local `.env.local` |
+|---|---|---|---|
+| `DATABASE_URL` | Transaction pooler (6543) | Transaction pooler (6543) | Session pooler (5432) |
+| `DATABASE_URL_POOLED` | Transaction pooler (6543) | Transaction pooler (6543) | Transaction pooler (6543) |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://<ref>.supabase.co` | same | same |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon public | anon public | anon public |
+| `SUPABASE_SERVICE_ROLE_KEY` | service_role | service_role | service_role |
+| `BLACKNEL_USE_MOCKS` | `false` | `false` | `false` (when targeting Supabase) |
+| `BLACKNEL_COOKIE_SECRET` | env-specific ≥32 chars | env-specific ≥32 chars | env-specific |
+
+Cookie secrets MUST differ across environments — a dev session is
+not a preview session is not a prod session. That's the boundary,
+not a bug.
+
+### Local `.env.local` is not auto-loaded by tsx scripts
+
+`scripts/migrate.ts` and `scripts/seed.ts` go straight to
+`process.env` (no `dotenv` dependency). `next dev` loads
+`.env.local` automatically; `tsx` does not. Use the `--env-file`
+flag built into tsx ≥4.7:
+
+```powershell
+pnpm exec tsx --env-file=.env.local --tsconfig=tsconfig.scripts.json scripts/migrate.ts
+pnpm exec tsx --env-file=.env.local --tsconfig=tsconfig.scripts.json scripts/seed.ts
+```
+
+If `DATABASE_URL` is missing the script prints a clear error —
+the most common cause is forgetting the `--env-file` flag.
+
+### Migrations against Supabase: gotchas captured in C41
+
+- **`supautils` blocks `ALTER ROLE service_role`.** Supabase
+  pre-provisions `service_role` with `BYPASSRLS` and protects it
+  via the `supautils` extension. `0000_setup.sql` wraps the
+  defensive `ALTER` in `DO $$ … EXCEPTION WHEN insufficient_privilege
+  THEN NULL; END $$` so the migration succeeds against both
+  Supabase (no-op) and pglite (writes the attribute).
+
+- **Partial unique indexes require an explicit predicate in
+  `ON CONFLICT`.** Real Postgres refuses to infer a partial
+  unique index as an arbiter unless the conflict clause carries
+  the same `WHERE`. pglite is more lenient — code that "works
+  in dev" may fail on Supabase. The fix in Drizzle 0.36 is the
+  `where:` option on `onConflictDoNothing` (NOT `targetWhere`,
+  which only `onConflictDoUpdate` accepts):
+
+  ```ts
+  .onConflictDoNothing({
+    target: [t.organizationId, t.platform, t.externalThreadId],
+    where: sql`external_thread_id IS NOT NULL`,
+  })
+  ```
+
+- **Migration drift after an in-place edit.** The
+  `applyMigrations` runner stores `sha256(filename)` in
+  `_migrations` and refuses to re-run a file whose contents
+  changed. The C41 fix to `0000_setup.sql` is one such in-place
+  edit — devs who pulled C41 onto an existing
+  `.blacknel/pglite-data/` will see `migration drift: 0000_setup.sql
+  was edited after it was applied`. Resolution: `pnpm db:reset`
+  (regenerates the local pglite from scratch). Supabase
+  staging is not affected — the file landed there only after
+  the fix, so its stored sha already matches.
+
+### Live tests
+
+Three integration tests run against Supabase staging on demand
+(skip by default in CI):
+
+- `tests/integration/rls.live.test.ts` — full RLS scope coverage
+- `tests/integration/login-seed.live.test.ts` — `/login` query
+- `tests/integration/reviews-list.live.test.ts` — RLS read scope
+- `tests/integration/posts-create.live.test.ts` — RLS write + readback
+
+All four are gated on `BLACKNEL_LIVE_TEST=true` AND `DATABASE_URL`
+set. CI never sets the flag.
+
+Invocation:
+
+```powershell
+$env:BLACKNEL_LIVE_TEST="true"
+$env:BLACKNEL_USE_MOCKS="false"
+$env:DATABASE_URL="postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres"
+pnpm vitest run tests/integration/*.live.test.ts
+```
+
+### Sentinel UUID cleanup
+
+Live tests insert rows under sentinel UUID prefixes so they are
+greppable and removable. If a run is interrupted between INSERT
+and `afterAll`, run the cleanup query through the Supabase SQL
+editor or psql:
+
+```sql
+-- C41 sentinel ranges:
+--   9e9e9e9e-0001-*  → organizations  (rls.live.test.ts)
+--   9e9e9e9e-0002-*  → users          (rls.live.test.ts)
+--   9e9e9e9e-0003-*  → brands         (rls.live.test.ts)
+--   9e9e9e9e-0007-*  → posts          (posts-create.live.test.ts)
+-- Add new ranges here as live tests grow (one prefix per test family).
+DELETE FROM posts                WHERE id::text         LIKE '9e9e9e9e-0007-%';
+DELETE FROM brands               WHERE id::text         LIKE '9e9e9e9e-0003-%';
+DELETE FROM organization_members WHERE user_id::text    LIKE '9e9e9e9e-0002-%'
+                                    OR organization_id::text LIKE '9e9e9e9e-0001-%';
+DELETE FROM organizations        WHERE id::text         LIKE '9e9e9e9e-0001-%';
+DELETE FROM users                WHERE id::text         LIKE '9e9e9e9e-0002-%';
+```
+
+Safe to run quarterly even when no interruption is suspected —
+sentinel rows are never real data.

@@ -51,10 +51,13 @@ Triggering conditions to revisit:
   stack across the board, or a postgres-js-only stack via a
   testcontainer in Phase 11+).
 
-**Target phase.** Phase 11 (opportunistic). The cutover to Supabase
-is the moment we consolidate on a single runtime in production;
-tests can follow with a testcontainer. If Drizzle ships unified
-types before Phase 11, close earlier.
+**Target phase.** Phase 11 / C50 (closure pass — opportunistic).
+C41 (Supabase Postgres cutover) landed without unifying the
+runtime — production now uses postgres-js while tests still run
+on pglite, and the `AnyPgDb` / `AnyPgTx` shim stayed. Drizzle 0.36
+still ships separate generics. Close when either Drizzle unifies
+or we consolidate the test runtime onto a single adapter (likely
+via testcontainer in C50).
 
 ## trigger-defaulted-cols
 
@@ -187,9 +190,14 @@ leave production with an untraceable side effect.
 - Possibly `lib/db/migrations/00NN_audit_authenticated_grant.sql`
   (new) or a SECURITY DEFINER function wrapper.
 
-**Target phase.** Phase 11 (Supabase cutover). The atomicity gain
-is meaningful once a real network sits between the app and the
-DB; in pglite the post-commit window is sub-millisecond.
+**Target phase.** Phase 11 / C50 (closure pass). C41 (Supabase
+Postgres cutover) introduced the real network — the atomicity
+gap is now measurable, not hypothetical — but the fix touches
+13 audit call sites across approvals / inbox / reviews and is
+out of scope for C41. Tackled in C50 alongside the
+charter audit, when the production audit table has enough
+real-world traffic to validate the SECURITY DEFINER vs RLS-write
+trade-off empirically.
 
 ## polling-scroll-and-url-state
 
@@ -451,7 +459,11 @@ Verification command (either path):
 should return exactly one hit (path b, the wrapper) or zero hits
 (path a, all through `dbAs`).
 
-**Target phase.** Phase 11 (security audit + Supabase cutover).
+**Target phase.** Phase 11 / C50 (closure pass — security audit).
+The Supabase Postgres cutover (C41) did not include this refactor
+to keep the cutover scope tight; the 11 sites still funnel writes
+through `dbAdmin`. C50's charter audit decides path (a) vs (b)
+once we have production traffic data on counter mutation rates.
 
 ## connector-publish-limits-2026
 
@@ -1072,7 +1084,12 @@ Auth:
 5. Evaluar mover `app_*` functions a schema dedicado
    `blacknel_internal` (D-36a-11 future direction).
 
-**Target phase.** Phase 11.
+**Target phase.** Phase 11 / **C42** specifically (Supabase Auth
+cutover). C41 landed the Postgres swap but kept JOSE-signed
+session cookies, so the `app.current_user_role` /
+`app.current_custom_role_id` plumbing is still a C42 prerequisite
+(session shape changes there). Do NOT attempt this anchor before
+C42.
 
 ## rbac-permission-check-perf-budget
 

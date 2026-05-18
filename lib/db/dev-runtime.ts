@@ -57,6 +57,24 @@ async function bootDevDb(): Promise<{
   pg: PGlite;
   db: ReturnType<typeof drizzle<typeof schema>>;
 }> {
+  // Phase 11 / C41 — defense in depth: the pglite dev runtime writes to
+  // `.blacknel/pglite-data/` under `process.cwd()`. On Vercel / Lambda
+  // that resolves to `/var/task`, a read-only filesystem — `mkdir` throws
+  // a cryptic ENOENT and the whole request crashes. Fail fast here with
+  // a legible message so the operator sees the real cause (a flag
+  // misconfigured for the target environment) instead of a stack trace.
+  if (
+    process.env.VERCEL === '1' ||
+    typeof process.env.AWS_LAMBDA_FUNCTION_NAME === 'string'
+  ) {
+    throw new Error(
+      'pglite dev runtime cannot run in a serverless environment. This indicates ' +
+        'BLACKNEL_USE_MOCKS is true (or unset) in a Vercel/Lambda deployment. ' +
+        'Set BLACKNEL_USE_MOCKS=false and configure DATABASE_URL — see ' +
+        'doc/runbooks/staging-environment.md for the operator setup.',
+    );
+  }
+
   log.info({ dataDir: DEV_DATA_DIR }, 'db.dev.boot');
 
   // pglite opens-or-creates the data directory but expects its parent to

@@ -1,7 +1,8 @@
 # Phase 11 — Cutover APIs reales
 
-Operational migration from mocks to real APIs. **Status**: Open
-at C40 (Observability + foundational operational primitives).
+Operational migration from mocks to real APIs. **Status**: C41
+landed (Supabase Postgres cutover). Next: C42 (Supabase Auth +
+RLS rewrite — highest single-step risk in the phase).
 
 ## Document index
 
@@ -18,8 +19,11 @@ at C40 (Observability + foundational operational primitives).
 
 ## Cutover order (high-level)
 
-1. **C40** — Observability + kill switch + demo org + runbooks. **OPEN**.
-2. **C41** — Supabase Postgres (DB only, Auth queda JOSE). 🔴
+1. **C40** — Observability + kill switch + demo org + runbooks. ✅ LANDED.
+2. **C41** — Supabase Postgres (DB only, Auth queda JOSE). ✅ LANDED.
+   See `doc/runbooks/staging-environment.md` → "Connecting from
+   operator machine" for the migration / pooler / cleanup procedure
+   captured during cutover.
 3. **C42** — Supabase Auth + RLS rewrite. 🔴 highest risk single step.
 4. **C43** — Anthropic via Vercel AI Gateway + cost dashboard real. 🟡
 5. **C44** — R2 + Resend + Inngest (bundled non-foundational swaps). 🟡
