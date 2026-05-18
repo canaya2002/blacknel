@@ -1,6 +1,7 @@
 'use server';
 
 import { eq } from 'drizzle-orm';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
@@ -172,7 +173,24 @@ export async function sendMagicLinkAction(
   const { email, next } = parsed.data;
   const supabase = await createSupabaseServerClient();
 
-  const callbackUrl = new URL('/auth/callback', env.NEXT_PUBLIC_APP_URL);
+  // Derive the callback origin from the incoming request rather than from
+  // `env.NEXT_PUBLIC_APP_URL`. The env var is a single static value (typically
+  // `http://localhost:3000` from `.env.example`) which on Vercel Preview /
+  // Production points the magic-link redirect at the wrong host — the user
+  // clicks the link and lands on localhost instead of the live deployment.
+  // Vercel sets `x-forwarded-host` + `x-forwarded-proto` so the request-derived
+  // origin matches the deployment automatically. On local `pnpm dev` neither
+  // forwarded header is present, so we fall back to `host` + `http`.
+  // Supabase only honors redirects on its allow-list — confirm each new host
+  // is in Authentication → URL Configuration → Redirect URLs.
+  const h = await headers();
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  const proto =
+    h.get('x-forwarded-proto') ??
+    (host?.startsWith('localhost') ? 'http' : 'https');
+  const origin = host ? `${proto}://${host}` : env.NEXT_PUBLIC_APP_URL;
+
+  const callbackUrl = new URL('/auth/callback', origin);
   callbackUrl.searchParams.set('next', next);
 
   const { error } = await supabase.auth.signInWithOtp({
