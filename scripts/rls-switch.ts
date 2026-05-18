@@ -97,8 +97,16 @@ async function main(): Promise<void> {
     // on / off — issue the ALTER, then read back via pg_db_role_setting
     // (current_setting reflects the SESSION value, which won't change
     // until reconnect).
+    //
+    // ALTER DATABASE is DDL: no parameter binding, identifier + value
+    // must be in the literal SQL. `dbName` comes from `current_database()`
+    // (server-supplied, no injection vector) and `action` is validated
+    // to 'on' | 'off' above. Double-quote the identifier per spec and
+    // double-up embedded quotes defensively in case a future operator
+    // names a DB with one.
+    const quotedDb = `"${dbName.replace(/"/g, '""')}"`;
     await sql.unsafe(
-      `ALTER DATABASE ${sql(dbName).toString()} SET blacknel.rls_dynamic = '${action}'`,
+      `ALTER DATABASE ${quotedDb} SET blacknel.rls_dynamic = '${action}'`,
     );
 
     const dbDefaults = await sql<
