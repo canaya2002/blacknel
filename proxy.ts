@@ -28,7 +28,20 @@ import { getKillSwitchState, shouldBlock } from '@/lib/kill-switch/check';
  *      and `/auth/*` callbacks stay open.
  */
 
-const PUBLIC_PATHS = ['/', '/pricing', '/login', '/signup', '/feedback'];
+const PUBLIC_PATHS = [
+  '/',
+  '/pricing',
+  '/login',
+  '/signup',
+  '/feedback',
+  // Phase 11 / C40 — health endpoint, polled by external monitors
+  // (UptimeRobot, Vercel uptime, etc). Must NOT redirect to /login;
+  // returns kill-switch state + timestamp as JSON. The kill switch
+  // bypass list (see lib/kill-switch/check.ts) already covers this
+  // path for the maintenance check above — adding it here covers the
+  // auth check that runs immediately after.
+  '/api/health',
+];
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;
