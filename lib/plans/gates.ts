@@ -48,7 +48,8 @@ export type PlanFeature =
   | 'scheduled_report_emails'
   | 'ads_intelligence'
   | 'custom_roles'
-  | 'audit_advanced';
+  | 'audit_advanced'
+  | 'custom_reports';
 
 // Map each named feature to its underlying gating predicate.
 function evaluate(plan: PlanCode, feature: PlanFeature): boolean {
@@ -74,6 +75,8 @@ function evaluate(plan: PlanCode, feature: PlanFeature): boolean {
       return planAllowsFeature(plan, 'customRoles');
     case 'audit_advanced':
       return planAllowsFeature(plan, 'auditAdvanced');
+    case 'custom_reports':
+      return planAllowsFeature(plan, 'customReports');
   }
 }
 
@@ -125,6 +128,9 @@ export function requirePlanFeature(
       return;
     case 'audit_advanced':
       requireFeature(plan, 'auditAdvanced');
+      return;
+    case 'custom_reports':
+      requireFeature(plan, 'customReports');
       return;
   }
 }

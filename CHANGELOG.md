@@ -7,6 +7,273 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 10 / Commit 39 (Custom Report Builder + CLOSES PHASE 10)
+
+Closes Phase 10 with the most demoable Enterprise feature: a custom
+report builder where users assemble dashboards from widget primitives
+over 7 integrated data sources. **Custom Report Builder NO es
+procurement blocker como C36+C37, pero ES el feature MÁS DEMOABLE de
+Enterprise** — el momento "drag widgets en vivo" en sales call que
+cierra venta.
+
+**Highlights**
+
+1. **5 widget kinds** — `kpi_card`, `table`, `sparkline` (SVG
+   vanilla, D-39-1 a), `distribution_chart` (SVG vanilla), `text_block`
+   (sanitized markdown). Each carries a typed Zod schema (strict).
+2. **7 data sources** with capability-aware dispatcher (D-39-9 b —
+   kind narrows source family): `inbox_kpis`, `reviews_aggregates`,
+   `posts_metrics`, `ads_spend`, `nps_aggregates`,
+   `listening_aggregates`, **`crisis_aggregates`** (new for
+   Template 3 — Executive Dashboard).
+3. **3 explicit starter templates** (Ajuste 1):
+   - **Marketing Performance** — 5 widgets (reach, engagement,
+     review trend, sentiment distribution, top posts).
+   - **Customer Service Overview** — 5 widgets + SLA text block
+     (response time, NPS, pending approvals, threads timeline,
+     pending threads table).
+   - **Executive Dashboard** — 6 widgets (mentions, NPS, ads
+     MTD, crisis pending, sentiment mix, reviews trend).
+4. **`custom_reports` + `custom_report_widgets` schema** with
+   `layout jsonb` grid-level metadata (render-only, D-39-6 b) —
+   widget positions live ONLY on widgets table (single source of
+   truth). 12-col grid, 8-row max widget height, DB CHECK
+   constraints + app-layer overlap validator.
+5. **10 Server Actions** with dual TS+DB enforcement
+   (`assertPermissionInDb`) — joining the 11th critical action
+   family from C36b. Audit emits ONLY on status transitions
+   (created / published / archived / shared) per D-39-10 a — layout
+   edits stay silent to keep the audit trail clean.
+6. **Save permissive, publish strict** (D-39-7 a) — overlapping
+   widgets allowed during authoring; `publishCustomReportAction`
+   runs strict `validateLayout()` and rejects malformed grids.
+7. **Share scope** (D-39-4): `private` (creator only),
+   `org_visible` (any member with `custom_reports:read`),
+   `specific_users` (allowlist). Visibility filter at query level.
+8. **Plan-gated**: `customReports: false` for Standard/Growth,
+   `true` for Enterprise. Cap `maxCustomReportsPerOrg: 50`.
+   `<UpgradePrompt>` on `/reports/custom` for Standard/Growth.
+9. **Seeded demo** — 2 published reports on demo org
+   (Marketing Overview + Operations Dashboard) materialized from
+   templates. Demo org runs on Growth so the rows live behind the
+   upgrade prompt until bumped.
+
+**Charter touches**
+
+| File | Phase | Change |
+|---|---|---|
+| `lib/db/schema/_enums.ts` | 1 | +3 enums (status, widget_kind, share_scope) |
+| `lib/db/schema/index.ts` | 1 | re-export custom_reports + custom_report_widgets |
+| `lib/env.ts` | 1 | +1 env var (`BLACKNEL_SEED_CUSTOM_REPORTS`) |
+| `lib/permissions/roles.ts` | 1 | +2 permissions (`custom_reports:read/write`) + role matrix |
+| `lib/plans/plans.ts` | 1 | `PlanFeatures.customReports` + `PlanLimits.maxCustomReportsPerOrg` |
+| `lib/plans/gates.ts` | 9 (C31) | `'custom_reports'` PlanFeature |
+| `lib/reports/period.ts` | 8 (C27) | (none — kept ReportSection untouched; Custom is its own subtree) |
+| `components/reports/report-tab-nav.tsx` | 8 (C27) | +Custom tab routing to `/reports/custom` |
+| `lib/db/seed.ts` | 1 | wires new seed (gated) |
+
+All aditive.
+
+**D-39-1..10 confirmadas**
+
+- D-39-1 (a) — Vanilla SVG (no recharts).
+- D-39-2 — DnD-kit deferred to Phase 12 polish (see
+  `custom-report-builder-dnd-kit-phase-12` TODO). Static-position
+  builder ships in C39 with full add/remove/move/publish flow.
+- D-39-3 (b) — 60s LRU cache via `withReportsCache`.
+- D-39-4 — `org_visible` requires `custom_reports:read`.
+- D-39-5 — Empty state + 3 template gallery.
+- D-39-6 (b) — `layout jsonb` for grid metadata only, render-only.
+- D-39-7 (a) — Save permissive, publish strict.
+- D-39-8 (a) — `exportCustomReportHtmlAction` (HTML now, PDF Phase 11).
+- D-39-9 (b) — Widget kind narrows data source family.
+- D-39-10 (a) — Audit on status transitions only.
+
+**Tests (+39, total 1257 pasando · target ≥1254)**
+
+- `tests/unit/custom-reports-layout-validate.test.ts` (7) —
+  overlap, bounds, empty, adjacency, edge cases.
+- `tests/unit/custom-reports-validate-widgets.test.ts` (12) —
+  5 widget kinds Zod schemas × valid + invalid + strict mode.
+- `tests/unit/custom-reports-data-sources-dispatch.test.ts` (3)
+  — registry + dispatcher + capability flags.
+- `tests/unit/custom-reports-templates.test.ts` (3) — all 3
+  templates: registered, valid configs, valid layouts.
+- `tests/integration/custom-reports-crud.test.ts` (5) — insert,
+  retrieve, share scope private/org_visible/specific_users,
+  widget count.
+- `tests/integration/custom-reports-run.test.ts` (3) —
+  composite payload, text_block sanitization, missing report.
+- `tests/integration/custom-reports-plan-gating.test.ts` (4) —
+  PLANS matrix, gates, named feature, requirePlanFeature.
+- `tests/integration/custom-reports-share-scope.test.ts` (2) —
+  owner sees all, other user sees only org_visible.
+
+**Build status** — `pnpm verify` ✅ 1257/1264 (target ≥1254),
+7 skipped. `pnpm build --webpack` ✅ verde primer intento.
+
+---
+
+### Phase 10 closure · charter audit table (C36a → C39)
+
+Unified audit of every charter touch across the 5 Phase 10 commits.
+Each row is **purely aditive**.
+
+| File | Origin Phase | Touched in | Change |
+|---|---|---|---|
+| `lib/db/schema/_enums.ts` | 1 | C36a, C37, C39 | +6 enums (custom_role_status, audit_anomaly_kind/status, custom_report_status/widget_kind/share_scope) |
+| `lib/db/schema/index.ts` | 1 | C36a, C37, C39 | +5 re-exports (custom_roles, role_permissions, audit_retention_policies, audit_anomalies, custom_reports, custom_report_widgets) |
+| `lib/db/schema/audit-events.ts` | 7 | C37 | +`event_hash text` nullable column (tamper detection) |
+| `lib/db/schema/organization-members.ts` | 2 | C36a | +`custom_role_id uuid` nullable FK + partial index |
+| `lib/db/schema/reviews.ts` | 5 | C38 | +`platform_specific jsonb` nullable (render-only rule) |
+| `lib/env.ts` | 1 | C37, C38, C39 | +4 env vars (audit anomaly job, audit retention job, enterprise networks seed, custom reports seed) |
+| `lib/jobs/cron-loop.ts` | 7 (C25) | C37 | +2 timers (anomaly 60min, retention 24h) |
+| `lib/plans/plans.ts` | 1 | C36a, C37, C39 | +`customRoles`, +`auditAdvanced`, +`customReports` features; +`maxCustomRoles`, +`auditRetentionDaysMax`, +`maxCustomReportsPerOrg` limits |
+| `lib/plans/gates.ts` | 9 (C31) | C36a, C37, C39 | +3 PlanFeature names (custom_roles, audit_advanced, custom_reports) |
+| `lib/permissions/roles.ts` | 1 | C36a, C39 | exported `ALL_PERMISSIONS`; +2 permissions (`custom_reports:read/write`) wired across all 5 roles |
+| `lib/permissions/can.ts` | 1 | C36a | `resolvePermissionsFor` helper for custom-role aware checks |
+| `lib/auth/types.ts` | 1 | C36a | `Session.customRoleId` optional field |
+| `lib/connectors/base/types.ts` | 3 | C38 | +2 capabilities (`complaint_response`, `review_dispute`) |
+| `lib/connectors/{yelp,tripadvisor,trustpilot,bbb,avvo}/capabilities.ts` | 3 | C38 | extended supported lists per D-38-5 |
+| `lib/reviews/queries.ts` | 5 | C38 | surface `platformSpecific` in `ReviewListItem` |
+| `components/reviews/review-row.tsx` | 5 | C38 | short-circuits to `<BBBComplaintCard>` for bbb platform |
+| `components/integrations/platform-tile.tsx` | 3 | C38 | +vertical hints (D-38-4) |
+| `components/reports/report-tab-nav.tsx` | 8 (C27) | C39 | +Custom tab routing to `/reports/custom` |
+| `lib/db/seed.ts` | 1 | C36a, C38, C39 | wires seed-role-permissions (always), seed-enterprise-networks (gated), seed-custom-reports (gated) |
+| `tests/unit/capabilities.test.ts` | 3 | C38 | updated contract per D-38-5 with comments |
+| `tests/helpers/react-act-setup.ts` | — | C37 | +2 env gates (audit anomaly + retention crons forced off in vitest) |
+
+**Migrations landed in Phase 10**
+
+- `0018_custom_roles.sql` (C36a) — RBAC overlay + `app_permission_check` + `app_valid_permission_format`.
+- `0019_audit_advanced.sql` (C37) — `event_hash`, `audit_retention_policies`, `audit_anomalies` + 2 enums.
+- `0020_enterprise_networks.sql` (C38) — `reviews.platform_specific jsonb` (render-only, no index).
+- `0021_custom_reports.sql` (C39) — `custom_reports` + `custom_report_widgets` + 3 enums.
+
+---
+
+### Phase 10 metrics
+
+| Metric | C36a | C36b | C37 | C38 | C39 | **Total Phase 10** |
+|---|---|---|---|---|---|---|
+| Migrations | 0018 | — | 0019 | 0020 | 0021 | **4 migrations** |
+| Tests added | 21 | 21 | 32 | 34 | 39 | **147 tests** |
+| Crons added | 0 | 0 | 2 | 0 | 0 | **2 crons** |
+| Env vars added | 0 | 0 | 2 | 1 | 1 | **4 env vars** |
+| Enums added | 1 | 0 | 2 | 0 | 3 | **6 enums** |
+| Permissions added | 0 | 0 | 0 | 0 | 2 | **2 permissions** |
+| PlanFeatures added | 1 | 0 | 1 | 0 | 1 | **3 PlanFeatures** |
+| Critical actions (TS+DB dual) | 5 | +5 | 0 | 0 | +1 | **11 critical actions total** |
+
+Tests baseline (pre-Phase 10, end of C30): **1077**.
+Tests current (end of C39): **1257**. Net Phase 10 contribution: **+180** tests (incl. retroactive coverage of pre-existing code touched by Phase 10).
+
+---
+
+### Phase 10 end-to-end rúbrica (manual)
+
+Execute in order against a fresh `pnpm db:dev:reset` + `pnpm dev`.
+Each block should pass without manual code intervention.
+
+**1. Custom Roles (C36a/C36b)**
+
+- a. Login as owner → `/team/roles` lists 0 custom roles, "New" CTA visible.
+- b. Create custom role "Brand Manager" with base=manager, revoke=`team:manage_roles`, grant=`audit:read`.
+- c. Assign to a manager-tier member → check audit trail shows `member.custom_role.assigned`.
+- d. Login as that member → `/team/roles` is now read-only (no "New" CTA).
+
+**2. Advanced Audit (C37)**
+
+- e. `/audit` shows anomalies section with 0 pending.
+- f. Trigger off-hours access scenario via `pnpm tsx scripts/dev/simulate-off-hours.ts` (or wait for cron tick).
+- g. Anomaly appears in `/audit/anomalies` with kind=`off_hours_access`.
+- h. Dismiss with reason "test dismissal" (≥10 chars enforced) — anomaly transitions to `dismissed`.
+- i. Try export with `?mass=true` against an org with >100K events → blocked with `MASS_EXPORT_LIMIT`.
+- j. Create retention policy entity_type=`audit_event`, retention_days=30 → next cron tick purges older rows.
+
+**3. Enterprise Networks (C38)**
+
+- k. `/reviews` shows 213+ rows on demo org (with seed flag on). Yelp/TripAdvisor/Trustpilot/BBB/Avvo all present.
+- l. Filter platform=`bbb` → rows render as `<BBBComplaintCard>` with red border + FileWarning icon + complaint_status pill.
+- m. `/integrations` shows 5 Enterprise tiles with vertical hints (Hospitality/E-commerce/Consumer trust/Legal).
+- n. Demo org on Growth — Yelp tile shows "Upgrade" instead of "Connect".
+
+**4. Custom Report Builder (C39)**
+
+- o. Bump demo org to Enterprise (`UPDATE organizations SET plan_id = '00000000-0000-4000-8000-000000000003'`).
+- p. `/reports/custom` shows 2 published reports (Marketing Overview, Operations Dashboard).
+- q. Open Marketing Overview → all 5 widgets render with data. Sparkline draws SVG polyline. Distribution chart shows sentiment buckets.
+- r. Click "Editar" → builder loads; positional inputs work for add KPI placeholder, remove, move.
+- s. Publish → status transitions to `published` and audit entry `custom_report.published` lands.
+- t. Share → modal with private / org_visible / specific_users options; share audit entry persists.
+
+**5. Critical Actions defense-in-depth verification (Ajuste 2 — REQUIRED)**
+
+Pre-requisito: org Enterprise con un admin user al que se le revoca
+`team:manage_roles` vía custom role restrictivo (paso 1.b adapted).
+
+Steps:
+- u1. Login como admin user con custom role restrictivo.
+- u2. `/team/roles` → intentar crear custom role nuevo.
+- u3. UI **esconde** el CTA "New" (TS layer enforcement visible — `can(role, 'team:manage_roles')` returns false).
+- u4. Network tab: intentar invocar `createCustomRoleAction` directamente vía DevTools (simular TS bypass — fetch POST to the action endpoint with valid payload).
+- u5. Server retorna `FORBIDDEN` (la 4ta guard `assertPermissionInDb` bloquea — `app_permission_check` PL/pgSQL function returns false).
+- u6. `/audit` muestra el intento bloqueado como audit event con metadata `{ action: 'team:manage_roles', blocked_by: 'db_check' }` (o similar — el guard emite registro vía `assertPermissionInDb`).
+
+**Resultado esperado:** si los 6 sub-steps confirman → dual
+enforcement funcional end-to-end en producción mock. Si alguno
+falla → **bloqueante para cierre Fase 10** y para release a
+producción Phase 11 con Supabase Auth.
+
+Razón: tests automatizados verifican individualmente.
+Rúbrica manual valida el LOOP COMPLETO (UI → Server Action → DB →
+Audit) desde la perspectiva del atacante simulado. Disciplina
+enterprise.
+
+---
+
+### Phase 11 overview (no commits específicos — scope orientativo)
+
+Phase 11 = "cutover APIs reales". Saca a Blacknel del estado mock-
+only y lo conecta a SaaS de terceros. Mocks como producto retiran.
+
+**Scope candidato Phase 11**
+
+1. **Supabase Auth** — reemplaza JWT JOSE HS256 actual. Wires
+   `app.current_org_id` via Supabase RLS dynamic policies (cierra
+   anchor `rbac-rls-dynamic-policies-supabase-auth`).
+2. **Resend email** — reemplaza dev-outbox de C34/C25. Production
+   email para scheduled reports + NPS invitations.
+3. **Anthropic Claude API** — reemplaza AI stubs (cierra
+   `phase-11-anthropic-cutover` + `ai-stubs-shim-retirement`). Cost
+   tracking + prompt cache hit metrics (`prompt-cache-hit-metrics-dashboard`).
+4. **Real connector APIs** para 5 Enterprise platforms:
+   `yelp-fusion-real`, `tripadvisor-business-real`, `trustpilot-business-real`,
+   `bbb-complaint-model-revisit-phase-11`, `avvo-legal-tos-review`.
+5. **WhatsApp Meta Business API** real (anchor `whatsapp-meta-real`).
+6. **PDF export real** para custom reports
+   (`custom-report-pdf-export-phase-11`).
+7. **Postgres-js consolidation** — retira pglite del production
+   path; testcontainer para integration tests (cierra
+   `dbas-tx-type`).
+
+**Carry-over anchors creados en Phase 10**
+
+- `rbac-rls-dynamic-policies-supabase-auth` (C36a)
+- `rbac-permission-check-perf-budget` (C36a)
+- `turbopack-builds-webpack-fallback-applied` (C36b)
+- `yelp-fusion-real` (C38)
+- `tripadvisor-business-real` (C38)
+- `trustpilot-business-real` (C38)
+- `bbb-complaint-model-revisit-phase-11` (C38)
+- `avvo-legal-tos-review` (C38)
+- `custom-report-pdf-export-phase-11` (C39)
+- `custom-report-realtime-refresh-phase-12` (C39)
+- `custom-report-builder-dnd-kit-phase-12` (C39)
+- `recharts-evaluation-phase-12-polish` (C39)
+
+---
+
 ### Added — Phase 10 / Commit 38 (Enterprise Networks · 5 platforms · polymorphic review cards · platform_specific render-only)
 
 Opens 5 Enterprise-tier verticals — **Yelp**, **TripAdvisor**,

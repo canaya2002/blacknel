@@ -56,3 +56,5 @@ export * from './role-permissions';
 export * from './custom-roles';
 export * from './audit-retention-policies';
 export * from './audit-anomalies';
+export * from './custom-reports';
+export * from './custom-report-widgets';

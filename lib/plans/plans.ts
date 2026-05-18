@@ -71,6 +71,13 @@ export interface PlanLimits {
    * any positive integer up to the DB CHECK ceiling (3650).
    */
   auditRetentionDaysMax: number;
+  /**
+   * Phase 10 / Commit 39 — Custom Report Builder cap per org.
+   * Bool gate is `PlanFeatures.customReports`; this limit only
+   * matters when the bool is `true`. Standard/Growth: 0 as
+   * second line of defense. Enterprise: 50.
+   */
+  maxCustomReportsPerOrg: number;
 }
 
 /** Granularity that a feature is available at, when not a plain boolean. */
@@ -102,6 +109,14 @@ export interface PlanFeatures {
    * Enterprise: true.
    */
   auditAdvanced: boolean;
+  /**
+   * Phase 10 / Commit 39 — Custom Report Builder Enterprise
+   * feature. Drag-drop dashboard with 5 widget kinds.
+   * Standard / Growth: false. Enterprise: true. `requirePlanFeature(plan,
+   * 'custom_reports')` is the gate. Cap lives on
+   * `PlanLimits.maxCustomReportsPerOrg`.
+   */
+  customReports: boolean;
 }
 
 export interface PlanDefinition {
@@ -132,6 +147,7 @@ export const PLANS = {
       storageBytes: 500_000_000, // 500 MB total
       maxCustomRoles: 0,
       auditRetentionDaysMax: 30,
+      maxCustomReportsPerOrg: 0,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp'],
@@ -147,6 +163,7 @@ export const PLANS = {
       reportBuilder: false,
       customRoles: false,
       auditAdvanced: false,
+      customReports: false,
     },
   },
   growth: {
@@ -165,6 +182,7 @@ export const PLANS = {
       storageBytes: 15_000_000_000, // 15 GB total
       maxCustomRoles: 0,
       auditRetentionDaysMax: 180,
+      maxCustomReportsPerOrg: 0,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
@@ -180,6 +198,7 @@ export const PLANS = {
       reportBuilder: false,
       customRoles: false,
       auditAdvanced: false,
+      customReports: false,
     },
   },
   enterprise: {
@@ -198,6 +217,7 @@ export const PLANS = {
       storageBytes: -1, // unlimited
       maxCustomRoles: 25,
       auditRetentionDaysMax: -1,
+      maxCustomReportsPerOrg: 50,
     },
     features: {
       networks: [
@@ -229,6 +249,7 @@ export const PLANS = {
       reportBuilder: true,
       customRoles: true,
       auditAdvanced: true,
+      customReports: true,
     },
   },
 } as const satisfies Record<PlanCode, PlanDefinition>;

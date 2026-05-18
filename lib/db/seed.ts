@@ -475,4 +475,14 @@ export async function seedDatabase(tx: AnyPgTx): Promise<void> {
     );
     await seedEnterpriseNetworks(tx);
   }
+
+  // --- Custom Report Builder demo (Phase 10 / Commit 39) ---
+  // 2 published custom reports on the demo org (Marketing
+  // Overview + Operations Dashboard) materialized from the
+  // bundled templates. Demo org runs on Growth so these are
+  // hidden behind the upgrade prompt until bumped to Enterprise.
+  if (env.BLACKNEL_SEED_CUSTOM_REPORTS) {
+    const { seedCustomReports } = await import('./seed-custom-reports');
+    await seedCustomReports(tx);
+  }
 }

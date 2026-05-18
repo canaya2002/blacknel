@@ -1222,6 +1222,105 @@ Decisión final pendiente. Reabrir al iniciar Phase 11.
 
 **Target phase.** Phase 11.
 
+## custom-report-pdf-export-phase-11
+
+**Problem.** Phase 10 / Commit 39 ships
+`exportCustomReportHtmlAction` as a stub: returns sanitized HTML
+of the rendered widget payloads (D-39-8 a). PDF generation
+deferred.
+
+**Why deferred.** PDF dependencies (puppeteer / playwright /
+jsPDF) add ~50-100MB to the deploy image. Phase 11 cutover
+already brings Vercel Functions + bigger deployable surface;
+PDF gen lands alongside.
+
+**Resolution criteria.** Phase 11:
+
+1. Choose engine — recommended **`@vercel/og` for chart-heavy
+   single-page** OR **playwright** for full multi-page reports.
+2. Wire `exportCustomReportPdfAction` that calls a Vercel
+   Function (or Vercel Sandbox) to render the same HTML the
+   stub produces today + return a PDF blob.
+3. Stream PDF via Server Action streaming response.
+4. Audit `custom_report.exported` with format=`pdf`.
+5. Retire `exportCustomReportHtmlAction` (or keep as
+   fallback for print-from-browser).
+
+**Target phase.** Phase 11.
+
+## custom-report-realtime-refresh-phase-12
+
+**Problem.** Phase 10 uses 60s LRU cache (D-39-3 b) — fine for
+demo + initial rollout, NOT for "realtime" dashboards where
+exec viewers want sub-minute freshness.
+
+**Why deferred.** Realtime requires either polling (wasteful) or
+WebSocket infra (Phase 12+ when we have actual operational load
+justifying it).
+
+**Resolution criteria.** Phase 12+:
+
+1. Add `realtimeRefresh: boolean` to `custom_reports.layout` jsonb
+   (still render-only — flag triggers client behavior, never
+   query).
+2. Wire Server-Sent Events or WebSocket via Vercel Functions
+   streaming. Each connected client receives invalidation
+   notifications when underlying data changes.
+3. Per-widget granular refresh (data source-driven) instead of
+   full report re-render.
+
+**Target phase.** Phase 12+.
+
+## custom-report-builder-dnd-kit-phase-12
+
+**Problem.** Phase 10 / Commit 39 ships **static-position
+builder** (numeric position inputs + add/remove/move buttons)
+instead of the spec'd DnD-kit drag-drop interaction. Data
+model + Server Actions + persistence all support drag-drop —
+only the visual interaction is deferred.
+
+**Why deferred.** DnD-kit adds ~35KB gzipped. Bundle budget
+review pending. Phase 10 priority was shipping the full data
+layer + actions + view/edit pages end-to-end with templates
+and seed.
+
+**Resolution criteria.** Phase 12 polish:
+
+1. Add `@dnd-kit/core` + `@dnd-kit/sortable` deps.
+2. **Dynamic import** inside `builder-canvas.tsx` so DnD-kit
+   loads only on `/reports/custom/[id]/edit` route, not on
+   view path.
+3. Replace `<PositionInput>` numeric controls with drag-drop
+   handles + sortable grid.
+4. Keyboard a11y — DnD-kit handles via `@dnd-kit/sortable`
+   keyboard sensor. Manual QA on the rúbrica step.
+5. Auto-save throttled to 1 save per 500ms (no per-pixel-move
+   spam to Server Action).
+
+**Target phase.** Phase 12 polish.
+
+## recharts-evaluation-phase-12-polish
+
+**Problem.** Phase 8 / Commit 27 decided vanilla SVG over
+recharts (decisión Fase 8). Phase 10 / Commit 39 inherited and
+shipped sparkline + distribution_chart as vanilla SVG.
+
+When Phase 12 polish revisits the whole charts surface (custom
+reports + Reports tabs + ads timeline + competitor trends +
+listening trend in one pass), revisit:
+
+**Resolution criteria.** Phase 12:
+
+1. Audit current vanilla SVG implementations across the
+   codebase. Count LOC of duplicated chart logic.
+2. If duplication > ~500 LOC OR if Phase 12 introduces new
+   chart kinds (heatmap, scatter, multi-axis) → evaluate
+   recharts. Otherwise stay vanilla.
+3. If migrating: tree-shake aggressively, keep `recharts`
+   import dynamic for edit views only.
+
+**Target phase.** Phase 12.
+
 ## avvo-legal-tos-review
 
 **Problem.** Connector `lib/connectors/avvo/` es stub Phase

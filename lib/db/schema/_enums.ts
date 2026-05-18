@@ -560,3 +560,40 @@ export const auditAnomalyStatusEnum = pgEnum('audit_anomaly_status', [
   'dismissed',
   'accepted',
 ]);
+
+// ---------------------------------------------------------------------------
+// Custom Report Builder (Phase 10 / Commit 39) — Enterprise-tier feature.
+//
+// `custom_report_status` lifecycle:
+//   draft     → published (publish action, layout validated strict)
+//   published → archived  (terminal)
+//   draft     → archived  (discard before publish)
+//
+// `custom_report_widget_kind` — 5 visualization primitives. Adding a
+// new kind requires migration + new widget renderer + Zod schema. The
+// closed set is intentional: a Drupal-style "anything goes" widget
+// catalog turns into maintenance hell.
+//
+// `custom_report_share_scope`:
+//   private          → only `created_by` user.
+//   org_visible      → any org member with `custom_reports:read`
+//                       (defense-in-depth via permission, not
+//                        membership alone — D-39-4).
+//   specific_users   → enumerated in `shared_with uuid[]` column.
+// ---------------------------------------------------------------------------
+
+export const customReportStatusEnum = pgEnum('custom_report_status', [
+  'draft',
+  'published',
+  'archived',
+]);
+
+export const customReportWidgetKindEnum = pgEnum(
+  'custom_report_widget_kind',
+  ['kpi_card', 'table', 'sparkline', 'distribution_chart', 'text_block'],
+);
+
+export const customReportShareScopeEnum = pgEnum(
+  'custom_report_share_scope',
+  ['private', 'org_visible', 'specific_users'],
+);

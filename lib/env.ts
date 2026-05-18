@@ -171,6 +171,14 @@ const envSchema = z.object({
    * `true`.
    */
   BLACKNEL_SEED_ENTERPRISE_NETWORKS: boolFromString(true),
+  /**
+   * Whether `seedDatabase()` seeds the Custom Report Builder demo
+   * (Phase 10 / Commit 39). 2 published custom reports (Marketing
+   * Overview, Operations Dashboard) using the bundled templates.
+   * Gated so integration tests can opt out and keep their seeded
+   * worlds focused. Default `true`.
+   */
+  BLACKNEL_SEED_CUSTOM_REPORTS: boolFromString(true),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),

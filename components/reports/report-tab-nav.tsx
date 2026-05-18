@@ -4,12 +4,14 @@ import { cn } from '@/lib/utils/cn';
 import type { ReportSection } from '@/lib/reports/period';
 
 interface ReportTabNavProps {
-  current: ReportSection;
+  current: ReportSection | 'custom';
   /** Carry-through of the rest of the searchParams (period, brandId). */
   searchParamsCarry: string;
 }
 
-const TABS: ReadonlyArray<{ key: ReportSection; label: string }> = [
+type TabKey = ReportSection | 'custom';
+
+const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: 'overview', label: 'Overview' },
   { key: 'inbox', label: 'Inbox' },
   { key: 'publishing', label: 'Publishing' },
@@ -17,6 +19,9 @@ const TABS: ReadonlyArray<{ key: ReportSection; label: string }> = [
   { key: 'ads', label: 'Ads' },
   // Phase 9 / Commit 34 — D-34-6 (a) scheduled reports tab.
   { key: 'scheduled', label: 'Scheduled' },
+  // Phase 10 / Commit 39 — Custom Report Builder. Enterprise-gated;
+  // the page-level handler shows the upgrade prompt for non-Enterprise.
+  { key: 'custom', label: 'Custom' },
 ];
 
 /**
@@ -31,6 +36,28 @@ export function ReportTabNav({
   return (
     <nav className="flex gap-1 border-b bg-card/20 px-6">
       {TABS.map((t) => {
+        // Custom tab routes to its dedicated /reports/custom subtree
+        // — it's a multi-page surface (list / view / edit / new), not
+        // an inline content swap on /reports.
+        if (t.key === 'custom') {
+          const active = current === 'custom';
+          return (
+            <Link
+              key={t.key}
+              href="/reports/custom"
+              prefetch={false}
+              scroll={false}
+              className={cn(
+                'border-b-2 px-3 py-2 text-sm',
+                active
+                  ? 'border-foreground font-medium'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t.label}
+            </Link>
+          );
+        }
         const params = new URLSearchParams(searchParamsCarry);
         params.delete('section');
         params.delete('fresh');

@@ -60,7 +60,9 @@ export type Permission =
   | 'listening:read'
   | 'competitors:read'
   | 'competitors:manage'
-  | 'scheduled_reports:manage';
+  | 'scheduled_reports:manage'
+  | 'custom_reports:read'
+  | 'custom_reports:write';
 
 /**
  * Phase 10 / Commit 36a — exported for Zod whitelist in
@@ -113,6 +115,8 @@ export const ALL_PERMISSIONS: ReadonlyArray<Permission> = [
   'competitors:read',
   'competitors:manage',
   'scheduled_reports:manage',
+  'custom_reports:read',
+  'custom_reports:write',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
@@ -166,6 +170,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'competitors:read',
     'competitors:manage',
     'scheduled_reports:manage',
+    'custom_reports:read',
+    'custom_reports:write',
   ],
 
   // Manager: full operational reach (reply, approve, publish, automate,
@@ -209,6 +215,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'competitors:read',
     'competitors:manage',
     'scheduled_reports:manage',
+    'custom_reports:read',
+    'custom_reports:write',
   ],
 
   // Agent: front-line operator. Reads and replies, drafts and
@@ -237,6 +245,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'nps:read',
     'listening:read',
     'competitors:read',
+    'custom_reports:read',
   ],
 
   // Viewer: read-only, end-of-pipeline visibility for stakeholders.
@@ -254,5 +263,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlyArray<Permission>> = {
     'nps:read',
     'listening:read',
     'competitors:read',
+    'custom_reports:read',
   ],
 };
