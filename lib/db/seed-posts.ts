@@ -202,10 +202,19 @@ export async function seedPosts(tx: AnyPgTx): Promise<void> {
   // Look up the org's connected accounts. If the operator opted
   // out of BLACKNEL_SEED_CONNECTED, this returns empty and we
   // skip target rows entirely — the parent list view still works.
+  // ORDER BY is load-bearing: without it, pglite / Postgres can return
+  // accountRows in different orders between seed runs. The rnd-driven
+  // index picks below then map to different accounts each run, and the
+  // (post_id, connected_account_id) pairs we generate stop being stable.
+  // That collides with `post_targets_post_account_active_unique` (partial
+  // unique, WHERE status <> 'failed') on the second seed run because the
+  // ON CONFLICT below only covers the PK. See commit message + history
+  // for the full diagnosis.
   const accountRows = await tx
     .select({ id: connectedAccounts.id, platform: connectedAccounts.platform })
     .from(connectedAccounts)
-    .where(eq(connectedAccounts.organizationId, ORG));
+    .where(eq(connectedAccounts.organizationId, ORG))
+    .orderBy(connectedAccounts.id);
 
   if (accountRows.length === 0) return;
 
@@ -246,10 +255,13 @@ export async function seedPosts(tx: AnyPgTx): Promise<void> {
   });
 
   if (targetRows.length > 0) {
-    await tx
-      .insert(postTargets)
-      .values(targetRows)
-      .onConflictDoNothing({ target: postTargets.id });
+    // No `target:` — Postgres `ON CONFLICT DO NOTHING` without a conflict
+    // target swallows ANY unique / exclusion constraint violation. Defense
+    // in depth against the partial unique index
+    // `post_targets_post_account_active_unique` if the ORDER BY above ever
+    // stops being enough (e.g. another seed adds connected_accounts mid-
+    // run). FK / NOT NULL violations are NOT silenced — those still error.
+    await tx.insert(postTargets).values(targetRows).onConflictDoNothing();
   }
 
   // Silence unused-imports lint if a future refactor moves the
