@@ -163,6 +163,67 @@ in `TODO.md#rbac-rls-dynamic-policies-supabase-auth`.
 
 ---
 
+## Triple-layer defense-in-depth (Phase 11 / Commit 42c)
+
+C42c lands RESTRICTIVE RLS policies on **four critical tables**
+that promote the C36a dual TS+DB enforcement to a triple
+TS+DB+RLS stack. The gate is the third layer; both prior layers
+remain in place and are NOT to be removed in C42c.
+
+### Three layers
+
+| Layer | Where | When it fires | Failure mode |
+|---|---|---|---|
+| 1. `authorize(role, perm)` | every Server Action (144 callers) | always (cheap, mock-friendly) | TS error caught by `<form>` action / error boundary → user toast |
+| 2. `assertPermissionInDb(session, perm)` | the 10 critical actions in `lib/permissions/db-check.ts` | always for those 10 (one DB round-trip each) | `AppError('FORBIDDEN', …)` → 403 |
+| 3. RESTRICTIVE RLS policies (migration 0023) | 4 critical tables, when `blacknel.rls_dynamic = 'on'` | per-row during query execution | UPDATE/DELETE → 0 rows affected (silent); INSERT → "new row violates RLS policy" error |
+
+### Which 4 tables + which operations are gated
+
+| Table | Operation | Required permission |
+|---|---|---|
+| `posts` | UPDATE | `posts:publish` |
+| `posts` | DELETE | `posts:delete` |
+| `audit_events` | SELECT | `audit:read` |
+| `custom_roles` | INSERT | `team:manage_roles` |
+| `custom_roles` | UPDATE | `team:manage_roles` |
+| `custom_roles` | DELETE | `team:manage_roles` |
+
+`custom_roles` SELECT stays tenant-only — any org member can list
+the custom roles defined in their org (UI surface). `subscriptions`
+mutations stay behind `dbAdmin` (no GRANT to authenticated) so no
+RLS gate is needed for now.
+
+### The `blacknel.rls_dynamic` flag
+
+The third layer is gated by a Postgres setting that the operator
+flips via `pnpm db:rls on/off` (which issues `ALTER DATABASE …
+SET blacknel.rls_dynamic = …`). Default is "off" → restrictive
+policies short-circuit as no-ops, behaviour is identical to C42b.
+Rollback is a single SQL statement and takes effect on the next
+session reconnect — no redeploy required.
+
+Full procedure: `doc/runbooks/rls-rollback.md`.
+
+### Do NOT remove layer 2 (`assertPermissionInDb`)
+
+Layer 2 is the fallback that lets the operator flip layer 3 off
+without losing security guarantees during an incident. Removal
+happens (if at all) in the C50 closure pass after months of stable
+layer-3 operation, and only with explicit charter sign-off.
+
+### Where the RLS denial UX surfaces
+
+The third layer's denials are silent for UPDATE/DELETE (Postgres
+USING semantics — invisible rows yield 0 affected). End-user UX
+errors still come from layers 1/2 because those fire first for
+any authenticated request. RLS catches only the bypass path —
+the place we don't expect to see traffic. If Sentry shows "0
+rows updated" from layer 3 during normal operation, that signals
+a layer-1/2 bug to investigate.
+
+---
+
 ## Build configuration (Phase 10 / Commit 36b)
 
 Blacknel uses two different bundlers:

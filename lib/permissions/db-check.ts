@@ -11,6 +11,9 @@ import type { Permission } from './roles';
 /**
  * Phase 10 / Commit 36a — dual TS+DB enforcement primitive.
  *
+ * Phase 11 / Commit 42c — promoted to **triple** TS+DB+RLS defense-
+ * in-depth on four critical tables. See "Three layers" below.
+ *
  * # Why this exists
  *
  * The 144 `authorize(session.role, permission)` callers across
@@ -27,6 +30,28 @@ import type { Permission } from './roles';
  * as `lib/custom-roles/resolve.ts` but reads the live DB state
  * (`organization_members.custom_role_id` + `custom_roles` +
  * `role_permissions`). Bypass of the TS layer cannot bypass this.
+ *
+ * # Three layers (Phase 11 / C42c onward)
+ *
+ *   Layer 1 — `authorize(role, permission)` in TS Server Actions.
+ *             Fast, mock-friendly, every caller hits it.
+ *   Layer 2 — `assertPermissionInDb(session, permission)` HERE.
+ *             DB round-trip; used by the 10 critical actions; bypass
+ *             of layer 1 is caught here.
+ *   Layer 3 — RESTRICTIVE RLS policies on `posts UPDATE/DELETE`,
+ *             `audit_events SELECT`, `custom_roles INSERT/UPDATE/DELETE`
+ *             (migration 0023). Bypass of layers 1+2 is caught here.
+ *
+ * Layer 3 is gated by the `blacknel.rls_dynamic` Postgres setting
+ * (operator-flipped via `pnpm db:rls on/off`). When the setting is
+ * `off` (default), layer 3 short-circuits and layers 1+2 are the
+ * only enforcement — that is the rollback path documented in
+ * `doc/runbooks/rls-rollback.md`.
+ *
+ * **Do NOT remove `assertPermissionInDb()` calls** when C42c ships.
+ * Layer 2 is the fallback that lets the operator flip layer 3 off
+ * without losing security guarantees. Removal happens (if at all)
+ * in C50 closure pass after months of stable layer-3 operation.
  *
  * # When to use
  *

@@ -213,6 +213,23 @@ const envSchema = z.object({
    */
   BLACKNEL_USE_REAL_AUTH: boolFromString(false),
   /**
+   * Phase 11 / Commit 42c — Dynamic RLS policies awareness flag.
+   *
+   * **Pure visibility flag — does NOT control behavior.** The actual
+   * RLS dynamic-policies switch lives at the Postgres layer as the
+   * `blacknel.rls_dynamic` database setting, flipped via
+   * `pnpm db:rls on/off`. This env var lets app code know whether
+   * the operator intended the dynamic gate to be active (useful for
+   * surfacing degraded-mode banners, debug logs, or matching the
+   * cookie-secret rotation policy if/when needed).
+   *
+   * Default false. Flip in Vercel env to mirror the SQL-side state
+   * after running `pnpm db:rls on` against the matching environment.
+   * Mismatch is non-fatal — RLS uses the SQL setting as truth, this
+   * flag is informational only.
+   */
+  BLACKNEL_USE_REAL_RLS_DYNAMIC: boolFromString(false),
+  /**
    * Phase 11 / Commit 40 — Sentry DSN. Public-safe value but rate-
    * limit-attackable; Sentry Spike Protection mitigates.
    */

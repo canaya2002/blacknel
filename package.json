@@ -22,7 +22,8 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm test",
     "db:migrate": "tsx --tsconfig=tsconfig.scripts.json scripts/migrate.ts",
     "db:seed": "tsx --tsconfig=tsconfig.scripts.json scripts/seed.ts",
-    "db:reset": "tsx --tsconfig=tsconfig.scripts.json scripts/reset-db.ts"
+    "db:reset": "tsx --tsconfig=tsconfig.scripts.json scripts/reset-db.ts",
+    "db:rls": "tsx --tsconfig=tsconfig.scripts.json scripts/rls-switch.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.2",
