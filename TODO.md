@@ -1321,6 +1321,78 @@ listening trend in one pass), revisit:
 
 **Target phase.** Phase 12.
 
+## phase-11-listening-vendor-decision
+
+**Problem.** C49 (Listening cutover) requires a vendor — Brand24,
+Mention.com, Google Alerts (DIY) o solución custom. Decision
+deferida hasta tener trials comparados.
+
+**Why deferred.** Vendor lock-in con costo de migración alto.
+Decisión apurada = años pagando por suite subóptima. Trial
+adecuado lleva 2-3 semanas.
+
+**Resolution criteria.** Antes de C49:
+
+1. Trial 14 días de Brand24 ($99/mo Mid plan).
+2. Trial 14 días de Mention.com ($41/mo Solo plan).
+3. Evaluar DIY (Google Alerts via Apps Script + RSS parsing).
+4. Documento comparativo en `doc/phase-11/listening-vendor-comparison.md`:
+   - Calidad sentiment classification (muestra 50 mentions reales).
+   - Idiomas soportados (mínimo ES + EN + PT).
+   - Rate limits + cost per workspace.
+   - Export format (CSV / JSON / API webhook).
+   - Vendor switch cost estimado (cómo migramos si después
+     queremos cambiar).
+5. Decisión final: ✅ vendor seleccionado + razones documentadas.
+
+**Target phase.** Phase 11, pre-C49.
+
+## phase-11-competitors-vendor-decision
+
+**Problem.** C49 (Competitors cutover) requires vendor — SimilarWeb,
+Brand24, custom scrape. Mismo problema que listening.
+
+**Why deferred.** Idem listening.
+
+**Resolution criteria.** Antes de C49:
+
+1. Trial 14 días de SimilarWeb ($200+/mo Starter).
+2. Re-usar trial Brand24 del listening (algunos planes incluyen
+   competitor tracking).
+3. Evaluar scraping custom (revisar TOS de cada platform —
+   blocker legal probable).
+4. Documento `doc/phase-11/competitors-vendor-comparison.md`:
+   - Reach metrics methodology.
+   - Share-of-voice calculation transparency.
+   - Refresh cadence (daily / weekly / monthly).
+   - Geographic coverage (LATAM focus matters).
+   - Cost per competitor tracked.
+5. Decisión final: ✅ vendor seleccionado + razones documentadas.
+
+**Target phase.** Phase 11, pre-C49.
+
+## kill-switch-two-person-rule-when-team-grows
+
+**Problem.** `doc/runbooks/kill-switch.md` Phase 11 / Commit 40
+documenta procedure solo-operator (Carlos). Cuando crezca equipo
+a ≥2 personas, debe migrar a 2-person rule (1 propone flip, 1
+confirma en Slack ANTES del flip).
+
+**Why deferred.** Carlos solo hoy. Procedure 2-person requiere
+canal Slack + colaborador async. No tiene sentido implementar
+antes de tener 2do operador.
+
+**Resolution criteria.** Cuando hire 2nd engineer:
+
+1. Update `doc/runbooks/kill-switch.md` con 2-person procedure
+   reemplazando "Solo-operator procedure".
+2. Setup canal Slack `#blacknel-ops` con notificaciones.
+3. Dry-run del procedure con un kill switch flip controlado en
+   staging.
+4. Documentar en CHANGELOG cuándo se cambió la procedure.
+
+**Target phase.** N/A — gated por hiring, no por phase.
+
 ## avvo-legal-tos-review
 
 **Problem.** Connector `lib/connectors/avvo/` es stub Phase

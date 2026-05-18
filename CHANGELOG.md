@@ -7,6 +7,126 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Phase 11 / Commit 40 (Observability + kill switch + demo org + Phase 11 runbooks · OPENS PHASE 11)
+
+Opens Phase 11 (cutover APIs reales) with **operational foundation
+before any risky cutover**. Six concrete operational primitives
+that the next 10 commits depend on:
+
+1. **Sentry + PostHog** (`lib/observability/{sentry,posthog,redact}.ts`).
+   Thin wrappers that no-op when disabled. `redact()` strips PII +
+   secrets via key-name + content-pattern matching (defense in
+   depth before send). Sentry per-runtime init via `instrumentation.ts`
+   hook (Node + Edge).
+2. **Global kill switch** (`lib/kill-switch/check.ts` +
+   `proxy.ts`). Three states: `false` / `read-only` / `true`. Read-only
+   blocks mutating methods while preserving reads — the right
+   first response to most cutover anomalies. Bypass list keeps
+   `/api/health`, `/maintenance`, `/_next/*`, `/favicon.ico`, and
+   `/api/admin/kill-switch-status` reachable even when the switch
+   is fully on.
+3. **Maintenance page** (`app/(maintenance)/maintenance/page.tsx`) —
+   self-contained, no DB/Auth dependency. HTML clients redirect
+   here (307), JSON clients get `error: 'MAINTENANCE'` JSON +
+   `Retry-After: 300`.
+4. **Health endpoint** (`app/api/health/route.ts`) — bypass-listed.
+   Returns kill switch state + timestamp. Cheap; no DB touch.
+   External monitors (Vercel, UptimeRobot) poll this.
+5. **Master org + admin route group** (`lib/auth/master-org.ts` +
+   `app/(admin)/admin/*`). `BLACKNEL_MASTER_ORG_ID` identifies
+   Blacknel-internal org. Its owner sees `/admin/*` — everyone
+   else hits `notFound()` (no disclosure). Cost dashboard stub
+   ready for C43 wiring.
+6. **Production demo org seed** (`lib/db/seed-demo-prod.ts`) —
+   wraps `seedDatabase` so production can populate the same demo
+   org Sales uses in dev. Gated by `BLACKNEL_SEED_DEMO_ORG`; UUIDs
+   identical across environments. Activation procedure in runbook.
+
+**Runbooks + post-mortem template + Phase 11 docs**
+
+- `doc/runbooks/kill-switch.md` — three-state semantics + solo-
+  operator procedure with **incident-open commit BEFORE flipping
+  the env** (Ajuste: audit trail in git, not Slack).
+- `doc/runbooks/demo-org.md` — UUIDs (referencing `SEED_IDS`),
+  activation procedure (env on → deploy → verify → env off),
+  reset procedure, credentials in 1Password (NOT in runbook).
+- `doc/runbooks/staging-environment.md` — `staging.blacknel.app`
+  setup (Vercel project, Supabase Free tier, env vars list,
+  synthetic-tx placement for C44, TLS verification).
+- `doc/post-mortems/_template.md` — full skeleton (metadata,
+  timeline, 5 whys, impact, what worked, what didn't, action
+  items, permanent fix, lessons learned).
+- `doc/post-mortems/README.md` — how to file + why git over Slack.
+- `doc/phase-11/README.md` — Phase 11 master index.
+- `doc/phase-11/cutover-checklist.md` — per-commit checklist
+  template (pre-commit / pre-deploy / deploy / post-deploy /
+  cutover graduation / incident-during-cutover).
+
+**Solo-operator procedure (Carlos pre-team)** (Ajuste):
+
+The kill switch requires committing an `incident-YYYYMMDD-HHMM.md`
+post-mortem draft to `doc/post-mortems/` BEFORE flipping
+`BLACKNEL_KILL_SWITCH`. Commit message starts with `incident-open:`.
+This forces an audit trail in git even when only one operator is
+on call. When team grows to ≥2 engineers, procedure evolves to
+2-person rule (tracked at
+`TODO.md#kill-switch-two-person-rule-when-team-grows`).
+
+**Charter touches**
+
+| File | Phase | Change |
+|---|---|---|
+| `lib/env.ts` | 1 | +7 env vars (BLACKNEL_USE_REAL_SENTRY/POSTHOG, SENTRY_DSN, POSTHOG_KEY/HOST, BLACKNEL_KILL_SWITCH, BLACKNEL_SEED_DEMO_ORG, BLACKNEL_MASTER_ORG_ID) |
+| `proxy.ts` | 2 (C7) | kill switch check FIRST in chain (auth checks unchanged below) |
+| `instrumentation.ts` | 6 (C20a) | +Sentry per-runtime init + Sentry onRequestError export |
+| `next.config.ts` | 1 | no change (Sentry config files use Next 16 instrumentation hook, not next-config wrap) |
+| `package.json` | — | +deps: `@sentry/nextjs`, `posthog-node`, `posthog-js` |
+
+All aditive. Existing flows untouched — kill switch defaults to
+`false`, Sentry/PostHog disabled by default.
+
+**D-40-1..5 confirmed**
+
+- D-40-1 (b) — Sentry over Vercel native.
+- D-40-2 (a) — PostHog Cloud.
+- D-40-3 (b) — Minimal maintenance page + support email.
+- D-40-4 (b) — Global kill switch only (per-org override deferred).
+- D-40-5 (b) — Synthetic transactions wired in C44 (Inngest).
+
+**R-40-1..5 mitigated**
+
+- R-40-1 — Sentry Spike Protection planned + sampling 0.5 client.
+- R-40-2 — PostHog identifies only by hashed userId/orgId (no PII).
+- R-40-3 — `incident-open` commit BEFORE flip — git is audit trail.
+- R-40-4 — Demo org seed idempotent + UUIDs in reserved range.
+- R-40-5 — Sentry tier monitoring documented in runbook (Spike
+  Protection mention).
+
+**Tests (+27, total 1284 pasando · target ≥1270)**
+
+- `tests/unit/observability-redact.test.ts` (10) — secret keys,
+  PII hashing, content-pattern matching, recursion, arrays.
+- `tests/unit/observability-sentry.test.ts` (2) — disabled by
+  default, no-op resilience.
+- `tests/unit/kill-switch-check.test.ts` (7) — bypass list, 3
+  states × method coverage.
+- `tests/unit/master-org-guard.test.ts` (8) — isMasterOrg,
+  isMasterOrgOwner, requireMasterOrgOwner across role/org cells.
+
+**TODO.md anchors added**
+
+- `phase-11-listening-vendor-decision` — Brand24 vs Mention.com vs
+  DIY trial + comparison doc before C49.
+- `phase-11-competitors-vendor-decision` — SimilarWeb vs Brand24
+  vs DIY trial + comparison doc before C49.
+- `kill-switch-two-person-rule-when-team-grows` — evolve solo
+  procedure when team hires 2nd engineer.
+
+**Build status** — `pnpm verify` ✅ 1284/1291 (target ≥1270),
+7 skipped. `pnpm build --webpack` ✅ verde primer intento.
+
+---
+
 ### Added — Phase 10 / Commit 39 (Custom Report Builder + CLOSES PHASE 10)
 
 Closes Phase 10 with the most demoable Enterprise feature: a custom

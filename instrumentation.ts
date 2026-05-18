@@ -1,23 +1,36 @@
 /**
- * Next.js 16 instrumentation hook (Commit 20a).
+ * Next.js 16 instrumentation hook (Commit 20a, extended C40).
  *
- * Runs once per Node.js process start. We use it to arrancar el
- * publish-job cron — but only in the development runtime where
- * the gates inside `startPublishCron()` open. Production and
- * test never reach the start path; the function is a no-op for
- * them by design.
+ * Runs once per runtime process start. Two responsibilities:
+ *
+ *   1. **Sentry init per runtime** (C40) — `sentry.server.config.ts`
+ *      for Node, `sentry.edge.config.ts` for middleware/Edge. Inits
+ *      are no-ops when `BLACKNEL_USE_REAL_SENTRY=false` or
+ *      `SENTRY_DSN` is missing.
+ *
+ *   2. **Publish-job cron** (C20a) — Node-only. The cron is
+ *      `setInterval`-based, so the edge runtime branches out via
+ *      the `NEXT_RUNTIME` guard. Cron is retired in C44 when Inngest
+ *      Cloud takes over the schedule.
  *
  * Reference: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
 
 export async function register(): Promise<void> {
-  // Next.js calls `register` on both the Node.js and edge
-  // runtimes. The cron is a `setInterval` (Node.js only). The
-  // dynamic import guards against accidental edge-runtime
-  // execution AND avoids pulling `server-only` modules into the
-  // edge bundle.
+  // Sentry first so any error during the cron startup itself is
+  // captured.
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    await import('./sentry.server.config');
+  } else if (process.env.NEXT_RUNTIME === 'edge') {
+    await import('./sentry.edge.config');
+  }
+
+  // Cron only runs on Node. setInterval requires a long-lived
+  // process; the edge runtime is request-scoped.
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
   const { startPublishCron } = await import('@/lib/jobs/cron-loop');
   startPublishCron();
 }
+
+export { captureRequestError as onRequestError } from '@sentry/nextjs';

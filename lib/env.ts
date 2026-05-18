@@ -179,6 +179,73 @@ const envSchema = z.object({
    * worlds focused. Default `true`.
    */
   BLACKNEL_SEED_CUSTOM_REPORTS: boolFromString(true),
+  /**
+   * Phase 11 / Commit 40 — Sentry observability flag. Production
+   * captures unhandled errors and forwards via `lib/observability/sentry.ts`.
+   * Dev/preview default off — Sentry DSN missing → wrapper no-ops.
+   */
+  BLACKNEL_USE_REAL_SENTRY: boolFromString(false),
+  /**
+   * Phase 11 / Commit 40 — PostHog analytics flag. When on,
+   * `lib/observability/posthog.ts` captures named events
+   * (custom_report.created, nps_response.submitted, …). Identifies
+   * by (orgId, userId, planCode) only — no PII.
+   */
+  BLACKNEL_USE_REAL_POSTHOG: boolFromString(false),
+  /**
+   * Phase 11 / Commit 40 — Sentry DSN. Public-safe value but rate-
+   * limit-attackable; Sentry Spike Protection mitigates.
+   */
+  SENTRY_DSN: z.string().optional(),
+  /**
+   * Phase 11 / Commit 40 — PostHog project API key. Public-safe.
+   */
+  POSTHOG_KEY: z.string().optional(),
+  /**
+   * Phase 11 / Commit 40 — PostHog API host. Defaults to PostHog
+   * Cloud US; EU customers override.
+   */
+  POSTHOG_HOST: z.string().url().default('https://us.posthog.com'),
+  /**
+   * Phase 11 / Commit 40 — global kill switch.
+   *
+   *   `false` (default)  → app serves normally.
+   *   `read-only`        → GETs serve, POSTs/PUTs/DELETEs return 503.
+   *   `true`             → all routes return 503 + Retry-After.
+   *
+   * Activation procedure documented in `doc/runbooks/kill-switch.md`.
+   * Solo-operator rule (Carlos pre-team): create an
+   * `incident-YYYYMMDD-HHMM.md` post-mortem draft and commit
+   * BEFORE flipping the env var (audit trail in git).
+   *
+   * `/api/health`, `/maintenance` and static assets bypass the
+   * switch so monitoring + status pages stay reachable.
+   */
+  BLACKNEL_KILL_SWITCH: z
+    .enum(['false', 'read-only', 'true'])
+    .default('false'),
+  /**
+   * Phase 11 / Commit 40 — production demo org seed flag.
+   *
+   * Only honored in production when explicitly set. The seed is
+   * idempotent (ON CONFLICT DO NOTHING) but UUIDs match the dev
+   * `SEED_IDS.org.demo` so Sales screenshares are identical
+   * across environments. Procedure: set true, deploy, verify,
+   * UNSET (so subsequent deploys don't re-trigger).
+   */
+  BLACKNEL_SEED_DEMO_ORG: boolFromString(false),
+  /**
+   * Phase 11 / Commit 40 — Blacknel-internal master org UUID.
+   *
+   * Gates `/admin/*` routes. Owner of this org sees the cost
+   * dashboard, kill switch admin, post-mortem index. Dev default
+   * is the standard demo org for convenience; production sets a
+   * dedicated UUID.
+   */
+  BLACKNEL_MASTER_ORG_ID: z
+    .string()
+    .uuid()
+    .default('11111111-1111-4111-8111-111111111111'),
 
   // --- Logging ---
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),
