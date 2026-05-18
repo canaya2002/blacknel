@@ -44,8 +44,16 @@ BEGIN
 END $$;
 
 -- Defensive: ensure BYPASSRLS is set on service_role even if it pre-existed
--- without it (e.g., a manually created role on a non-Supabase DB).
-ALTER ROLE service_role WITH BYPASSRLS;
+-- without it (e.g., a manually created role on a non-Supabase DB). On
+-- Supabase the role is reserved and locked by `supautils` — the ALTER is
+-- redundant (Supabase pre-provisions BYPASSRLS) and would fail with
+-- insufficient_privilege, so we swallow that case.
+DO $$
+BEGIN
+  ALTER ROLE service_role WITH BYPASSRLS;
+EXCEPTION WHEN insufficient_privilege THEN
+  NULL;
+END $$;
 
 -- The connection role (`postgres` on Supabase, `postgres` on pglite) must
 -- have membership in both roles so SET LOCAL ROLE works in transactions.

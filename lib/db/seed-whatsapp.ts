@@ -318,6 +318,13 @@ export async function seedWhatsapp(tx: AnyPgTx): Promise<void> {
         inboxThreads.platform,
         inboxThreads.externalThreadId,
       ],
+      // `inbox_threads_org_platform_external_unique` is a PARTIAL unique
+      // index (`WHERE external_thread_id IS NOT NULL`). Real Postgres
+      // refuses to infer a partial index as an arbiter unless the
+      // ON CONFLICT clause carries the same predicate. pglite is more
+      // lenient here, which is why this only surfaced against Supabase.
+      // Drizzle 0.36 `onConflictDoNothing` reads `where`, not `targetWhere`.
+      where: sql`external_thread_id IS NOT NULL`,
     });
 
   await tx
