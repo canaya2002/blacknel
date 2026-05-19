@@ -87,6 +87,14 @@ async function bootDevDb(): Promise<{
   // Stub `auth.users` so migration 0003 can attach its trigger. In
   // Phase 11 production this table is owned by Supabase Auth (GoTrue);
   // here it's a thin local table we control.
+  //
+  // Stub the `anon` role too — Supabase ships it pre-provisioned for
+  // unauthenticated requests; pglite does not. Migration 0024 GRANTs
+  // SELECT on runtime_config TO anon, which fails without this stub.
+  // 0000_setup.sql already wraps `authenticated` and `service_role`
+  // with the same idempotent CREATE pattern — this is the third role
+  // and stays out of the migration so we don't drift the applied sha
+  // on prod.
   await pg.exec(`
     CREATE SCHEMA IF NOT EXISTS auth;
     CREATE TABLE IF NOT EXISTS auth.users (
@@ -94,6 +102,12 @@ async function bootDevDb(): Promise<{
       email       text,
       created_at  timestamptz NOT NULL DEFAULT now()
     );
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN NOINHERIT;
+      END IF;
+    END $$;
   `);
 
   const adapter: MigrationRunnerAdapter = {

@@ -61,24 +61,36 @@ pnpm db:rls off
 The script issues:
 
 ```sql
-ALTER DATABASE <current_database> SET blacknel.rls_dynamic = 'off';
+UPDATE runtime_config SET value = 'off', updated_at = now()
+WHERE key = 'rls_dynamic';
 ```
 
-and verifies via `pg_db_role_setting` that the persisted value matches.
+and verifies the row returned by `RETURNING value` matches.
 
-### 3. Force connection cycling (optional but recommended)
+> **Note (2026-05-19):** the original C42c design flipped a custom
+> Postgres GUC via `ALTER DATABASE … SET blacknel.rls_dynamic`. Supabase
+> managed rejects that on the `postgres` role (it lacks `rolsuper`, and
+> custom GUCs are not pre-registered) with `42501 permission denied to
+> set parameter`. Migration `0024_runtime_config.sql` replaced the GUC
+> with a one-row `runtime_config` table that any `postgres` connection
+> can `UPDATE`. The helper `app_rls_dynamic_enabled()` was extended to
+> read both sources — session-local GUC first (preserves
+> `SET LOCAL blacknel.rls_dynamic = 'on'` in CI tests), then the table.
 
-`ALTER DATABASE SET` applies to NEW sessions. Existing pooled
-connections retain their inherited value. To force cycle on Vercel:
+### 3. New sessions pick up the value immediately
 
-- Trigger a redeploy (Vercel functions restart on deploy → new
-  connections → new sessions → new flag value).
-- Or wait ~10 min for normal cold-start cycling.
+Unlike the previous `ALTER DATABASE` mechanism (which only affected
+new connections), an UPDATE on `runtime_config` is visible to every
+new transaction immediately. Existing in-flight transactions still
+see the snapshot from when they started — Postgres MVCC — so a
+long-running tx may briefly straddle the change. Typical Vercel
+function transactions are <100ms; effective propagation is bounded
+by request duration.
 
-For maximum speed:
+There is no need to force-cycle the pool. If you want to drop
+in-flight queries anyway (maintenance window, urgent rollback):
 
 ```powershell
-# (Optional) Sigkill pooled connections so they reconnect fresh.
 psql "$env:DATABASE_URL" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid != pg_backend_pid();"
 ```
 
@@ -92,7 +104,8 @@ exceeds the cost of dropped requests.
 pnpm db:rls status
 ```
 
-Expected output: `blacknel_rls_dynamic: off`.
+Expected output: `rls_dynamic: "off"` (plus the `updated_at` timestamp
+from the UPDATE).
 
 In the app, the RESTRICTIVE policies now short-circuit. Test
 manually: a viewer should now be able to UPDATE a post (the
@@ -159,9 +172,10 @@ were considered sufficient before C42c.
   installed, just toggle the flag. Re-installing them is a
   migration that requires redeploy and risks drift.
 - ❌ Using `psql` against the production DB to flip the flag
-  outside the `pnpm db:rls` script — the script's `pg_db_role_setting`
-  verify step catches "appeared to succeed but didn't persist"
-  edge cases that raw `psql` would miss.
+  outside the `pnpm db:rls` script — the script's `RETURNING` verify
+  step catches "appeared to succeed but didn't persist" edge cases
+  that raw `psql` would miss. Direct `UPDATE runtime_config` is
+  recoverable but bypasses the operator log entry.
 
 ## Related runbooks
 

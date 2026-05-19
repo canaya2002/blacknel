@@ -45,6 +45,11 @@ export async function createTestDb(): Promise<TestDb> {
   // Supabase normally provisions auth.users via GoTrue. For a plain
   // Postgres-in-WASM we have to create a stand-in so migration 0003 can
   // attach `on_auth_user_created` to it.
+  //
+  // Stub the `anon` role too — Supabase ships it pre-provisioned for
+  // unauthenticated requests; pglite does not. Migration 0024 GRANTs
+  // SELECT on runtime_config TO anon. Keeping the CREATE ROLE out of
+  // the migration avoids drifting the applied sha on prod.
   await pg.exec(`
     CREATE SCHEMA IF NOT EXISTS auth;
     CREATE TABLE IF NOT EXISTS auth.users (
@@ -52,6 +57,12 @@ export async function createTestDb(): Promise<TestDb> {
       email       text,
       created_at  timestamptz NOT NULL DEFAULT now()
     );
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN NOINHERIT;
+      END IF;
+    END $$;
   `);
 
   // ---- 2. Apply migrations ----------------------------------------------
