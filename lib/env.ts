@@ -59,6 +59,19 @@ const envSchema = z.object({
    */
   META_APP_SECRET: z.string().min(1).optional(),
 
+  /**
+   * Verify-token Meta echoes back when subscribing the webhook URL
+   * (`/api/webhooks/meta`). Carlos sets this in both Vercel (this
+   * env var) AND in the Meta App Dashboard's webhook config — they
+   * must match exactly. 32-char random hex is the recommended shape;
+   * see runbook for rotation procedure. Optional in dev — GET
+   * verification returns 503 in prod when unset.
+   *
+   * NOT used by POST event ingestion (those are HMAC-signed with
+   * META_APP_SECRET, not this token).
+   */
+  META_WEBHOOK_VERIFY_TOKEN: z.string().min(1).optional(),
+
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),
   BLACKNEL_MOCK_ERRORS: boolFromString(false),

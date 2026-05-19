@@ -609,3 +609,16 @@ export const metaDeletionStatusEnum = pgEnum('meta_deletion_status', [
   'processed',
   'failed',
 ]);
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Meta webhook endpoint (/api/webhooks/meta).
+// pending  → received + signature-valid; awaiting C45 processor.
+// processed → C45 processor handled the event (org-scoped fan-out done).
+// failed   → unrecoverable processor error; failure_reason filled.
+// ---------------------------------------------------------------------------
+
+export const metaWebhookEventStatusEnum = pgEnum('meta_webhook_event_status', [
+  'pending',
+  'processed',
+  'failed',
+]);
