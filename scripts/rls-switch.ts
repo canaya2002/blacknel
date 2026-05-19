@@ -2,42 +2,38 @@
 /**
  * Phase 11 / Commit 42c — operator switch for the dynamic-RLS feature.
  *
- *   pnpm db:rls on     → ALTER DATABASE … SET blacknel.rls_dynamic = 'on'
- *   pnpm db:rls off    → ALTER DATABASE … SET blacknel.rls_dynamic = 'off'
- *   pnpm db:rls status → SELECT current_setting('blacknel.rls_dynamic', true)
+ *   pnpm db:rls on     → UPDATE app_settings SET value='on'  WHERE key='rls_dynamic'
+ *   pnpm db:rls off    → UPDATE app_settings SET value='off' WHERE key='rls_dynamic'
+ *   pnpm db:rls status → SELECT value, updated_at FROM app_settings WHERE key='rls_dynamic'
  *
- * The setting controls whether the RESTRICTIVE policies installed by
- * migration 0023 actually enforce permissions, or short-circuit as
- * no-ops. Default (no ALTER DATABASE applied) is 'off' — same behavior
- * as pre-C42c.
+ * # Why a table, not a GUC
+ *
+ * The original C42c plan used `blacknel.rls_dynamic` as a custom GUC flipped
+ * via `ALTER DATABASE … SET …`. Supabase managed projects restrict this
+ * statement to true superusers via the `supautils` extension; the `postgres`
+ * role on hosted Supabase is NOT a true superuser. C42c-hotfix replaces the
+ * GUC with the `app_settings` table (migration 0024) which `service_role`
+ * can UPDATE. Same <1s rollback property; works on any Postgres deploy.
  *
  * # Persistence
  *
- * `ALTER DATABASE … SET …` is a server-side default that persists across
- * restarts and applies to all NEW sessions. Existing sessions keep their
- * inherited value; they need to be reset (close + reconnect) to pick up
- * the new value. Postgres pool reconnects pick it up automatically once
- * connections cycle.
- *
- * # Rollback procedure (full)
- *
- * See `doc/runbooks/rls-rollback.md`. TL;DR: `pnpm db:rls off` + watch
- * Sentry for 10 min. App behavior reverts to C42b tenant-only RLS.
+ * UPDATE commits immediately. Every NEW query plan that calls
+ * `app_rls_dynamic_enabled()` sees the new value — STABLE function caches
+ * per query plan only, not across queries. Existing in-flight long-running
+ * queries on the OLD value finish on the old value (acceptable for sub-
+ * second queries).
  *
  * # Idempotency
  *
- * Calling `on` twice is a no-op — the second ALTER DATABASE is the same
- * statement. The verify step confirms the final state matches the intent.
+ * Calling `on` twice is a no-op — the second UPDATE is the same row, same
+ * value. The verify step confirms the persisted state matches the intent.
  *
- * # Pre-requirements
+ * # Connection
  *
- *   - `DATABASE_URL` must be set (passed via `--env-file=.env.local` or
- *     shell env). The script uses postgres-js direct, not the pooler;
- *     ALTER DATABASE on the Transaction pooler can hang.
- *   - The connecting role must be a Postgres superuser (Supabase's
- *     `postgres` role is — verify with `SELECT rolsuper FROM pg_roles
- *     WHERE rolname = current_user`). The Session pooler used by
- *     `pnpm db:migrate` is the right choice here.
+ * Uses `DATABASE_URL` (Session pooler — see staging-environment.md). Needs
+ * `service_role` membership to UPDATE the row. Pre-hotfix wiring (postgres-js
+ * via session pooler with the `postgres.<ref>` user) inherits `service_role`
+ * via membership granted in migration 0000.
  */
 import postgres from 'postgres';
 
@@ -60,84 +56,62 @@ async function main(): Promise<void> {
   }
 
   const action = parseAction(process.argv);
-  // max:1 — single short-lived connection, the script issues one DDL.
+  // max:1 — single short-lived connection. prepare:false is required by the
+  // Transaction pooler; harmless on the Session pooler.
   const sql = postgres(env.DATABASE_URL, { max: 1, prepare: false });
 
   try {
-    // current_database() returns the DB this connection is attached to.
-    // ALTER DATABASE needs the literal name (not a parameter) so we read
-    // it first and interpolate via sql.unsafe — safe because the value
-    // comes from the live server, not user input.
-    const dbRows = await sql<Array<{ db: string }>>`SELECT current_database() AS db`;
-    const dbName = dbRows[0]?.db;
-    if (!dbName) {
-      throw new Error('Could not resolve current_database().');
-    }
+    // Switch to service_role for the duration of this connection. The
+    // pooler logs in as `postgres.<ref>` which has membership in
+    // service_role via migration 0000 (`GRANT service_role TO postgres`).
+    // We need SET ROLE (not SET LOCAL ROLE) because there's no enclosing
+    // transaction here.
+    await sql`SET ROLE service_role`;
 
     if (action === 'status') {
-      // current_setting('…', true) returns NULL when the setting is unset
-      // database-side AND not set in this session — for `status` we want
-      // the database-default, so query pg_db_role_setting directly.
-      const dbDefaults = await sql<
-        Array<{ setting: string }>
-      >`
-        SELECT unnest(setconfig) AS setting
-        FROM pg_db_role_setting
-        WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = ${dbName})
-          AND setrole = 0
-      `;
-      const match = dbDefaults
-        .map((r) => r.setting)
-        .find((s) => s.startsWith('blacknel.rls_dynamic='));
-      const value = match ? match.split('=')[1] : '(unset → off)';
-      log.info({ database: dbName, blacknel_rls_dynamic: value }, 'rls.status');
+      const rows = await sql<
+        Array<{ value: string; updated_at: Date }>
+      >`SELECT value, updated_at FROM public.app_settings WHERE key = 'rls_dynamic'`;
+      const row = rows[0];
+      if (!row) {
+        log.warn(
+          'rls_dynamic row missing from app_settings. Apply migration 0024 with `pnpm db:migrate`.',
+        );
+        return;
+      }
+      log.info(
+        { rls_dynamic: row.value, updated_at: row.updated_at.toISOString() },
+        'rls.status',
+      );
       return;
     }
 
-    // on / off — issue the ALTER, then read back via pg_db_role_setting
-    // (current_setting reflects the SESSION value, which won't change
-    // until reconnect).
-    //
-    // ALTER DATABASE is DDL: no parameter binding, identifier + value
-    // must be in the literal SQL. `dbName` comes from `current_database()`
-    // (server-supplied, no injection vector) and `action` is validated
-    // to 'on' | 'off' above. Double-quote the identifier per spec and
-    // double-up embedded quotes defensively in case a future operator
-    // names a DB with one.
-    const quotedDb = `"${dbName.replace(/"/g, '""')}"`;
-    await sql.unsafe(
-      `ALTER DATABASE ${quotedDb} SET blacknel.rls_dynamic = '${action}'`,
-    );
-
-    const dbDefaults = await sql<
-      Array<{ setting: string }>
+    // on / off — UPDATE the row, then read back to confirm.
+    const updated = await sql<
+      Array<{ value: string; updated_at: Date }>
     >`
-      SELECT unnest(setconfig) AS setting
-      FROM pg_db_role_setting
-      WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = ${dbName})
-        AND setrole = 0
+      UPDATE public.app_settings
+         SET value = ${action},
+             updated_at = now()
+       WHERE key = 'rls_dynamic'
+       RETURNING value, updated_at
     `;
-    const match = dbDefaults
-      .map((r) => r.setting)
-      .find((s) => s.startsWith('blacknel.rls_dynamic='));
-    const persisted = match ? match.split('=')[1] : null;
 
-    if (persisted !== action) {
+    const row = updated[0];
+    if (!row) {
       throw new Error(
-        `ALTER DATABASE appeared to succeed but persisted value is ${persisted}, expected ${action}.`,
+        'rls_dynamic row missing from app_settings. Apply migration 0024 with `pnpm db:migrate` and retry.',
+      );
+    }
+    if (row.value !== action) {
+      throw new Error(
+        `UPDATE returned value=${row.value}, expected ${action}.`,
       );
     }
 
     log.info(
-      { database: dbName, blacknel_rls_dynamic: persisted },
+      { rls_dynamic: row.value, updated_at: row.updated_at.toISOString() },
       `rls.${action}`,
-    );
-    // Existing pooled connections inherited the OLD value until they cycle.
-    // Vercel Functions cycle within ~10 min for cold restarts; new requests
-    // pick up the new value on next connect.
-    log.warn(
-      'Existing pooled connections retain the OLD value until they recycle. ' +
-        'Sessions opened AFTER this command see the new value immediately.',
     );
   } finally {
     await sql.end({ timeout: 5 });
