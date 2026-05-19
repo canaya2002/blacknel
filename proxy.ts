@@ -43,11 +43,23 @@ const PUBLIC_PATHS = [
   '/api/health',
 ];
 
+// Phase 11 — Meta App Review data-deletion callback. Meta posts to
+// this URL without credentials (signature carries the trust); a 307 to
+// /login fails their verification. The route validates HMAC-SHA256 of
+// the body itself, so allowing it through the auth gate is safe — auth
+// is at the signature layer, not the cookie layer. The dynamic /[code]
+// status lookup uses the same prefix.
+function isMetaDataDeletionPath(pathname: string): boolean {
+  return pathname === '/api/meta/data-deletion' ||
+    pathname.startsWith('/api/meta/data-deletion/');
+}
+
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;
   // /feedback/<token> public landing pages (Phase 5).
   if (pathname.startsWith('/feedback/')) return true;
   if (pathname.startsWith('/auth/')) return true;
+  if (isMetaDataDeletionPath(pathname)) return true;
   return false;
 }
 

@@ -46,6 +46,19 @@ const envSchema = z.object({
   // dev/test fall back to a stable placeholder via `lib/auth/cookie.ts`.
   BLACKNEL_COOKIE_SECRET: z.string().min(32).optional(),
 
+  // --- Meta (Facebook / Instagram / Threads) App Review --------------------
+  /**
+   * Meta App secret. Used to validate the `signed_request` payload posted
+   * by Meta to `/api/meta/data-deletion` (App Review requirement) via
+   * HMAC-SHA256. Optional in dev — the route returns 503 when missing in
+   * production so misconfigured deploys are loud rather than silently
+   * accepting unsigned requests.
+   *
+   * This is DISTINCT from `META_APP_ID` (which is public) — the secret
+   * never leaves the server.
+   */
+  META_APP_SECRET: z.string().min(1).optional(),
+
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),
   BLACKNEL_MOCK_ERRORS: boolFromString(false),
