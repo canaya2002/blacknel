@@ -47,9 +47,9 @@ export async function createTestDb(): Promise<TestDb> {
   // attach `on_auth_user_created` to it.
   //
   // Stub the `anon` role too — Supabase ships it pre-provisioned for
-  // unauthenticated requests; pglite does not. Migration 0024 GRANTs
-  // SELECT on runtime_config TO anon. Keeping the CREATE ROLE out of
-  // the migration avoids drifting the applied sha on prod.
+  // unauthenticated requests; pglite does not. Kept as a defensive stub
+  // for any migration that GRANTs to anon. Keeping the CREATE ROLE out of
+  // the migrations avoids drifting the applied sha on prod.
   await pg.exec(`
     CREATE SCHEMA IF NOT EXISTS auth;
     CREATE TABLE IF NOT EXISTS auth.users (

@@ -30,13 +30,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { closeProdDb, dbAdmin, dbAs } from '../../lib/db/client';
 import { posts } from '../../lib/db/schema';
-import { env } from '../../lib/env';
 import { SEED_IDS } from '../../lib/db/seed';
+import { isLiveEnabled } from '../helpers/live-test-gate';
 
-const LIVE_ENABLED =
-  process.env.BLACKNEL_LIVE_TEST === 'true' && Boolean(env.DATABASE_URL);
-
-const describeLive = LIVE_ENABLED ? describe : describe.skip;
+const describeLive = isLiveEnabled() ? describe : describe.skip;
 
 const SENTINEL_POST_ID = '9e9e9e9e-0007-4000-8000-000000000001';
 

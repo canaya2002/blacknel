@@ -7,6 +7,17 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // Hard prod-isolation: Vitest applies `test.env` AFTER dotenv, so these
+    // override anything loaded from `.env.local` (which targets PRODUCTION).
+    // Tests use the injected pglite (createTestDb) and must never resolve a
+    // real DB. DATABASE_URL='' + BLACKNEL_LIVE_TEST='' also keep the
+    // *.live.test.ts suites skipped under `pnpm test`.
+    env: {
+      NODE_ENV: 'test',
+      BLACKNEL_USE_MOCKS: 'true',
+      DATABASE_URL: '',
+      BLACKNEL_LIVE_TEST: '',
+    },
     include: ['tests/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', '.next', 'dist'],
     setupFiles: ['./tests/helpers/react-act-setup.ts'],

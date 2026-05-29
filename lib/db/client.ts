@@ -52,8 +52,10 @@ import * as schema from './schema';
  *   - `BLACKNEL_USE_MOCKS=false` + `DATABASE_URL=…` → postgres-js. This
  *     is the Phase 11 cutover path (Supabase) and also how the live RLS
  *     test runs.
- *   - `NODE_ENV=test` with mocks on → refuses. Tests must inject their
- *     own pglite via `tests/helpers/test-db.ts` so each run is fresh.
+ *   - `NODE_ENV=test` → refuses (the test guard runs FIRST, before the
+ *     prod branch, regardless of BLACKNEL_USE_MOCKS), UNLESS
+ *     `BLACKNEL_LIVE_TEST=true` (the opt-in live suites). Tests must inject
+ *     their own pglite via `tests/helpers/test-db.ts` so each run is fresh.
  */
 
 const uuidSchema = z.string().uuid();
@@ -152,9 +154,24 @@ let _prodSqlClient: ReturnType<typeof postgres> | null = null;
 export async function getRawDb(): Promise<AnyPgDb> {
   if (_rawDb) return _rawDb;
 
+  // Tests must NEVER resolve the runtime singleton — they pass an explicit
+  // Drizzle instance from createTestDb() (in-memory pglite) to runAs() /
+  // runAdmin(). This guard runs FIRST, BEFORE the production branch below, so
+  // a test process that has BLACKNEL_USE_MOCKS=false + DATABASE_URL in its env
+  // (e.g. a leaked .env.local) can never fall through to a real DB. The only
+  // exception is the opt-in live suites (BLACKNEL_LIVE_TEST=true), which DO
+  // connect to a real DATABASE_URL on purpose — and gate themselves on a
+  // non-prod host (tests/helpers/live-test-gate.ts).
+  if (env.NODE_ENV === 'test' && process.env.BLACKNEL_LIVE_TEST !== 'true') {
+    throw new Error(
+      'Do not call getRawDb() from tests. Pass an explicit Drizzle instance from ' +
+        'createTestDb() to runAs() / runAdmin() instead.',
+    );
+  }
+
   // Explicit production / live-test path. Used when caller opts out
   // of mocks AND provides a real DATABASE_URL — Phase 11 production
-  // and `rls.live.test.ts`.
+  // and the live suites.
   if (!env.BLACKNEL_USE_MOCKS && env.DATABASE_URL) {
     _prodSqlClient = postgres(env.DATABASE_URL, { prepare: false });
     _rawDb = drizzlePostgres(_prodSqlClient, { schema });
@@ -165,16 +182,6 @@ export async function getRawDb(): Promise<AnyPgDb> {
   if (!env.BLACKNEL_USE_MOCKS && !env.DATABASE_URL) {
     throw new Error(
       'BLACKNEL_USE_MOCKS=false requires DATABASE_URL. Set it in .env.local or flip BLACKNEL_USE_MOCKS back on.',
-    );
-  }
-
-  // Tests must inject their own db. The fixture in tests/helpers/test-db.ts
-  // builds a fresh in-memory pglite per run — sharing the dev singleton
-  // would pollute the filesystem-persisted dev DB.
-  if (env.NODE_ENV === 'test') {
-    throw new Error(
-      'Do not call getRawDb() from tests. Pass an explicit Drizzle instance from ' +
-        'createTestDb() to runAs() / runAdmin() instead.',
     );
   }
 

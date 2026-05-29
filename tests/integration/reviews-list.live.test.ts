@@ -28,13 +28,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { closeProdDb, dbAs } from '../../lib/db/client';
 import { reviews } from '../../lib/db/schema';
-import { env } from '../../lib/env';
 import { SEED_IDS } from '../../lib/db/seed';
+import { isLiveEnabled } from '../helpers/live-test-gate';
 
-const LIVE_ENABLED =
-  process.env.BLACKNEL_LIVE_TEST === 'true' && Boolean(env.DATABASE_URL);
-
-const describeLive = LIVE_ENABLED ? describe : describe.skip;
+const describeLive = isLiveEnabled() ? describe : describe.skip;
 
 // Phantom org — valid UUID, no row exists with it. Used to assert that
 // `dbAs` under this context sees zero reviews. Sentinel range `9e9e`

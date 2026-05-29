@@ -54,12 +54,9 @@ import {
   type User,
   users,
 } from '../../lib/db/schema';
-import { env } from '../../lib/env';
+import { isLiveEnabled } from '../helpers/live-test-gate';
 
-const LIVE_ENABLED =
-  process.env.BLACKNEL_LIVE_TEST === 'true' && Boolean(env.DATABASE_URL);
-
-const describeLive = LIVE_ENABLED ? describe : describe.skip;
+const describeLive = isLiveEnabled() ? describe : describe.skip;
 
 // Sentinel UUIDs — every "live test" row starts with `9e9e9e9e`. Easy to
 // audit in a busy DB and easy to cleanup with a LIKE filter.

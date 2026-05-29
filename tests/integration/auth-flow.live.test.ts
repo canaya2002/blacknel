@@ -36,13 +36,10 @@ import {
   claimsToSession,
   type SupabaseAccessTokenClaims,
 } from '../../lib/auth/supabase-claims';
-import { env } from '../../lib/env';
 import { SEED_IDS } from '../../lib/db/seed';
+import { isLiveEnabled } from '../helpers/live-test-gate';
 
-const LIVE_ENABLED =
-  process.env.BLACKNEL_LIVE_TEST === 'true' && Boolean(env.DATABASE_URL);
-
-const describeLive = LIVE_ENABLED ? describe : describe.skip;
+const describeLive = isLiveEnabled() ? describe : describe.skip;
 
 interface HookResult {
   claims: SupabaseAccessTokenClaims;

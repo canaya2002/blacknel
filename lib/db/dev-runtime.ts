@@ -89,12 +89,11 @@ async function bootDevDb(): Promise<{
   // here it's a thin local table we control.
   //
   // Stub the `anon` role too — Supabase ships it pre-provisioned for
-  // unauthenticated requests; pglite does not. Migration 0024 GRANTs
-  // SELECT on runtime_config TO anon, which fails without this stub.
-  // 0000_setup.sql already wraps `authenticated` and `service_role`
-  // with the same idempotent CREATE pattern — this is the third role
-  // and stays out of the migration so we don't drift the applied sha
-  // on prod.
+  // unauthenticated requests; pglite does not. Kept as a defensive stub
+  // for any migration that GRANTs to anon. 0000_setup.sql already wraps
+  // `authenticated` and `service_role` with the same idempotent CREATE
+  // pattern — this is the third role and stays out of the migrations so
+  // we don't drift the applied sha on prod.
   await pg.exec(`
     CREATE SCHEMA IF NOT EXISTS auth;
     CREATE TABLE IF NOT EXISTS auth.users (

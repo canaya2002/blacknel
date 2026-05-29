@@ -25,18 +25,32 @@ const boolFromString = (defaultValue: boolean) =>
     return defaultValue;
   }, z.boolean());
 
+/**
+ * Wrap a validator so an empty / whitespace-only string is treated as
+ * "unset" (undefined) instead of failing `.url()` / `.min()`. Lets
+ * `.env.example` be copied verbatim, and lets vitest `test.env`
+ * (`DATABASE_URL=''`) neutralise a prod-pointed `.env.local` without
+ * tripping validation.
+ */
+const optionalEnv = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    schema.optional(),
+  );
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   NEXT_PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
 
   // --- Database (Supabase Postgres, used by Drizzle) ---
-  DATABASE_URL: z.string().url().optional(),
-  DATABASE_URL_POOLED: z.string().url().optional(),
+  // For Vercel serverless, point this at the Supabase Transaction pooler
+  // (port 6543); the client sets prepare:false which the tx pooler requires.
+  DATABASE_URL: optionalEnv(z.string().url()),
 
   // --- Supabase Auth (wired in Commit 3) ---
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  NEXT_PUBLIC_SUPABASE_URL: optionalEnv(z.string().url()),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalEnv(z.string().min(1)),
+  SUPABASE_SERVICE_ROLE_KEY: optionalEnv(z.string().min(1)),
 
   // --- Auth ---
   // Secret used to sign the session cookie (JWT HS256). In Phase 1-10
@@ -44,7 +58,7 @@ const envSchema = z.object({
   // directly. In Phase 11 the cutover switches to Supabase Auth tokens
   // and this variable becomes unused. Must be ≥32 chars in production;
   // dev/test fall back to a stable placeholder via `lib/auth/cookie.ts`.
-  BLACKNEL_COOKIE_SECRET: z.string().min(32).optional(),
+  BLACKNEL_COOKIE_SECRET: optionalEnv(z.string().min(32)),
 
   // --- Meta (Facebook / Instagram / Threads) App Review --------------------
   /**
@@ -57,7 +71,7 @@ const envSchema = z.object({
    * This is DISTINCT from `META_APP_ID` (which is public) — the secret
    * never leaves the server.
    */
-  META_APP_SECRET: z.string().min(1).optional(),
+  META_APP_SECRET: optionalEnv(z.string().min(1)),
 
   /**
    * Verify-token Meta echoes back when subscribing the webhook URL
@@ -70,7 +84,7 @@ const envSchema = z.object({
    * NOT used by POST event ingestion (those are HMAC-signed with
    * META_APP_SECRET, not this token).
    */
-  META_WEBHOOK_VERIFY_TOKEN: z.string().min(1).optional(),
+  META_WEBHOOK_VERIFY_TOKEN: optionalEnv(z.string().min(1)),
 
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),
