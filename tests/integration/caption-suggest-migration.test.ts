@@ -21,7 +21,7 @@ import { createTestDb, type TestDb } from '../helpers/test-db';
 /**
  * Commit 24 — caption suggestion migration. Verifies:
  *   1. suggestCaption writes an ai_generations row with
- *      skill='caption' + model='claude-haiku-4-5'.
+ *      skill='caption' + model='claude-sonnet-4-6' (C43a routing).
  *   2. entityType='post' + entity_id = ROOT posts.id (Ajuste 2).
  *   3. Tenant isolation — orgB cannot read orgA caption rows.
  */
@@ -127,7 +127,7 @@ describe('caption suggest migration — ai_generations row', () => {
     );
     const captionRows = rows.filter((r) => r.skill === 'caption');
     expect(captionRows.length).toBeGreaterThan(0);
-    expect(captionRows[0]?.model).toBe('claude-haiku-4-5');
+    expect(captionRows[0]?.model).toBe('claude-sonnet-4-6');
     expect(captionRows[0]?.entityType).toBe('post');
   });
 

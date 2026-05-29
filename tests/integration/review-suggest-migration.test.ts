@@ -141,7 +141,7 @@ describe('review suggest migration — ai_generations row', () => {
     );
     const reviewRows = rows.filter((r) => r.skill === 'review_response');
     expect(reviewRows.length).toBeGreaterThan(0);
-    expect(reviewRows[0]?.model).toBe('claude-haiku-4-5');
+    expect(reviewRows[0]?.model).toBe('claude-sonnet-4-6');
     expect(reviewRows[0]?.entityType).toBe('review');
   });
 
