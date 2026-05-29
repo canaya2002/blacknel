@@ -597,3 +597,28 @@ export const customReportShareScopeEnum = pgEnum(
   'custom_report_share_scope',
   ['private', 'org_visible', 'specific_users'],
 );
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Meta data-deletion endpoint (App Review requirement).
+// pending → processed (deletion job purged the user data) or
+// pending → failed (job hit an unrecoverable error; failure_reason filled).
+// ---------------------------------------------------------------------------
+
+export const metaDeletionStatusEnum = pgEnum('meta_deletion_status', [
+  'pending',
+  'processed',
+  'failed',
+]);
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Meta webhook endpoint (/api/webhooks/meta).
+// pending  → received + signature-valid; awaiting C45 processor.
+// processed → C45 processor handled the event (org-scoped fan-out done).
+// failed   → unrecoverable processor error; failure_reason filled.
+// ---------------------------------------------------------------------------
+
+export const metaWebhookEventStatusEnum = pgEnum('meta_webhook_event_status', [
+  'pending',
+  'processed',
+  'failed',
+]);

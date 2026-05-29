@@ -1,6 +1,28 @@
 # Runbook: RLS dynamic policies rollback
 
-Phase 11 / Commit 42c. **Owner**: Carlos.
+Phase 11 / Commit 42c (+ C42c-hotfix in migration 0024). **Owner**: Carlos.
+
+## Mechanism (post-hotfix)
+
+The dynamic-RLS gate is controlled by a single row in `public.app_settings`:
+
+```sql
+SELECT value FROM app_settings WHERE key = 'rls_dynamic';   -- 'on' | 'off'
+```
+
+`service_role` can UPDATE it; `authenticated` can only SELECT. The 6
+RESTRICTIVE policies installed by migration 0023 call
+`app_rls_dynamic_enabled()` which reads this row. STABLE caches the
+result per query plan only — every NEW query plan sees the latest
+committed value, so flipping the flag takes effect within ~1s without
+redeploy or connection cycling.
+
+> **Why a table, not a GUC**: the original C42c plan used
+> `blacknel.rls_dynamic` as a custom Postgres GUC flipped via
+> `ALTER DATABASE … SET …`. Supabase managed projects restrict that
+> statement to true superusers via `supautils`; the `postgres` role on
+> hosted Supabase is NOT a true superuser. The table-based replacement
+> works on any Postgres deploy with no privilege escalation.
 
 ## What this rolls back
 
@@ -61,6 +83,7 @@ pnpm db:rls off
 The script issues:
 
 ```sql
+<<<<<<< HEAD
 UPDATE runtime_config SET value = 'off', updated_at = now()
 WHERE key = 'rls_dynamic';
 ```
@@ -97,6 +120,29 @@ psql "$env:DATABASE_URL" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activ
 ⚠️ The `pg_terminate_backend` drops in-flight queries. Only run
 during a maintenance window or when the immediate rollback urgency
 exceeds the cost of dropped requests.
+=======
+SET ROLE service_role;
+UPDATE public.app_settings
+   SET value = 'off', updated_at = now()
+ WHERE key = 'rls_dynamic'
+RETURNING value, updated_at;
+```
+
+and verifies the returned `value` matches the requested action.
+
+### 3. Propagation (no connection cycling needed)
+
+UPDATE commits immediately. Every NEW query plan that calls
+`app_rls_dynamic_enabled()` sees the new value (the STABLE function
+caches only within a single query plan, not across queries or
+connections). Live web traffic picks up the new value within ~1s of
+the UPDATE committing.
+
+Long-running queries already executing on the OLD value finish on the
+old value — acceptable for our sub-second query profile. If a future
+report job runs minutes-long under load, schedule the rollback during
+a quiet window.
+>>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
 
 ### 4. Verify
 
@@ -104,8 +150,12 @@ exceeds the cost of dropped requests.
 pnpm db:rls status
 ```
 
+<<<<<<< HEAD
 Expected output: `rls_dynamic: "off"` (plus the `updated_at` timestamp
 from the UPDATE).
+=======
+Expected output: `rls_dynamic: off, updated_at: <ISO timestamp>`.
+>>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
 
 In the app, the RESTRICTIVE policies now short-circuit. Test
 manually: a viewer should now be able to UPDATE a post (the
@@ -172,10 +222,16 @@ were considered sufficient before C42c.
   installed, just toggle the flag. Re-installing them is a
   migration that requires redeploy and risks drift.
 - ❌ Using `psql` against the production DB to flip the flag
+<<<<<<< HEAD
   outside the `pnpm db:rls` script — the script's `RETURNING` verify
   step catches "appeared to succeed but didn't persist" edge cases
   that raw `psql` would miss. Direct `UPDATE runtime_config` is
   recoverable but bypasses the operator log entry.
+=======
+  outside the `pnpm db:rls` script — the script's RETURNING-based
+  verify step catches "appeared to succeed but didn't persist"
+  edge cases that raw `psql` would miss.
+>>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
 
 ## Related runbooks
 
