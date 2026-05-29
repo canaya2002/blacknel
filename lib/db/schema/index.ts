@@ -61,3 +61,4 @@ export * from './custom-report-widgets';
 export * from './meta-deletion-requests';
 export * from './meta-webhook-events';
 export * from './app-settings';
+export * from './ai-rate-buckets';
