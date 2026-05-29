@@ -17,6 +17,15 @@
  */
 
 export async function register(): Promise<void> {
+  // Skip during the build phase. `next build` page-data collection spawns
+  // one worker per CPU (27 here); each runs this hook, and loading the
+  // Sentry/OpenTelemetry Node instrumentation across all of them segfaults
+  // the build on Windows (native @opentelemetry/instrumentation patching ×
+  // N workers). Instrumentation only matters at runtime — register() runs
+  // again on every serverless cold start, where NEXT_PHASE is the server
+  // phase, not the build phase. Runtime behavior is unchanged.
+  if (process.env.NEXT_PHASE === 'phase-production-build') return;
+
   // Sentry first so any error during the cron startup itself is
   // captured.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
