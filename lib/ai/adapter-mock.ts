@@ -1,7 +1,5 @@
 import 'server-only';
 
-import { z } from 'zod';
-
 import {
   _clearLruForTests,
   computeRequestHash,
@@ -37,7 +35,6 @@ import {
 } from './mock-bodies/thread-summary';
 import { findRecentByHash, writeGeneration } from './persistence';
 import { computeCostCents, estimateTokensFromChars } from './pricing';
-import { PROMPT_REGISTRY } from './prompts';
 import {
   AiError,
   type AiClient,
@@ -324,10 +321,6 @@ function shortStringify(v: unknown): string {
     return '<unserializable>';
   }
 }
-
-// Touch unused imports to keep them live for downstream skills.
-void z;
-void PROMPT_REGISTRY;
 
 // Re-export the test seam so tests can clear cache between runs.
 export { _clearLruForTests };
