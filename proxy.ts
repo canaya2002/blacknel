@@ -92,6 +92,28 @@ function maintenanceResponse(
 }
 
 /**
+ * Response for an unauthenticated request to a protected route. API routes
+ * (fetch/XHR clients) get a clean 401 JSON instead of a 307 redirect to an
+ * HTML login page; page routes still get the login redirect with a `next`
+ * param. Public API paths never reach here — they return earlier via
+ * `isPublicPath` or the matcher exclusions.
+ */
+function unauthenticatedResponse(
+  request: NextRequest,
+  pathname: string,
+): NextResponse {
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json(
+      { error: 'UNAUTHENTICATED', message: 'Authentication required.' },
+      { status: 401, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+  const loginUrl = new URL('/login', request.url);
+  loginUrl.searchParams.set('next', pathname);
+  return NextResponse.redirect(loginUrl);
+}
+
+/**
  * Phase 11 / C42a — Supabase session refresh. Mirrors the official
  * `@supabase/ssr` middleware pattern: build a client that reads / writes
  * cookies on the incoming request + outgoing response, then call
@@ -173,9 +195,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return response;
     }
     if (!isAuthenticated) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('next', pathname);
-      return NextResponse.redirect(loginUrl);
+      return unauthenticatedResponse(request, pathname);
     }
     return response;
   }
@@ -198,9 +218,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!session) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('next', pathname);
-    return NextResponse.redirect(loginUrl);
+    return unauthenticatedResponse(request, pathname);
   }
 
   return NextResponse.next();

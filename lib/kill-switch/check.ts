@@ -20,6 +20,10 @@ import { env } from '@/lib/env';
  *   - `/_next/...` (static assets, framework chunks)
  *   - `/favicon.ico`
  *   - `/api/admin/kill-switch-status` (master-org operator endpoint)
+ *   - `/api/meta/data-deletion` (legal/compliance — Meta polls this
+ *     out-of-band; a 503 during maintenance would fail App Review and
+ *     silently drop user deletion requests. Auth is at the signed_request
+ *     layer, so bypassing the switch is safe.)
  *
  * # Procedure (solo-operator, pre-team)
  *
@@ -40,6 +44,9 @@ const BYPASS_PREFIXES = [
   '/_next/',
   '/favicon.ico',
   '/api/admin/kill-switch-status',
+  // Legal/compliance: Meta's data-deletion callback must respond even during
+  // a maintenance window. Auth is at the signed_request (HMAC) layer.
+  '/api/meta/data-deletion',
 ];
 
 export function getKillSwitchState(): KillSwitchState {
