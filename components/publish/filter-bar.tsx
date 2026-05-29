@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { CalendarRange, Filter, Search, X } from 'lucide-react';
 import { useTransition } from 'react';
 
@@ -78,7 +79,7 @@ export function FilterBar({ filters, brands, campaigns }: FilterBarProps): React
     mutate(next);
     const qs = next.toString();
     startTransition(() => {
-      router.replace((qs ? `${pathname}?${qs}` : pathname) as never);
+      router.replace(dynamicRoute(qs ? `${pathname}?${qs}` : pathname));
     });
   };
 

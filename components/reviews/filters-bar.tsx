@@ -2,6 +2,7 @@
 
 import { CalendarRange, Lock, Search, Star, X } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useCallback, useMemo, useState, useTransition } from 'react';
 
 import { fireToast } from '@/components/common/toast';
@@ -80,7 +81,7 @@ export function FiltersBar({ filters, plan }: FiltersBarProps): React.ReactEleme
       next.delete('cursor');
       mutate(next);
       startTransition(() => {
-        router.replace(`${pathname}?${next.toString()}` as never);
+        router.replace(dynamicRoute(`${pathname}?${next.toString()}`));
       });
     },
     [params, pathname, router],

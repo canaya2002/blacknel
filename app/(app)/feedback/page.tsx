@@ -2,7 +2,7 @@ import { Bell } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/empty-state';
 import { PageHeader } from '@/components/common/page-header';
-import { UpgradePrompt } from '@/components/common/upgrade-prompt';
+import { UpgradePrompt } from '@/components/billing/upgrade-prompt';
 import { requireUser } from '@/lib/auth/server';
 import { getOrgPlanCode } from '@/lib/queries/plan';
 
@@ -22,8 +22,14 @@ export default async function FeedbackPage(): Promise<React.ReactElement> {
       {gated ? (
         <UpgradePrompt
           unlocksOn="growth"
-          feature="NPS / CSAT"
-          description="Las encuestas y el enrutado automático de promoters / detractors se incluyen desde el plan Growth."
+          featureName="NPS / CSAT"
+          valueBullets={[
+            'Encuestas NPS, CSAT y CES por email, SMS o WhatsApp',
+            'Enrutado automático de promoters a review request',
+            'Escalada de detractors a soporte',
+          ]}
+          currentPlan={plan}
+          organizationId={session.orgId}
         />
       ) : (
         <EmptyState

@@ -16,7 +16,7 @@ export default function AutomationsPage(): React.ReactElement {
         description="Crea reglas con triggers (reseña nueva, mensaje entrante, mención de keyword, score NPS) y acciones (asignar, etiquetar, responder con plantilla, notificar a Slack, escalar a humano). Cada disparo queda en el audit log para que sepas qué pasó y por qué."
         primary={{
           label: 'Crear automatización',
-          disabledReason: 'El motor de automatizaciones llega en la Fase 9',
+          disabledReason: 'El motor de automatizaciones llega en una fase posterior',
         }}
       />
     </div>

@@ -3,6 +3,7 @@
 import { Filter, Inbox as InboxIcon, ListChecks, Plug } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -60,7 +61,7 @@ export function EmptyInboxNoMatches(): React.ReactElement {
 
   const clear = (): void => {
     startTransition(() => {
-      router.replace(pathname as never);
+      router.replace(dynamicRoute(pathname));
     });
   };
 
@@ -113,7 +114,7 @@ export function EmptyInboxNarrowSlice({
       // Keep nothing but the path — the parent decides what "scoped"
       // filters to preserve before invoking this component. For Commit 8
       // the simplest default is to clear all and let the user re-scope.
-      router.replace(pathname as never);
+      router.replace(dynamicRoute(pathname));
     });
   };
 

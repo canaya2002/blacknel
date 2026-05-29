@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Filter, ListChecks } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -26,7 +27,7 @@ export function EmptyApprovalsQueueClear(): React.ReactElement {
   const seeDecided = (): void => {
     startTransition(() => {
       router.replace(
-        `${pathname}?status=approved,rejected,edited_approved` as never,
+        dynamicRoute(`${pathname}?status=approved,rejected,edited_approved`),
       );
     });
   };
@@ -65,7 +66,7 @@ export function EmptyApprovalsNoMatches(): React.ReactElement {
   const [pending, startTransition] = useTransition();
   const clear = (): void => {
     startTransition(() => {
-      router.replace(pathname as never);
+      router.replace(dynamicRoute(pathname));
     });
   };
   return (
@@ -109,7 +110,7 @@ export function EmptyApprovalsNarrowSlice({
   const [pending, startTransition] = useTransition();
   const backToPending = (): void => {
     startTransition(() => {
-      router.replace(pathname as never);
+      router.replace(dynamicRoute(pathname));
     });
   };
   return (

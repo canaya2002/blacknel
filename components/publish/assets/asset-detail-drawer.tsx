@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useState, useTransition } from 'react';
 
 import {
@@ -78,7 +79,7 @@ export function AssetDetailDrawer({
         setFeedback(result.error.message);
         return;
       }
-      router.push(`/publish/composer/${result.data.postId}` as never);
+      router.push(dynamicRoute(`/publish/composer/${result.data.postId}`));
     });
   };
 
@@ -135,7 +136,7 @@ export function AssetDetailDrawer({
                   setFeedback(result.error.message);
                   return;
                 }
-                router.push(`/publish/composer/${postId}` as never);
+                router.push(dynamicRoute(`/publish/composer/${postId}`));
               });
             }}
           />

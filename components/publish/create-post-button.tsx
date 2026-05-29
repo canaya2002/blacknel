@@ -2,6 +2,7 @@
 
 import { Plus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useTransition } from 'react';
 
 import { createDraftAction } from '@/app/(app)/publish/actions';
@@ -47,12 +48,12 @@ export function CreatePostButton(): React.ReactElement {
     startTransition(async () => {
       const result = await createDraftAction(null, { idempotencyKey });
       if (result.ok) {
-        router.push(`/publish/composer/${result.data.postId}` as never);
+        router.push(dynamicRoute(`/publish/composer/${result.data.postId}`));
         return;
       }
       // Fallback to the URL-driven entry — same key, same idempotent
       // resolution, exercised by the Server Component at /composer/new.
-      router.push(`/publish/composer/new?key=${idempotencyKey}` as never);
+      router.push(dynamicRoute(`/publish/composer/new?key=${idempotencyKey}`));
     });
   };
 

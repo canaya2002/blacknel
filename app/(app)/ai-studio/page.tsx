@@ -16,7 +16,8 @@ export default function AIStudioPage(): React.ReactElement {
         description="Aquí pedirás captions adaptados por red, ideas semanales basadas en tu calendario, hilos a partir de reseñas top y traducciones por idioma — siempre con la brand voice activa y el filtro de cumplimiento antes de ir al composer."
         primary={{
           label: 'Configurar brand voice',
-          disabledReason: 'La voz de marca y el AI Studio aterrizan en la Fase 7',
+          disabledReason:
+            'El AI Studio llega en C43 (la voz de marca ya está disponible en Configuración › Brand Voice)',
         }}
       />
     </div>

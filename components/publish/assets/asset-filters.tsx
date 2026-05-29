@@ -2,6 +2,7 @@
 
 import { Filter, Search } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useTransition } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -65,7 +66,7 @@ export function AssetFilters({
     mutate(next);
     const qs = next.toString();
     startTransition(() => {
-      router.replace((qs ? `${pathname}?${qs}` : pathname) as never);
+      router.replace(dynamicRoute(qs ? `${pathname}?${qs}` : pathname));
     });
   };
 
@@ -217,7 +218,7 @@ function ClearButton({ filters }: { filters: AssetListFilters }): React.ReactEle
       variant="ghost"
       size="sm"
       className="h-8 text-xs text-muted-foreground"
-      onClick={() => router.replace(pathname as never)}
+      onClick={() => router.replace(dynamicRoute(pathname))}
     >
       Limpiar
     </Button>

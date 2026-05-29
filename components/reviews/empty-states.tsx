@@ -3,6 +3,7 @@
 import { Filter, ListChecks, Plug, Star } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -71,7 +72,7 @@ export function EmptyReviewsNoMatches(): React.ReactElement {
 
   const clear = (): void => {
     startTransition(() => {
-      router.replace(pathname as never);
+      router.replace(dynamicRoute(pathname));
     });
   };
 
@@ -118,7 +119,7 @@ export function EmptyReviewsNarrowSlice({
 
   const showAll = (): void => {
     startTransition(() => {
-      router.replace(pathname as never);
+      router.replace(dynamicRoute(pathname));
     });
   };
 

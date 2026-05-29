@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useCallback, useMemo, useTransition } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +42,7 @@ export function FiltersBar({ filters, defaulted }: FiltersBarProps): React.React
       next.delete('cursor');
       mutate(next);
       startTransition(() => {
-        router.replace(`${pathname}?${next.toString()}` as never);
+        router.replace(dynamicRoute(`${pathname}?${next.toString()}`));
       });
     },
     [params, pathname, router],

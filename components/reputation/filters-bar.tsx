@@ -2,6 +2,7 @@
 
 import { CalendarRange } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useTransition } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -42,7 +43,7 @@ export function FiltersBar({ filters }: FiltersBarProps): React.ReactElement {
     next.delete('dateFrom');
     next.delete('dateTo');
     startTransition(() => {
-      router.replace(`${pathname}?${next.toString()}` as never);
+      router.replace(dynamicRoute(`${pathname}?${next.toString()}`));
     });
   };
 

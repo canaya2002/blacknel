@@ -33,8 +33,7 @@ const PLAN_RANK: Record<PlanCode, number> = {
  *
  * Used by every Growth-tier feature (WhatsApp Business, NPS,
  * Listening, Competitors, Scheduled reports) and Phase-8
- * Enterprise gating. Differs from the legacy
- * `components/common/upgrade-prompt.tsx`:
+ * Enterprise gating. Key behaviors:
  *
  *   - Self-hides when `currentPlan >= unlocksOn` (returns null).
  *   - Renders a value-prop bullet list instead of a plain

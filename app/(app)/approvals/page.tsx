@@ -1,5 +1,5 @@
 import { PageHeader } from '@/components/common/page-header';
-import { UpgradePrompt } from '@/components/common/upgrade-prompt';
+import { UpgradePrompt } from '@/components/billing/upgrade-prompt';
 import { ApprovalsList } from '@/components/approvals/approvals-list';
 import { ApprovalsListPolling } from '@/components/approvals/approvals-polling';
 import {
@@ -40,8 +40,14 @@ export default async function ApprovalsPage({
         />
         <UpgradePrompt
           unlocksOn="growth"
-          feature="Approvals"
-          description="Las aprobaciones se desbloquean en el plan Growth — agregan revisión obligatoria a contenido sensible y respuestas con datos personales antes de que salgan al público."
+          featureName="Approvals"
+          valueBullets={[
+            'Revisión obligatoria de contenido sensible antes de publicar',
+            'El revisor ve borrador, contexto y riesgos detectados',
+            'Cada decisión queda registrada en el audit log',
+          ]}
+          currentPlan={plan}
+          organizationId={session.orgId}
         />
       </div>
     );

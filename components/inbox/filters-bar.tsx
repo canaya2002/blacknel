@@ -2,6 +2,7 @@
 
 import { Search, X } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { dynamicRoute } from '@/lib/routes';
 import { useCallback, useMemo, useState, useTransition } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -55,7 +56,7 @@ export function FiltersBar({ filters }: FiltersBarProps): React.ReactElement {
       next.delete('cursor'); // any filter change resets pagination
       mutate(next);
       startTransition(() => {
-        router.replace(`${pathname}?${next.toString()}` as never);
+        router.replace(dynamicRoute(`${pathname}?${next.toString()}`));
       });
     },
     [params, pathname, router],

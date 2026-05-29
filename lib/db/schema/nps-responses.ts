@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   check,
+  customType,
   index,
   integer,
   pgTable,
@@ -9,6 +10,18 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+/**
+ * Postgres `inet` column. drizzle-orm/pg-core has no first-class `inet`
+ * type; modelling it as plain text drifts from the SQL (`ip_address inet`
+ * in 0015) and would make `drizzle-kit` want to ALTER the column. This
+ * customType matches the real column type exactly. Stored/read as string.
+ */
+const inet = customType<{ data: string; driverData: string }>({
+  dataType() {
+    return 'inet';
+  },
+});
 
 import { npsResponseCategoryEnum } from './_enums';
 import { npsInvitations } from './nps-invitations';
@@ -65,7 +78,7 @@ export const npsResponses = pgTable(
     respondedAt: timestamp('responded_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
-    ipAddress: text('ip_address'),
+    ipAddress: inet('ip_address'),
     userAgent: text('user_agent'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

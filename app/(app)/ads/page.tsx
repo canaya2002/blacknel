@@ -1,5 +1,5 @@
 import { PageHeader } from '@/components/common/page-header';
-import { UpgradePrompt } from '@/components/common/upgrade-prompt';
+import { UpgradePrompt } from '@/components/billing/upgrade-prompt';
 import { AdsAccountsTable } from '@/components/ads/ads-accounts-table';
 import { AdsAlertsBanner } from '@/components/ads/ads-alerts-banner';
 import { AdsConnectDialog } from '@/components/ads/ads-connect-dialog';
@@ -47,8 +47,14 @@ export default async function AdsPage(): Promise<React.ReactElement> {
         />
         <UpgradePrompt
           unlocksOn="enterprise"
-          feature="Ads Intelligence"
-          description="Conecta tus cuentas de Ads y consolida métricas, alertas y recomendaciones. Disponible en Enterprise."
+          featureName="Ads Intelligence"
+          valueBullets={[
+            'Spend consolidado de Meta y Google con conversión a USD',
+            'Alertas de variación de CTR/CPC y recomendaciones',
+            'Re-sync diario con ventana para atribución tardía',
+          ]}
+          currentPlan={plan}
+          organizationId={session.orgId}
         />
       </div>
     );
