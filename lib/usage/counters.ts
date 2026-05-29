@@ -34,6 +34,7 @@ export const POINT_IN_TIME_METRICS = [
   'locations',
   'assetsInLibrary',
   'storageBytes',
+  'mediaStorageBytes',
 ] as const satisfies ReadonlyArray<LimitMetric>;
 
 export const WINDOWED_METRICS = [

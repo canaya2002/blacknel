@@ -86,6 +86,13 @@ export interface PlanLimits {
    * tracked in `usage_counters` like `postsPerMonth`.
    */
   aiGenerationsPerMonth: number;
+  /**
+   * Phase 11 / C44 — per-org R2 media storage cap in BYTES. Standard 1 GB,
+   * Growth 25 GB, Enterprise -1 (unlimited). Point-in-time metric
+   * (`mediaStorageBytes` in usage_counters): += on upload-finalize, -= on
+   * delete. Distinct from the legacy `storageBytes` (content_assets library).
+   */
+  mediaStorageBytes: number;
 }
 
 /** Granularity that a feature is available at, when not a plain boolean. */
@@ -157,6 +164,7 @@ export const PLANS = {
       auditRetentionDaysMax: 30,
       maxCustomReportsPerOrg: 0,
       aiGenerationsPerMonth: 50,
+      mediaStorageBytes: 1_000_000_000, // 1 GB
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp'],
@@ -193,6 +201,7 @@ export const PLANS = {
       auditRetentionDaysMax: 180,
       maxCustomReportsPerOrg: 0,
       aiGenerationsPerMonth: -1,
+      mediaStorageBytes: 25_000_000_000, // 25 GB
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
@@ -229,6 +238,7 @@ export const PLANS = {
       auditRetentionDaysMax: -1,
       maxCustomReportsPerOrg: 50,
       aiGenerationsPerMonth: -1,
+      mediaStorageBytes: -1, // unlimited
     },
     features: {
       networks: [

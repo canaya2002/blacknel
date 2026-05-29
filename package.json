@@ -24,10 +24,13 @@
     "db:seed": "tsx --tsconfig=tsconfig.scripts.json scripts/seed.ts",
     "db:reset": "tsx --tsconfig=tsconfig.scripts.json scripts/reset-db.ts",
     "db:rls": "tsx --tsconfig=tsconfig.scripts.json scripts/rls-switch.ts",
-    "db:ai": "tsx --tsconfig=tsconfig.scripts.json scripts/ai-switch.ts"
+    "db:ai": "tsx --tsconfig=tsconfig.scripts.json scripts/ai-switch.ts",
+    "db:flag": "tsx --tsconfig=tsconfig.scripts.json scripts/flag-switch.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
+    "@aws-sdk/client-s3": "^3.1056.0",
+    "@aws-sdk/s3-request-presigner": "^3.1056.0",
     "@radix-ui/react-avatar": "^1.1.2",
     "@radix-ui/react-collapsible": "^1.1.2",
     "@radix-ui/react-dialog": "^1.1.4",
@@ -47,6 +50,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.36.4",
+    "inngest": "^4.5.0",
     "jose": "^5.9.0",
     "lucide-react": "^0.469.0",
     "next": "^16.0.0",
@@ -59,6 +63,7 @@
     "react-dom": "^19.0.0",
     "react-virtuoso": "^4.18.7",
     "recharts": "^3.8.1",
+    "resend": "^6.12.4",
     "tailwind-merge": "^2.5.0",
     "zod": "^3.23.8"
   },

@@ -100,6 +100,25 @@ const envSchema = z.object({
    */
   OPENAI_API_KEY: optionalEnv(z.string().min(1)),
 
+  // --- Storage (Cloudflare R2, S3-compatible) — Phase 11 / C44 -------------
+  // Real storage serves only when these are set AND use_real_storage='on';
+  // otherwise the in-memory mock adapter is used. Secrets never reach the client.
+  R2_ACCOUNT_ID: optionalEnv(z.string().min(1)),
+  R2_ACCESS_KEY_ID: optionalEnv(z.string().min(1)),
+  R2_SECRET_ACCESS_KEY: optionalEnv(z.string().min(1)),
+  R2_BUCKET: optionalEnv(z.string().min(1)),
+  /** Public CDN base for read URLs, e.g. https://media.blacknel.com. */
+  R2_PUBLIC_BASE_URL: optionalEnv(z.string().url()),
+
+  // --- Email (Resend) — Phase 11 / C44 -------------------------------------
+  RESEND_API_KEY: optionalEnv(z.string().min(1)),
+
+  // --- Jobs + crons (Inngest) — Phase 11 / C44 -----------------------------
+  /** Used to EMIT events to Inngest. */
+  INNGEST_EVENT_KEY: optionalEnv(z.string().min(1)),
+  /** Verifies Inngest's signed calls to the /api/inngest serve endpoint. */
+  INNGEST_SIGNING_KEY: optionalEnv(z.string().min(1)),
+
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),
   BLACKNEL_MOCK_ERRORS: boolFromString(false),
