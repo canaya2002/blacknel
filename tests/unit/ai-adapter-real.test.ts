@@ -25,6 +25,17 @@ vi.mock('@/lib/ai/persistence', () => ({
   writeGeneration: (...args: unknown[]) => writeGenerationMock(...args),
 }));
 
+// budget + rate-limit have their own direct tests; here they are no-ops so the
+// adapter's API logic is isolated and no DB is touched.
+vi.mock('@/lib/ai/budget', () => ({
+  planCodeForOrg: async () => 'standard',
+  assertWithinBudget: async () => {},
+  recordGeneration: async () => {},
+}));
+vi.mock('@/lib/ai/rate-limit', () => ({
+  assertWithinRateLimit: async () => {},
+}));
+
 const { adapterReal, mapAnthropicError, _resetClientForTests } = await import(
   '../../lib/ai/adapter-real'
 );

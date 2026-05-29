@@ -5,7 +5,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { env } from '@/lib/env';
 import { log } from '@/lib/log';
 
+import { assertWithinBudget, planCodeForOrg, recordGeneration } from './budget';
 import { computeRequestHash, getCached, setCached } from './cache';
+import { assertWithinRateLimit } from './rate-limit';
 import { SDK_MODEL_ID } from './model-routing';
 import { writeGeneration } from './persistence';
 import { withRetry, withTimeout, type RetryOpts } from './policy';
@@ -209,6 +211,14 @@ export const adapterReal: AiClient = {
       }
     }
 
+    // C43b — pre-API guards, in order: rate-limit → budget. Both throw typed,
+    // NON-retryable AiErrors and run BEFORE any spend. Cache hits returned
+    // above are free, so they don't consume tokens or budget. These only run
+    // on the real path (the mock adapter is uncapped).
+    const plan = await planCodeForOrg(req.context.orgId);
+    await assertWithinRateLimit(req.context.orgId, plan);
+    await assertWithinBudget(req.context.orgId, plan);
+
     // 2. Redact PII from user content (system prompt is ours — no PII).
     const safeUserPrompt = redactPii(req.userPrompt);
 
@@ -332,6 +342,18 @@ export const adapterReal: AiClient = {
       input: { promptVersion: req.promptVersion, via: 'real' },
       output: {},
     });
+
+    // C43b — count this real generation toward the org's monthly budget.
+    // Best-effort: a counter-write failure must not fail a successful (paid)
+    // generation, so swallow + log rather than throw.
+    try {
+      await recordGeneration(req.context.orgId);
+    } catch (err) {
+      log.error(
+        { skill: req.skill, err: (err as Error).message },
+        'ai.real.budget_count_failed',
+      );
+    }
 
     // Content-free structured log line.
     log.info(
