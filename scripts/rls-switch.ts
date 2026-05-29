@@ -2,32 +2,6 @@
 /**
  * Phase 11 / Commit 42c — operator switch for the dynamic-RLS feature.
  *
-<<<<<<< HEAD
- *   pnpm db:rls on     → UPDATE runtime_config SET value = 'on'  WHERE key = 'rls_dynamic'
- *   pnpm db:rls off    → UPDATE runtime_config SET value = 'off' WHERE key = 'rls_dynamic'
- *   pnpm db:rls status → SELECT value FROM runtime_config WHERE key = 'rls_dynamic'
- *
- * # History
- *
- * Originally backed by a custom GUC `blacknel.rls_dynamic` flipped via
- * `ALTER DATABASE … SET …`. Supabase managed rejects that path with
- * 42501 (custom GUCs are not registered for non-superuser ALTER), so
- * migration 0024 moved the source of truth to a `runtime_config` row.
- * Function `app_rls_dynamic_enabled()` still reads the session-local
- * setting first — that keeps `SET LOCAL blacknel.rls_dynamic = 'on'`
- * working inside CI tests without rewriting them.
- *
- * # Persistence
- *
- * Plain UPDATE. Visible to any new transaction immediately (vs. the old
- * ALTER DATABASE which only affected new connections). Existing
- * transactions started before the UPDATE keep the snapshot they saw.
- *
- * # Idempotency
- *
- * UPDATE-only — the row is seeded by migration 0024. Calling `on` twice
- * is harmless. The verify step confirms the final state.
-=======
  *   pnpm db:rls on     → UPDATE app_settings SET value='on'  WHERE key='rls_dynamic'
  *   pnpm db:rls off    → UPDATE app_settings SET value='off' WHERE key='rls_dynamic'
  *   pnpm db:rls status → SELECT value, updated_at FROM app_settings WHERE key='rls_dynamic'
@@ -53,20 +27,13 @@
  *
  * Calling `on` twice is a no-op — the second UPDATE is the same row, same
  * value. The verify step confirms the persisted state matches the intent.
->>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
  *
  * # Connection
  *
-<<<<<<< HEAD
- *   - `DATABASE_URL` must be set (`--env-file=.env.local` typical).
- *   - Connecting role must hold UPDATE on `runtime_config` (postgres
- *     owns the table by default; service_role inherits via Supabase).
-=======
  * Uses `DATABASE_URL` (Session pooler — see staging-environment.md). Needs
  * `service_role` membership to UPDATE the row. Pre-hotfix wiring (postgres-js
  * via session pooler with the `postgres.<ref>` user) inherits `service_role`
  * via membership granted in migration 0000.
->>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
  */
 import postgres from 'postgres';
 
@@ -89,30 +56,6 @@ async function main(): Promise<void> {
   }
 
   const action = parseAction(process.argv);
-<<<<<<< HEAD
-  const sql = postgres(env.DATABASE_URL, { max: 1, prepare: false });
-
-  try {
-    const dbRows = await sql<Array<{ db: string }>>`SELECT current_database() AS db`;
-    const dbName = dbRows[0]?.db;
-    if (!dbName) {
-      throw new Error('Could not resolve current_database().');
-    }
-
-    if (action === 'status') {
-      const rows = await sql<Array<{ value: string; updated_at: Date }>>`
-        SELECT value, updated_at
-        FROM runtime_config
-        WHERE key = 'rls_dynamic'
-      `;
-      const value = rows[0]?.value ?? '(unset → off)';
-      log.info(
-        {
-          database: dbName,
-          rls_dynamic: value,
-          updated_at: rows[0]?.updated_at,
-        },
-=======
   // max:1 — single short-lived connection. prepare:false is required by the
   // Transaction pooler; harmless on the Session pooler.
   const sql = postgres(env.DATABASE_URL, { max: 1, prepare: false });
@@ -138,30 +81,11 @@ async function main(): Promise<void> {
       }
       log.info(
         { rls_dynamic: row.value, updated_at: row.updated_at.toISOString() },
->>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
         'rls.status',
       );
       return;
     }
 
-<<<<<<< HEAD
-    // on / off — UPDATE the table, then read back to verify.
-    const updated = await sql<Array<{ value: string; updated_at: Date }>>`
-      UPDATE runtime_config
-      SET value = ${action}, updated_at = now()
-      WHERE key = 'rls_dynamic'
-      RETURNING value, updated_at
-    `;
-
-    if (updated.length === 0) {
-      throw new Error(
-        "runtime_config row for key='rls_dynamic' does not exist. Run migration 0024.",
-      );
-    }
-    if (updated[0]!.value !== action) {
-      throw new Error(
-        `UPDATE appeared to succeed but value is ${updated[0]!.value}, expected ${action}.`,
-=======
     // on / off — UPDATE the row, then read back to confirm.
     const updated = await sql<
       Array<{ value: string; updated_at: Date }>
@@ -180,29 +104,13 @@ async function main(): Promise<void> {
       );
     }
     if (row.value !== action) {
-      throw new Error(
-        `UPDATE returned value=${row.value}, expected ${action}.`,
->>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
-      );
+      throw new Error(`UPDATE returned value=${row.value}, expected ${action}.`);
     }
 
     log.info(
-<<<<<<< HEAD
-      {
-        database: dbName,
-        rls_dynamic: updated[0]!.value,
-        updated_at: updated[0]!.updated_at,
-      },
-      `rls.${action}`,
-    );
-    // Effect is immediate for new transactions (vs. old ALTER DATABASE which
-    // required connections to cycle). Existing in-flight transactions see
-    // their snapshot until they commit.
-=======
       { rls_dynamic: row.value, updated_at: row.updated_at.toISOString() },
       `rls.${action}`,
     );
->>>>>>> 87f3d84a2a3d8946fce2c3e831d335402437c8bf
   } finally {
     await sql.end({ timeout: 5 });
   }
