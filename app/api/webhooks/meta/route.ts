@@ -47,6 +47,35 @@ export const dynamic = 'force-dynamic';
 
 const SIGNATURE_HEADER = 'x-hub-signature-256';
 
+// Replay protection — reject events whose Meta `entry[].time` is older than
+// this window. A genuine Meta delivery-retry carries an identical body (and so
+// an identical signature → caught by the idempotency unique index), so a stale
+// timestamp signals a replay of a captured request rather than a normal retry.
+const WEBHOOK_FRESHNESS_SECONDS = 600;
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * Largest `entry[].time` (unix seconds) in a Meta webhook body, or null when
+ * the payload has no parseable entry timestamp (then we accept rather than
+ * drop a valid event with an unexpected shape).
+ */
+function maxEntryTimeSeconds(payload: unknown): number | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const entry = (payload as { entry?: unknown }).entry;
+  if (!Array.isArray(entry)) return null;
+  let max: number | null = null;
+  for (const item of entry) {
+    const time = (item as { time?: unknown } | null)?.time;
+    if (typeof time === 'number' && Number.isFinite(time)) {
+      max = max === null ? time : Math.max(max, time);
+    }
+  }
+  return max;
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
   if (!env.META_WEBHOOK_VERIFY_TOKEN) {
     log.error('meta.webhook.verify_misconfigured — META_WEBHOOK_VERIFY_TOKEN not set');
@@ -113,17 +142,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? ((payload as { object: string }).object)
       : 'unknown';
 
+  // Replay protection — freshness. Drop events older than the window so a
+  // captured request can't be replayed indefinitely.
+  const eventTimeSec = maxEntryTimeSeconds(payload);
+  if (
+    eventTimeSec !== null &&
+    nowSeconds() - eventTimeSec > WEBHOOK_FRESHNESS_SECONDS
+  ) {
+    log.warn({ eventObject }, 'meta.webhook.stale_rejected');
+    return NextResponse.json({ ok: true, skipped: 'stale' }, { status: 200 });
+  }
+
+  // Replay protection — idempotency. `signature` is the HMAC over the exact
+  // body, so a replay / Meta retry carries an identical signature. Insert ON
+  // CONFLICT DO NOTHING against the unique index (migration 0027); an empty
+  // RETURNING means we already stored this event.
+  let inserted: Array<{ id: string }>;
   try {
-    await dbAdmin(async (tx) =>
-      tx.insert(metaWebhookEvents).values({
-        eventObject,
-        eventPayload: payload as Record<string, unknown>,
-        signature,
-      }),
+    inserted = await dbAdmin<Array<{ id: string }>>(async (tx) =>
+      tx
+        .insert(metaWebhookEvents)
+        .values({
+          eventObject,
+          eventPayload: payload as Record<string, unknown>,
+          signature,
+        })
+        .onConflictDoNothing({ target: metaWebhookEvents.signature })
+        .returning({ id: metaWebhookEvents.id }),
     );
   } catch (err) {
     log.error({ err }, 'meta.webhook.persist_failed');
     return NextResponse.json({ error: 'persist_failed' }, { status: 500 });
+  }
+
+  if (inserted.length === 0) {
+    log.info({ eventObject }, 'meta.webhook.duplicate_skipped');
+    return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
   }
 
   // Intentionally log NO payload contents — webhook bodies regularly

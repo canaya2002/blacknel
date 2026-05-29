@@ -5,6 +5,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -49,6 +50,12 @@ export const metaWebhookEvents = pgTable(
       table.receivedAt,
     ),
     objectIdx: index('meta_webhook_events_object_idx').on(table.eventObject),
+    // Replay-protection idempotency key (migration 0027). `signature` is the
+    // HMAC over the raw body; a replay / Meta retry collides here so the route
+    // can insert ON CONFLICT DO NOTHING.
+    signatureUnique: uniqueIndex('meta_webhook_events_signature_unique').on(
+      table.signature,
+    ),
   }),
 );
 

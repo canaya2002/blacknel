@@ -18,9 +18,10 @@ vi.mock('@/lib/env', () => ({
   },
 }));
 
-// dbAdmin is called for the POST persistence path. Default to a no-op
-// resolved Promise; individual tests can override via the imported spy.
-const dbAdminMock = vi.fn(async (..._args: unknown[]) => undefined as unknown);
+// dbAdmin is called for the POST persistence path. The route uses
+// `.returning({ id })`, so the mock resolves to a one-row array (a successful
+// insert); tests that exercise the dedup path override it to resolve [].
+const dbAdminMock = vi.fn(async (..._args: unknown[]) => [{ id: 'evt-1' }] as unknown);
 vi.mock('@/lib/db/client', () => ({
   dbAdmin: (...args: unknown[]) => dbAdminMock(...args),
 }));
@@ -30,7 +31,7 @@ const { GET, POST } = await import('../../app/api/webhooks/meta/route');
 
 beforeEach(() => {
   dbAdminMock.mockClear();
-  dbAdminMock.mockImplementation(async () => undefined);
+  dbAdminMock.mockImplementation(async () => [{ id: 'evt-1' }]);
 });
 
 /**
@@ -161,5 +162,36 @@ describe('POST /api/webhooks/meta', () => {
     const res = await POST(buildPostRequest('{"object":"page"}'));
     expect(res.status).toBe(401);
     expect(dbAdminMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 + deduped when the signature already exists (idempotent)', async () => {
+    // Simulate the unique-index conflict: ON CONFLICT DO NOTHING → empty RETURNING.
+    dbAdminMock.mockImplementationOnce(async () => []);
+    const body = JSON.stringify({ object: 'page', entry: [{ id: 'dup' }] });
+    const sig = signWebhookBodyForTest(body, APP_SECRET);
+    const res = await POST(buildPostRequest(body, { 'x-hub-signature-256': sig }));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true, deduped: true });
+    expect(dbAdminMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 200 + skipped for a stale event and does not persist', async () => {
+    const stale = Math.floor(Date.now() / 1000) - 3600; // 1h old
+    const body = JSON.stringify({ object: 'page', entry: [{ id: 'old', time: stale }] });
+    const sig = signWebhookBodyForTest(body, APP_SECRET);
+    const res = await POST(buildPostRequest(body, { 'x-hub-signature-256': sig }));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true, skipped: 'stale' });
+    expect(dbAdminMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts a fresh event within the window', async () => {
+    const fresh = Math.floor(Date.now() / 1000) - 30;
+    const body = JSON.stringify({ object: 'page', entry: [{ id: 'new', time: fresh }] });
+    const sig = signWebhookBodyForTest(body, APP_SECRET);
+    const res = await POST(buildPostRequest(body, { 'x-hub-signature-256': sig }));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true });
+    expect(dbAdminMock).toHaveBeenCalledTimes(1);
   });
 });
