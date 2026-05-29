@@ -232,4 +232,37 @@ export async function dbAdmin<T>(fn: (tx: AnyPgTx) => Promise<T>): Promise<T> {
   return runAdmin(db, fn);
 }
 
+/**
+ * Tenant context for BACKGROUND jobs (Phase 11 / C44 Inngest). Jobs run
+ * outside a user request, so there is no session — but they DO carry the
+ * org id from the event payload. This sets `app.current_org_id` (role
+ * `authenticated`, no user identity) so RLS isolates the job to that org,
+ * exactly like `dbAs` for user requests. Use this — NOT `dbAdmin` — for
+ * org-scoped work inside a job, so a buggy job can't read/write another
+ * tenant's rows.
+ */
+export async function runAsOrg<T>(
+  db: AnyPgDb,
+  orgId: string,
+  fn: (tx: AnyPgTx) => Promise<T>,
+): Promise<T> {
+  uuidSchema.parse(orgId);
+  return db.transaction(async (tx: AnyPgTx) => {
+    await tx.execute(sql.raw('SET LOCAL ROLE authenticated'));
+    await tx.execute(sql`SELECT set_config('app.current_org_id', ${orgId}, true)`);
+    await tx.execute(sql`SELECT set_config('app.current_user_id', '', true)`);
+    await tx.execute(sql`SELECT set_config('app.current_user_role', '', true)`);
+    await tx.execute(sql`SELECT set_config('app.current_custom_role_id', '', true)`);
+    return fn(tx);
+  });
+}
+
+export async function dbAsOrg<T>(
+  orgId: string,
+  fn: (tx: AnyPgTx) => Promise<T>,
+): Promise<T> {
+  const db = await getRawDb();
+  return runAsOrg(db, orgId, fn);
+}
+
 export { schema };
