@@ -39,6 +39,7 @@ export const POINT_IN_TIME_METRICS = [
 export const WINDOWED_METRICS = [
   'postsPerMonth',
   'reviewRequestsPerMonth',
+  'aiGenerationsPerMonth',
 ] as const satisfies ReadonlyArray<LimitMetric>;
 
 export type PointInTimeMetric = (typeof POINT_IN_TIME_METRICS)[number];

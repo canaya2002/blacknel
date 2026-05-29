@@ -173,14 +173,17 @@ export interface AiGeneration<TOutput> {
 // ---------------------------------------------------------------------------
 
 export type AiErrorCode =
-  | 'rate_limit'
+  | 'rate_limit' // Anthropic 429 — retry with backoff
   | 'overloaded' // 529 / overloaded_error — retry + trigger C43c fallback
   | 'timeout'
   | 'server_error'
   | 'client_error' // 4xx (bad request / auth / forbidden) — do NOT retry
   | 'invalid_response'
   | 'schema_violation'
-  | 'not_implemented';
+  | 'not_implemented'
+  // C43b pre-API guards — thrown BEFORE the API call, NOT retryable:
+  | 'budget_exceeded' // per-org monthly generation cap or cost ceiling reached
+  | 'rate_limited'; // per-org token bucket empty
 
 export class AiError extends Error {
   readonly code: AiErrorCode;

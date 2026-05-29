@@ -78,6 +78,14 @@ export interface PlanLimits {
    * second line of defense. Enterprise: 50.
    */
   maxCustomReportsPerOrg: number;
+  /**
+   * Phase 11 / C43b — monthly cap on REAL AI generations per org. Standard
+   * = 50/mo; Growth + Enterprise = -1 (unlimited). Enforced by
+   * `lib/ai/budget.ts` before each real generation; the mock adapter is free
+   * and uncapped. Windowed metric (rolls forward each calendar month) —
+   * tracked in `usage_counters` like `postsPerMonth`.
+   */
+  aiGenerationsPerMonth: number;
 }
 
 /** Granularity that a feature is available at, when not a plain boolean. */
@@ -148,6 +156,7 @@ export const PLANS = {
       maxCustomRoles: 0,
       auditRetentionDaysMax: 30,
       maxCustomReportsPerOrg: 0,
+      aiGenerationsPerMonth: 50,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp'],
@@ -183,6 +192,7 @@ export const PLANS = {
       maxCustomRoles: 0,
       auditRetentionDaysMax: 180,
       maxCustomReportsPerOrg: 0,
+      aiGenerationsPerMonth: -1,
     },
     features: {
       networks: ['facebook', 'instagram', 'gbp', 'whatsapp', 'tiktok', 'linkedin'],
@@ -218,6 +228,7 @@ export const PLANS = {
       maxCustomRoles: 25,
       auditRetentionDaysMax: -1,
       maxCustomReportsPerOrg: 50,
+      aiGenerationsPerMonth: -1,
     },
     features: {
       networks: [
