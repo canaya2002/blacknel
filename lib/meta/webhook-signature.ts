@@ -47,6 +47,21 @@ export function validateWebhookSignature(
 }
 
 /**
+ * Constant-time string equality for short secrets (e.g. the Meta webhook
+ * GET verify-token handshake). `===`/`!==` short-circuit on the first
+ * differing byte and leak length/prefix info through response timing;
+ * this compares the full UTF-8 byte buffers via `timingSafeEqual` after
+ * an explicit length guard (timingSafeEqual itself throws on a length
+ * mismatch). Returns false for unequal-length inputs.
+ */
+export function timingSafeStringEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+/**
  * Test-only helper — produce the exact `x-hub-signature-256` header
  * value Meta would send for a given body + secret. Exported so unit
  * tests can build fixtures without copy-pasting the encoding.

@@ -6,7 +6,7 @@ import { dbAdmin } from '@/lib/db/client';
 import { metaWebhookEvents } from '@/lib/db/schema';
 import { env } from '@/lib/env';
 import { log } from '@/lib/log';
-import { validateWebhookSignature } from '@/lib/meta/webhook-signature';
+import { timingSafeStringEqual, validateWebhookSignature } from '@/lib/meta/webhook-signature';
 
 /**
  * Meta webhook receiver — Facebook, Instagram, WhatsApp Business, Messenger.
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
     return NextResponse.json({ error: 'missing_params' }, { status: 400 });
   }
 
-  if (mode !== 'subscribe' || token !== env.META_WEBHOOK_VERIFY_TOKEN) {
+  if (mode !== 'subscribe' || !timingSafeStringEqual(token, env.META_WEBHOOK_VERIFY_TOKEN)) {
     log.warn({ mode }, 'meta.webhook.verify_rejected');
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
