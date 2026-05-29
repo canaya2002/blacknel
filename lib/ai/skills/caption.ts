@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { MODEL_FOR_SKILL } from '../model-routing';
 import type { CaptionMockInput } from '../mock-bodies/caption';
 import {
   CAPTION_PROMPT_VERSION,
@@ -53,7 +54,7 @@ export async function suggestCaption(
   const mockInput: CaptionMockInput = params.input;
   const result = await aiClient.generate({
     skill: 'caption',
-    model: 'claude-haiku-4-5',
+    model: MODEL_FOR_SKILL.caption,
     systemPrompt: CAPTION_SYSTEM_PROMPT_V1,
     userPrompt: fillUserPrompt(params.input),
     input: mockInput,

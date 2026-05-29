@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { COMPLIANCE_CASCADE_MODEL, MODEL_FOR_SKILL } from '../model-routing';
 import { mockCompliance, type ComplianceMockInput } from '../mock-bodies/compliance';
 import {
   COMPLIANCE_CASCADE_PROMPT_VERSION,
@@ -111,7 +112,7 @@ export async function checkCompliance(
   // 1. Baseline (Haiku).
   const baseline = await aiClient.generate({
     skill: 'compliance',
-    model: 'claude-haiku-4-5',
+    model: MODEL_FOR_SKILL.compliance,
     systemPrompt: COMPLIANCE_SYSTEM_PROMPT_V1,
     userPrompt: COMPLIANCE_USER_TEMPLATE_V1.replace('{text}', input.text),
     input: mockInput,
@@ -158,7 +159,7 @@ export async function checkCompliance(
 
   const cascade = await aiClient.generate({
     skill: 'compliance',
-    model: 'claude-opus-4-7',
+    model: COMPLIANCE_CASCADE_MODEL,
     systemPrompt: COMPLIANCE_CASCADE_SYSTEM_PROMPT_V1,
     userPrompt: cascadeUserPrompt,
     input: mockInput,

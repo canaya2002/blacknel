@@ -62,7 +62,7 @@ export const aiGenerations = pgTable(
     userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     actorType: aiActorTypeEnum('actor_type').notNull(),
     skill: aiSkillEnum('skill').notNull(),
-    /** `'claude-haiku-4-5'` | `'claude-opus-4-7'`. */
+    /** Free text — see lib/ai/model-routing.ts (haiku-4-5 | sonnet-4-6 | opus-4-8). */
     model: text('model').notNull(),
     requestHash: text('request_hash').notNull(),
     inputTokens: integer('input_tokens').notNull().default(0),

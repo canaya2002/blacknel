@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { MODEL_FOR_SKILL } from '../model-routing';
 import type { DetectedLanguage } from '../../inbox/detect-language';
 import type { LanguageDetectMockInput } from '../mock-bodies/language-detect';
 import {
@@ -38,7 +39,7 @@ export async function detectLanguageAi(
   const mockInput: LanguageDetectMockInput = { text: params.text };
   const result = await aiClient.generate({
     skill: 'language_detect',
-    model: 'claude-haiku-4-5',
+    model: MODEL_FOR_SKILL.language_detect,
     systemPrompt: LANGUAGE_DETECT_SYSTEM_PROMPT_V1,
     userPrompt: LANGUAGE_DETECT_USER_TEMPLATE_V1.replace('{text}', params.text),
     input: mockInput,

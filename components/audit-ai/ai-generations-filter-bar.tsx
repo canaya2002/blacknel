@@ -87,9 +87,10 @@ export function AiGenerationsFilterBar({
           <SelectValue placeholder="Modelo" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE}>Ambos modelos</SelectItem>
+          <SelectItem value={NONE}>Todos los modelos</SelectItem>
           <SelectItem value="claude-haiku-4-5">Haiku 4.5</SelectItem>
-          <SelectItem value="claude-opus-4-7">Opus 4.7</SelectItem>
+          <SelectItem value="claude-sonnet-4-6">Sonnet 4.6</SelectItem>
+          <SelectItem value="claude-opus-4-8">Opus 4.8</SelectItem>
         </SelectContent>
       </Select>
 

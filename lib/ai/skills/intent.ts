@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { MODEL_FOR_SKILL } from '../model-routing';
 import type {
   IntentMockInput,
   IntentMockOutput,
@@ -40,7 +41,7 @@ export async function classifyIntent(
   const mockInput: IntentMockInput = { text: params.text };
   const result = await aiClient.generate({
     skill: 'intent',
-    model: 'claude-haiku-4-5',
+    model: MODEL_FOR_SKILL.intent,
     systemPrompt: INTENT_SYSTEM_PROMPT_V1,
     userPrompt: INTENT_USER_TEMPLATE_V1.replace('{text}', params.text),
     input: mockInput,

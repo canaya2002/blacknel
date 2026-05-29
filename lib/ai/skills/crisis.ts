@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { MODEL_FOR_SKILL } from '../model-routing';
 import type {
   CrisisMockInput,
   CrisisMockOutput,
@@ -50,7 +51,7 @@ export async function detectCrisis(
 ): Promise<CrisisMockOutput> {
   const result = await aiClient.generate({
     skill: 'crisis',
-    model: 'claude-opus-4-7',
+    model: MODEL_FOR_SKILL.crisis,
     systemPrompt: CRISIS_SYSTEM_PROMPT_V1,
     userPrompt: fillUserPrompt(params.input),
     input: params.input,

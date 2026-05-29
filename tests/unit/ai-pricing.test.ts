@@ -7,16 +7,22 @@ import {
 } from '../../lib/ai/pricing';
 
 describe('MODEL_PRICING', () => {
-  it('Haiku is cheaper than Opus across the board', () => {
+  it('Haiku < Sonnet < Opus across the board', () => {
     const haiku = MODEL_PRICING['claude-haiku-4-5'];
-    const opus = MODEL_PRICING['claude-opus-4-7'];
-    expect(haiku.inputCentsPerM).toBeLessThan(opus.inputCentsPerM);
-    expect(haiku.outputCentsPerM).toBeLessThan(opus.outputCentsPerM);
-    expect(haiku.cachedInputCentsPerM).toBeLessThan(opus.cachedInputCentsPerM);
+    const sonnet = MODEL_PRICING['claude-sonnet-4-6'];
+    const opus = MODEL_PRICING['claude-opus-4-8'];
+    expect(haiku.inputCentsPerM).toBeLessThan(sonnet.inputCentsPerM);
+    expect(sonnet.inputCentsPerM).toBeLessThan(opus.inputCentsPerM);
+    expect(haiku.outputCentsPerM).toBeLessThan(sonnet.outputCentsPerM);
+    expect(sonnet.outputCentsPerM).toBeLessThan(opus.outputCentsPerM);
   });
 
   it('cached input is exactly 10% of regular input (Anthropic 90% discount)', () => {
-    for (const m of ['claude-haiku-4-5', 'claude-opus-4-7'] as const) {
+    for (const m of [
+      'claude-haiku-4-5',
+      'claude-sonnet-4-6',
+      'claude-opus-4-8',
+    ] as const) {
       const p = MODEL_PRICING[m];
       expect(p.cachedInputCentsPerM * 10).toBe(p.inputCentsPerM);
     }
@@ -24,7 +30,7 @@ describe('MODEL_PRICING', () => {
 });
 
 describe('computeCostCents', () => {
-  it('Haiku 1M input + 0 cached + 0 output → 80¢', () => {
+  it('Haiku 1M input + 0 cached + 0 output → 100¢', () => {
     expect(
       computeCostCents({
         model: 'claude-haiku-4-5',
@@ -32,10 +38,10 @@ describe('computeCostCents', () => {
         cachedInputTokens: 0,
         outputTokens: 0,
       }),
-    ).toBe(80);
+    ).toBe(100);
   });
 
-  it('Haiku 0 input + 1M output → $4.00 (400¢)', () => {
+  it('Haiku 0 input + 1M output → $5.00 (500¢)', () => {
     expect(
       computeCostCents({
         model: 'claude-haiku-4-5',
@@ -43,34 +49,45 @@ describe('computeCostCents', () => {
         cachedInputTokens: 0,
         outputTokens: 1_000_000,
       }),
-    ).toBe(400);
+    ).toBe(500);
   });
 
   it('cached input is billed at the cached rate, NOT charged twice', () => {
     // 1M total input, 800k cached, 200k uncached.
-    // Cost = 200k × 80/M (uncached) + 800k × 8/M (cached) = 16 + 6.4 = 22.4 → 23
+    // Cost = 200k × 100/M (uncached) + 800k × 10/M (cached) = 20 + 8 = 28
     const cost = computeCostCents({
       model: 'claude-haiku-4-5',
       inputTokens: 1_000_000,
       cachedInputTokens: 800_000,
       outputTokens: 0,
     });
-    expect(cost).toBe(23);
+    expect(cost).toBe(28);
   });
 
-  it('Opus 1M input → 1500¢ ($15)', () => {
+  it('Sonnet 1M input → 300¢ ($3)', () => {
     expect(
       computeCostCents({
-        model: 'claude-opus-4-7',
+        model: 'claude-sonnet-4-6',
         inputTokens: 1_000_000,
         cachedInputTokens: 0,
         outputTokens: 0,
       }),
-    ).toBe(1500);
+    ).toBe(300);
+  });
+
+  it('Opus 1M input → 500¢ ($5)', () => {
+    expect(
+      computeCostCents({
+        model: 'claude-opus-4-8',
+        inputTokens: 1_000_000,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+      }),
+    ).toBe(500);
   });
 
   it('rounds up (Math.ceil) for fractional cents', () => {
-    // 1000 Haiku input tokens = 0.08¢ → rounds up to 1.
+    // 1000 Haiku input tokens = 0.1¢ → rounds up to 1.
     expect(
       computeCostCents({
         model: 'claude-haiku-4-5',
@@ -89,7 +106,7 @@ describe('computeCostCents', () => {
         cachedInputTokens: 1_000_000, // shouldn't happen but math still safe
         outputTokens: 0,
       }),
-    ).toBe(8);
+    ).toBe(10);
   });
 });
 

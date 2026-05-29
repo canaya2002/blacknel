@@ -7,9 +7,9 @@ import type { AiModel } from './types';
  * lossless). Read by the adapter at the end of every
  * `.generate()` call to fill `ai_generations.cost_cents`.
  *
- * Source: Anthropic public pricing — Haiku 4.5 + Opus 4.7. Update
- * this table when prices change; the adapter never reads
- * pricing from anywhere else.
+ * Source: Anthropic public pricing (C43a) — Haiku 4.5 + Sonnet 4.6 +
+ * Opus 4.8. Update this table when prices change; the adapter never
+ * reads pricing from anywhere else.
  *
  * **Cached input** is Anthropic's prompt-cache hit rate: 10% of
  * the regular input price (90% discount).
@@ -31,19 +31,26 @@ export interface ModelPricing {
 }
 
 export const MODEL_PRICING: Readonly<Record<AiModel, ModelPricing>> = {
-  // Haiku 4.5 — the workhorse. ~3× cheaper than Opus on both
-  // input and output. Default for ~80% of skills.
+  // Haiku 4.5 — the workhorse. Default for ~80% of skills
+  // (language/sentiment/intent/summaries/crisis + compliance baseline).
   'claude-haiku-4-5': {
-    inputCentsPerM: 80, // $0.80 / Mtok
-    cachedInputCentsPerM: 8, // $0.08 / Mtok (90% discount)
-    outputCentsPerM: 400, // $4.00 / Mtok
+    inputCentsPerM: 100, // $1.00 / Mtok
+    cachedInputCentsPerM: 10, // $0.10 / Mtok (90% off input)
+    outputCentsPerM: 500, // $5.00 / Mtok
   },
-  // Opus 4.7 — reserved for compliance cascade + crisis detection
-  // where misjudgment cost exceeds the token premium.
-  'claude-opus-4-7': {
-    inputCentsPerM: 1500, // $15 / Mtok
-    cachedInputCentsPerM: 150, // $1.50 / Mtok
-    outputCentsPerM: 7500, // $75 / Mtok
+  // Sonnet 4.6 — quality tier for customer-facing copy
+  // (caption, review_response).
+  'claude-sonnet-4-6': {
+    inputCentsPerM: 300, // $3.00 / Mtok
+    cachedInputCentsPerM: 30, // $0.30 / Mtok
+    outputCentsPerM: 1500, // $15.00 / Mtok
+  },
+  // Opus 4.8 — reserved for the compliance cascade (high/critical
+  // baselines escalate) where misjudgment cost exceeds the premium.
+  'claude-opus-4-8': {
+    inputCentsPerM: 500, // $5.00 / Mtok
+    cachedInputCentsPerM: 50, // $0.50 / Mtok
+    outputCentsPerM: 2500, // $25.00 / Mtok
   },
 };
 

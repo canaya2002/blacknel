@@ -505,14 +505,14 @@ export const PROMPT_REGISTRY: Readonly<Record<AiSkillKey, PromptRegistration>> =
   },
   caption: {
     skill: 'caption',
-    defaultModel: 'claude-haiku-4-5',
+    defaultModel: 'claude-sonnet-4-6',
     systemPrompt: CAPTION_SYSTEM_PROMPT_V1,
     userTemplate: CAPTION_USER_TEMPLATE_V1,
     version: CAPTION_PROMPT_VERSION,
   },
   review_response: {
     skill: 'review_response',
-    defaultModel: 'claude-haiku-4-5',
+    defaultModel: 'claude-sonnet-4-6',
     systemPrompt: REVIEW_RESPONSE_SYSTEM_PROMPT_V1,
     userTemplate: REVIEW_RESPONSE_USER_TEMPLATE_V1,
     version: REVIEW_RESPONSE_PROMPT_VERSION,
@@ -540,7 +540,7 @@ export const PROMPT_REGISTRY: Readonly<Record<AiSkillKey, PromptRegistration>> =
   },
   crisis: {
     skill: 'crisis',
-    defaultModel: 'claude-opus-4-7',
+    defaultModel: 'claude-haiku-4-5',
     systemPrompt: CRISIS_SYSTEM_PROMPT_V1,
     userTemplate: CRISIS_USER_TEMPLATE_V1,
     version: CRISIS_PROMPT_VERSION,

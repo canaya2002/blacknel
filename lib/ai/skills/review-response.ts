@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { MODEL_FOR_SKILL } from '../model-routing';
 import type { ReviewResponseMockInput } from '../mock-bodies/review-response';
 import {
   REVIEW_RESPONSE_PROMPT_VERSION,
@@ -50,7 +51,7 @@ export async function suggestReviewReply(
   const mockInput: ReviewResponseMockInput = params.input;
   const result = await aiClient.generate({
     skill: 'review_response',
-    model: 'claude-haiku-4-5',
+    model: MODEL_FOR_SKILL.review_response,
     systemPrompt: REVIEW_RESPONSE_SYSTEM_PROMPT_V1,
     userPrompt: fillUserPrompt(params.input, params.reviewBody),
     input: mockInput,

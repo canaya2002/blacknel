@@ -228,7 +228,7 @@ describe('compliance cascade — cascade row carries different model + skill sta
           .where(eq(aiGenerations.id, out.meta.cascadeGenerationId!)),
     );
     expect(baselineRow[0]?.model).toBe('claude-haiku-4-5');
-    expect(cascadeRow[0]?.model).toBe('claude-opus-4-7');
+    expect(cascadeRow[0]?.model).toBe('claude-opus-4-8');
     expect(baselineRow[0]?.skill).toBe('compliance');
     expect(cascadeRow[0]?.skill).toBe('compliance');
   });

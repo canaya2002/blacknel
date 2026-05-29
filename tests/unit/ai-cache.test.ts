@@ -37,7 +37,7 @@ describe('computeRequestHash', () => {
 
   it('changes when model changes (Haiku → Opus)', () => {
     const a = computeRequestHash(baseInput);
-    const b = computeRequestHash({ ...baseInput, model: 'claude-opus-4-7' });
+    const b = computeRequestHash({ ...baseInput, model: 'claude-opus-4-8' });
     expect(a).not.toBe(b);
   });
 

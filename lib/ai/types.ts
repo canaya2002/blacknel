@@ -35,18 +35,23 @@ export type AiSkillKey =
 export type AiActorType = 'user' | 'system';
 
 /**
- * Anthropic model identifiers. Per the Commit 22 / regla-de-costo:
+ * Anthropic model identifiers (C43a). The skill→model mapping lives in
+ * `lib/ai/model-routing.ts`:
  *
- *   - `claude-haiku-4-5` is the default for ~80% of skills
- *     (~3× cheaper, ~2× faster than Opus).
- *   - `claude-opus-4-7` is reserved for skills where the risk of
- *     misclassification exceeds the marginal token cost:
- *     compliance (cascade pass), crisis detection.
+ *   - `claude-haiku-4-5` — default workhorse (~80% of volume):
+ *     language_detect, sentiment, intent, thread_summary,
+ *     review_summary, crisis, and the compliance baseline screen.
+ *   - `claude-sonnet-4-6` — customer-facing copy: caption, review_response.
+ *   - `claude-opus-4-8` — compliance cascade (high/critical baselines
+ *     escalate here).
  *
- * The model is selected per-skill by the skill module; callers
- * don't get to override (keeps cost predictable).
+ * The model is selected per-skill by the skill module; callers don't
+ * override (keeps cost predictable).
  */
-export type AiModel = 'claude-haiku-4-5' | 'claude-opus-4-7';
+export type AiModel =
+  | 'claude-haiku-4-5'
+  | 'claude-sonnet-4-6'
+  | 'claude-opus-4-8';
 
 // ---------------------------------------------------------------------------
 // Request / response contract

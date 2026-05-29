@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { MODEL_FOR_SKILL } from '../model-routing';
 import type {
   ReviewSummaryMockInput,
   ReviewSummaryMockOutput,
@@ -35,7 +36,7 @@ export async function summarizeReviews(
 ): Promise<ReviewSummaryMockOutput> {
   const result = await aiClient.generate({
     skill: 'review_summary',
-    model: 'claude-haiku-4-5',
+    model: MODEL_FOR_SKILL.review_summary,
     systemPrompt: REVIEW_SUMMARY_SYSTEM_PROMPT_V1,
     userPrompt: REVIEW_SUMMARY_USER_TEMPLATE_V1.replace(
       '{reviewsJson}',

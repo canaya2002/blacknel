@@ -28,13 +28,22 @@ describe('PROMPT_REGISTRY — every skill registered', () => {
   }
 });
 
-describe('PROMPT_REGISTRY — model rationale', () => {
-  it('crisis uses Opus (subtle pattern detection)', () => {
-    expect(PROMPT_REGISTRY.crisis.defaultModel).toBe('claude-opus-4-7');
+describe('PROMPT_REGISTRY — model rationale (C43a routing)', () => {
+  it('caption + review_response use Sonnet (customer-facing copy)', () => {
+    expect(PROMPT_REGISTRY.caption.defaultModel).toBe('claude-sonnet-4-6');
+    expect(PROMPT_REGISTRY.review_response.defaultModel).toBe('claude-sonnet-4-6');
   });
-  it('all non-crisis skills default to Haiku (cost-first rule)', () => {
-    for (const skill of ALL_SKILLS) {
-      if (skill === 'crisis') continue;
+  it('the rest default to Haiku (cost-first; compliance escalates to Opus via cascade)', () => {
+    const haikuSkills: ReadonlyArray<AiSkillKey> = [
+      'compliance',
+      'language_detect',
+      'sentiment',
+      'intent',
+      'crisis',
+      'thread_summary',
+      'review_summary',
+    ];
+    for (const skill of haikuSkills) {
       expect(PROMPT_REGISTRY[skill].defaultModel).toBe('claude-haiku-4-5');
     }
   });

@@ -11,7 +11,7 @@ import type { AiModel, AiSkillKey } from './types';
  *
  * Supported params:
  *   - `?skill=<skill>` — single skill
- *   - `?model=<claude-haiku-4-5|claude-opus-4-7>`
+ *   - `?model=<claude-haiku-4-5|claude-sonnet-4-6|claude-opus-4-8>`
  *   - `?range=7d|30d|90d` — converted to a `since` Date
  *   - `?cascade=cascade|baseline` — Commit 23 cascade view
  */
@@ -30,7 +30,8 @@ const ALLOWED_SKILLS: ReadonlyArray<AiSkillKey> = [
 
 const ALLOWED_MODELS: ReadonlyArray<AiModel> = [
   'claude-haiku-4-5',
-  'claude-opus-4-7',
+  'claude-sonnet-4-6',
+  'claude-opus-4-8',
 ];
 
 const ALLOWED_RANGES: ReadonlyArray<'7d' | '30d' | '90d'> = ['7d', '30d', '90d'];

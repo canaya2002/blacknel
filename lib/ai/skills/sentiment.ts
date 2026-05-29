@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import { aiClient } from '../client';
+import { MODEL_FOR_SKILL } from '../model-routing';
 import type {
   SentimentMockInput,
   SentimentMockOutput,
@@ -30,7 +31,7 @@ export async function classifySentiment(
   const mockInput: SentimentMockInput = { text: params.text };
   const result = await aiClient.generate({
     skill: 'sentiment',
-    model: 'claude-haiku-4-5',
+    model: MODEL_FOR_SKILL.sentiment,
     systemPrompt: SENTIMENT_SYSTEM_PROMPT_V1,
     userPrompt: SENTIMENT_USER_TEMPLATE_V1.replace('{text}', params.text),
     input: mockInput,
