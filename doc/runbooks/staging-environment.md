@@ -276,6 +276,10 @@ editor or psql:
 --   9e9e9e9e-0002-*  → users          (rls.live.test.ts)
 --   9e9e9e9e-0003-*  → brands         (rls.live.test.ts)
 --   9e9e9e9e-0007-*  → posts          (posts-create.live.test.ts)
+--   9e9e9e9e-0008-*  → C42c RLS-dynamic matrix: org, users, brands,
+--                      posts, custom_roles, audit_events
+--                      (rls-dynamic.test.ts — pglite-only in CI; only
+--                       appears in a real DB after a manual/ad-hoc run)
 -- Add new ranges here as live tests grow (one prefix per test family).
 DELETE FROM posts                WHERE id::text         LIKE '9e9e9e9e-0007-%';
 DELETE FROM brands               WHERE id::text         LIKE '9e9e9e9e-0003-%';
@@ -283,6 +287,15 @@ DELETE FROM organization_members WHERE user_id::text    LIKE '9e9e9e9e-0002-%'
                                     OR organization_id::text LIKE '9e9e9e9e-0001-%';
 DELETE FROM organizations        WHERE id::text         LIKE '9e9e9e9e-0001-%';
 DELETE FROM users                WHERE id::text         LIKE '9e9e9e9e-0002-%';
+
+-- 0008 range (C42c RLS-dynamic matrix). Children before parents.
+DELETE FROM audit_events         WHERE id::text              LIKE '9e9e9e9e-0008-%';
+DELETE FROM posts                WHERE id::text              LIKE '9e9e9e9e-0008-%';
+DELETE FROM custom_roles         WHERE id::text              LIKE '9e9e9e9e-0008-%';
+DELETE FROM brands               WHERE id::text              LIKE '9e9e9e9e-0008-%';
+DELETE FROM organization_members WHERE organization_id::text LIKE '9e9e9e9e-0008-%';
+DELETE FROM organizations        WHERE id::text              LIKE '9e9e9e9e-0008-%';
+DELETE FROM users                WHERE id::text              LIKE '9e9e9e9e-0008-%';
 ```
 
 Safe to run quarterly even when no interruption is suspected —

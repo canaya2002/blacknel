@@ -73,7 +73,7 @@ export const adapterReal: AiClient = {
     throw new AiError(
       'not_implemented',
       'Real Anthropic adapter lands in Phase 11 — see lib/ai/adapter-real.ts JSDoc for the migration steps.',
-      { phase: 7 },
+      { phase: 11 },
     );
   },
 };

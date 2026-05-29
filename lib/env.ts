@@ -243,8 +243,10 @@ const envSchema = z.object({
    *
    * **Pure visibility flag — does NOT control behavior.** The actual
    * RLS dynamic-policies switch lives at the Postgres layer as the
-   * `blacknel.rls_dynamic` database setting, flipped via
-   * `pnpm db:rls on/off`. This env var lets app code know whether
+   * `rls_dynamic` row in the `app_settings` table (C42c-hotfix 0024
+   * replaced the original `blacknel.rls_dynamic` GUC, which Supabase
+   * managed rejects), flipped via `pnpm db:rls on/off`. This env var
+   * lets app code know whether
    * the operator intended the dynamic gate to be active (useful for
    * surfacing degraded-mode banners, debug logs, or matching the
    * cookie-secret rotation policy if/when needed).

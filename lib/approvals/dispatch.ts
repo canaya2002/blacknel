@@ -34,9 +34,10 @@ import {
  * Signature stays the same — only the caller changes.
  *
  * Per `approvals_entity_table_check` in 0005_inbox.sql, entity_table is
- * one of: 'inbox_messages', 'posts', 'review_responses'. Phase 4
- * implements inbox; the other two throw `NOT_IMPLEMENTED` until the
- * relevant phase wires them.
+ * one of: 'inbox_messages', 'posts', 'review_responses'. All three are
+ * now dispatched (inbox landed in Phase 4, review_responses + posts in
+ * later phases); the `default` branch only guards an impossible
+ * entity_table value with `INTERNAL_ERROR`.
  */
 
 export interface DispatchableApproval extends InboxApprovalRow {

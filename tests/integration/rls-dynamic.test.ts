@@ -50,9 +50,11 @@
  * # Sentinel UUIDs
  *
  *   9e9e9e9e-0008-*  → C42c test data (org, users, posts, etc).
- *   Each test cleans up via the shared dispose() in afterAll. If a
- *   run is interrupted, the cleanup query in
- *   `doc/runbooks/staging-environment.md` covers this range too.
+ *   This suite runs against an in-memory pglite (createTestDb), so its
+ *   rows never reach prod; afterAll's dispose() only closes the pglite
+ *   instance (it deletes no rows). For any residue left in a REAL DB by
+ *   a manual/live run, the cleanup query in
+ *   `doc/runbooks/staging-environment.md` covers the 0008 range.
  */
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';

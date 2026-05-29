@@ -14,9 +14,7 @@ interface UpgradePromptProps {
 
 /**
  * Inline upgrade prompt shown when the current plan blocks a feature.
- * Tone is informative — not pushy. Lands in module pages today and
- * gets reused by `<FeatureGate>` in later phases when feature gating
- * is enforced at the component boundary.
+ * Tone is informative — not pushy. Lands in module pages today.
  */
 export function UpgradePrompt({
   unlocksOn,
