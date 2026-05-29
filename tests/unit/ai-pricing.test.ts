@@ -17,11 +17,13 @@ describe('MODEL_PRICING', () => {
     expect(sonnet.outputCentsPerM).toBeLessThan(opus.outputCentsPerM);
   });
 
-  it('cached input is exactly 10% of regular input (Anthropic 90% discount)', () => {
+  it('cached input is exactly 10% of regular input (90% discount) for all models', () => {
     for (const m of [
       'claude-haiku-4-5',
       'claude-sonnet-4-6',
       'claude-opus-4-8',
+      'gpt-5.4-mini',
+      'gpt-5.4',
     ] as const) {
       const p = MODEL_PRICING[m];
       expect(p.cachedInputCentsPerM * 10).toBe(p.inputCentsPerM);

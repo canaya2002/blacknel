@@ -48,10 +48,21 @@ export type AiActorType = 'user' | 'system';
  * The model is selected per-skill by the skill module; callers don't
  * override (keeps cost predictable).
  */
-export type AiModel =
+export type AnthropicModel =
   | 'claude-haiku-4-5'
   | 'claude-sonnet-4-6'
   | 'claude-opus-4-8';
+
+/**
+ * OpenAI fallback models (C43c). Chosen for predictable cost (no hidden
+ * reasoning tokens). Used only when the Anthropic primary fails on a
+ * transient trigger (see lib/ai/router.ts). The model that actually served
+ * is what gets recorded on `ai_generations.model`.
+ */
+export type OpenAiModel = 'gpt-5.4-mini' | 'gpt-5.4';
+
+/** Any model we might call / record. Skills only ever pick an AnthropicModel. */
+export type AiModel = AnthropicModel | OpenAiModel;
 
 // ---------------------------------------------------------------------------
 // Request / response contract
@@ -153,7 +164,8 @@ export interface AiGenerationMeta {
   readonly durationMs: number;
   /** True when adapter returned a previously-cached output. */
   readonly cacheHit: boolean;
-  readonly via: 'mock' | 'real';
+  /** Which path served: deterministic mock, Anthropic primary, or OpenAI fallback. */
+  readonly via: 'mock' | 'real' | 'openai';
   readonly promptVersion: string;
   /**
    * Echoed back from the request. Lets the skill module chain a

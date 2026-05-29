@@ -93,6 +93,12 @@ const envSchema = z.object({
    * to deterministic mocks rather than 500ing). Server-only secret.
    */
   ANTHROPIC_API_KEY: optionalEnv(z.string().min(1)),
+  /**
+   * OpenAI API key (C43c fallback). Required for the OpenAI fallback to fire;
+   * when missing, a primary (Anthropic) transient failure simply propagates
+   * (the router can't fall back). Server-only secret.
+   */
+  OPENAI_API_KEY: optionalEnv(z.string().min(1)),
 
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),

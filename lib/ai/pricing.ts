@@ -52,6 +52,18 @@ export const MODEL_PRICING: Readonly<Record<AiModel, ModelPricing>> = {
     cachedInputCentsPerM: 50, // $0.50 / Mtok
     outputCentsPerM: 2500, // $25.00 / Mtok
   },
+  // OpenAI fallback (C43c). Rates may be fractional cents/Mtok — computeCostCents
+  // ceils the final amount. cached = 10% of input (90% off).
+  'gpt-5.4-mini': {
+    inputCentsPerM: 75, // $0.75 / Mtok
+    cachedInputCentsPerM: 7.5, // $0.075 / Mtok
+    outputCentsPerM: 450, // $4.50 / Mtok
+  },
+  'gpt-5.4': {
+    inputCentsPerM: 250, // $2.50 / Mtok
+    cachedInputCentsPerM: 25, // $0.25 / Mtok
+    outputCentsPerM: 1500, // $15.00 / Mtok
+  },
 };
 
 export interface ComputeCostInput {
