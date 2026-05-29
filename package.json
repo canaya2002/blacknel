@@ -26,6 +26,7 @@
     "db:rls": "tsx --tsconfig=tsconfig.scripts.json scripts/rls-switch.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
     "@radix-ui/react-avatar": "^1.1.2",
     "@radix-ui/react-collapsible": "^1.1.2",
     "@radix-ui/react-dialog": "^1.1.4",

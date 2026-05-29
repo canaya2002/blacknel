@@ -86,6 +86,14 @@ const envSchema = z.object({
    */
   META_WEBHOOK_VERIFY_TOKEN: optionalEnv(z.string().min(1)),
 
+  // --- AI (Anthropic) — Phase 11 / C43a ---
+  /**
+   * Anthropic API key. Required when the real-AI gate is open; the adapter
+   * falls back to the mock when missing (so a misconfigured deploy degrades
+   * to deterministic mocks rather than 500ing). Server-only secret.
+   */
+  ANTHROPIC_API_KEY: optionalEnv(z.string().min(1)),
+
   // --- Feature flags ---
   BLACKNEL_USE_MOCKS: boolFromString(true),
   BLACKNEL_MOCK_ERRORS: boolFromString(false),
@@ -271,6 +279,14 @@ const envSchema = z.object({
    * flag is informational only.
    */
   BLACKNEL_USE_REAL_RLS_DYNAMIC: boolFromString(false),
+  /**
+   * Phase 11 / C43a — real-AI cutover flag (the ENV half of the gate). The
+   * real Anthropic adapter is used ONLY when ALL hold: this is true AND
+   * `app_settings.use_real_ai = 'on'` AND `ANTHROPIC_API_KEY` is set —
+   * otherwise the deterministic mock adapter serves. Default false so the
+   * cutover merges dark. Operator rollback to mock: `pnpm db:ai off`.
+   */
+  BLACKNEL_USE_REAL_AI: boolFromString(false),
   /**
    * Phase 11 / Commit 40 — Sentry DSN. Public-safe value but rate-
    * limit-attackable; Sentry Spike Protection mitigates.

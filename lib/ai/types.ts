@@ -174,8 +174,10 @@ export interface AiGeneration<TOutput> {
 
 export type AiErrorCode =
   | 'rate_limit'
+  | 'overloaded' // 529 / overloaded_error — retry + trigger C43c fallback
   | 'timeout'
   | 'server_error'
+  | 'client_error' // 4xx (bad request / auth / forbidden) — do NOT retry
   | 'invalid_response'
   | 'schema_violation'
   | 'not_implemented';
