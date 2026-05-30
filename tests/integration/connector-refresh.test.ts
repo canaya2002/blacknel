@@ -139,7 +139,25 @@ describe('runConnectionTokenRefresh', () => {
     const failed = statuses.find((s) => s.id === failId)!;
     const ok = statuses.find((s) => s.id === okId)!;
     expect(failed.status).toBe('expired');
-    expect(failed.err).toContain('revoked');
+    // Generic, non-sensitive reason stored in the DB (raw error only in logs).
+    expect(failed.err).toContain('reconnect');
     expect(ok.status).toBe('connected');
+  });
+
+  it('persists a rotated refresh_token returned by the provider', async () => {
+    const id = '48066666-6666-4666-8480-000000000030';
+    await seedAccount(id, orgA, 'x', SOON()); // seeded with refreshToken 'r'
+    const rotatingDeps: ConnectionRefreshDeps = {
+      ...deps,
+      refreshFor: async () => ({
+        accessToken: 'new-access',
+        refreshToken: 'rotated-refresh',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      }),
+    };
+    await runConnectionTokenRefresh(rotatingDeps);
+    const tokens = await runAsOrg(fixture.db, orgA, (tx) => readAccountTokens(tx, id));
+    expect(tokens?.accessToken).toBe('new-access');
+    expect(tokens?.refreshToken).toBe('rotated-refresh');
   });
 });

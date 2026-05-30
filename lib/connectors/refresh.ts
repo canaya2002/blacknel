@@ -107,7 +107,9 @@ export async function runConnectionTokenRefresh(
             .update(connectedAccounts)
             .set({
               status: 'expired',
-              errorMessage: (err as Error).message.slice(0, 500),
+              // Generic, operator-facing reason — the platform's raw error (which
+              // can carry ids/tokens) goes to the log, never the DB column.
+              errorMessage: 'Token refresh failed — reconnect required.',
               updatedAt: new Date(),
             })
             .where(eq(connectedAccounts.id, acc.id)),

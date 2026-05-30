@@ -114,10 +114,15 @@ async function uploadVideo(
   });
   const v = init.data.value ?? {};
   const instructions = v.uploadInstructions ?? [];
-  if (!v.video || instructions.length === 0) {
-    throw new PlatformError('linkedin', 'LinkedIn video upload initialization failed.');
+  if (!v.video || !v.uploadToken || instructions.length === 0) {
+    throw new PlatformError(
+      'linkedin',
+      'LinkedIn video upload init incomplete (missing video / uploadToken / instructions).',
+    );
   }
-  // PUT each byte range; LinkedIn returns the part id in the ETag header.
+  // PUT each byte range; LinkedIn returns the part id in the ETag header. A
+  // missing ETag means the part wasn't accepted — fail rather than finalize an
+  // incomplete part list.
   const uploadedPartIds: string[] = [];
   for (const ins of instructions) {
     const chunk = bytes.slice(ins.firstByte, ins.lastByte + 1);
@@ -129,7 +134,10 @@ async function uploadVideo(
       body: chunk,
     });
     const etag = put.headers.get('etag');
-    if (etag) uploadedPartIds.push(etag);
+    if (!etag) {
+      throw new PlatformError('linkedin', 'LinkedIn video chunk upload returned no ETag.');
+    }
+    uploadedPartIds.push(etag);
   }
   await deps.http({
     method: 'POST',
@@ -139,7 +147,7 @@ async function uploadVideo(
     json: {
       finalizeUploadRequest: {
         video: v.video,
-        uploadToken: v.uploadToken ?? '',
+        uploadToken: v.uploadToken,
         uploadedPartIds,
       },
     },

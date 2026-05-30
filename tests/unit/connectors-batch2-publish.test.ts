@@ -281,6 +281,57 @@ describe('X publisher', () => {
       ),
     ).rejects.toThrow(/single video OR/i);
   });
+
+  it('polls STATUS across cycles until the transcode succeeds', async () => {
+    let polls = 0;
+    const { http } = makeHttp((c) => {
+      if (c.url.includes('command=STATUS')) {
+        polls += 1;
+        return polls >= 2
+          ? { data: { processing_info: { state: 'succeeded' } } }
+          : { data: { processing_info: { state: 'in_progress', check_after_secs: 0 } } };
+      }
+      if (c.url.includes('upload.twitter.com')) {
+        const cmd = (c.form?.command as string) ?? '';
+        if (cmd === 'INIT') return { data: { media_id_string: 'vid2' } };
+        if (cmd === 'FINALIZE') return { data: { processing_info: { state: 'in_progress', check_after_secs: 0 } } };
+        return {};
+      }
+      if (c.url.endsWith('/tweets')) return { data: { data: { id: 'tvp' } } };
+      return {};
+    });
+    const res = await publishToX(
+      fakeAccount('x', 'x1'),
+      { text: 'reel', mediaUrls: ['https://cdn/v.mp4'] },
+      {},
+      { ...TOKENS, ...FETCH_MEDIA, ...SLEEP, http },
+    );
+    expect(res.externalId).toBe('tvp');
+    expect(polls).toBe(2);
+  });
+
+  it('throws if X video processing never finishes within the poll budget', async () => {
+    const { http } = makeHttp((c) => {
+      if (c.url.includes('command=STATUS')) {
+        return { data: { processing_info: { state: 'in_progress', check_after_secs: 0 } } };
+      }
+      if (c.url.includes('upload.twitter.com')) {
+        const cmd = (c.form?.command as string) ?? '';
+        if (cmd === 'INIT') return { data: { media_id_string: 'vid3' } };
+        if (cmd === 'FINALIZE') return { data: { processing_info: { state: 'in_progress', check_after_secs: 0 } } };
+        return {};
+      }
+      return {};
+    });
+    await expect(
+      publishToX(
+        fakeAccount('x', 'x1'),
+        { text: 'v', mediaUrls: ['https://cdn/v.mp4'] },
+        {},
+        { ...TOKENS, ...FETCH_MEDIA, ...SLEEP, http },
+      ),
+    ).rejects.toThrow(/did not finish/i);
+  });
 });
 
 describe('YouTube publisher', () => {

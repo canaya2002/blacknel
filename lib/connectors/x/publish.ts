@@ -127,6 +127,11 @@ async function uploadVideoChunked(deps: XPublishDeps, token: string, url: string
   if (info && info.state === 'failed') {
     throw new PlatformError('x', `X video processing failed (media ${mediaId}).`);
   }
+  // Don't treat a poll-budget timeout as success — an unfinished transcode would
+  // attach a broken video to the tweet.
+  if (info && (info.state === 'pending' || info.state === 'in_progress')) {
+    throw new PlatformError('x', `X video processing did not finish after ${STATUS_POLL_MAX_ATTEMPTS} polls (media ${mediaId}).`);
+  }
   return mediaId;
 }
 
