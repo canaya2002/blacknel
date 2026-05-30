@@ -20,7 +20,11 @@ export type RuntimeFlag =
   | 'use_real_storage'
   | 'use_real_email'
   | 'use_real_inngest'
-  | 'use_real_meta';
+  | 'use_real_meta'
+  | 'use_real_linkedin'
+  | 'use_real_tiktok'
+  | 'use_real_x'
+  | 'use_real_youtube';
 
 type FlagReader = (key: string) => Promise<string | null>;
 

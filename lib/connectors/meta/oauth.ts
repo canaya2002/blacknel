@@ -1,15 +1,8 @@
 import 'server-only';
 
-import { randomBytes } from 'node:crypto';
-
 import { env } from '@/lib/env';
 
-import {
-  decryptJson,
-  encryptJson,
-  isEncryptedEnvelope,
-  type EncryptedEnvelope,
-} from '../crypto';
+import { signOAuthState, verifyOAuthState } from '../oauth-state';
 
 import { META_SCOPES, oauthDialogUrl, isRealMetaEnabled } from './config';
 import { graphRequest } from './graph';
@@ -20,43 +13,17 @@ import { graphRequest } from './graph';
  * Instagram Business accounts. Real path hits Graph; mock path (isRealMetaEnabled off)
  * returns deterministic fake accounts so dev/CI exercise the whole flow.
  *
- * `state` is an AES-256-GCM envelope of {orgId, userId, nonce, exp} (reusing the
- * connector encryption key) → opaque + integrity-protected + confidential. The
- * callback decrypts it, checks expiry, and matches orgId/userId against the live
- * session (defence against CSRF + cross-tenant replay).
+ * `state` delegates to the shared provider-agnostic CSRF helper (C47,
+ * lib/connectors/oauth-state.ts) tagged platform='meta'.
  */
 
-const STATE_TTL_MS = 10 * 60 * 1000;
-
-interface StatePayload {
-  orgId: string;
-  userId: string;
-  nonce: string;
-  exp: number;
-}
-
 export function signState(p: { orgId: string; userId: string }): string {
-  const payload: StatePayload = {
-    orgId: p.orgId,
-    userId: p.userId,
-    nonce: randomBytes(8).toString('hex'),
-    exp: Date.now() + STATE_TTL_MS,
-  };
-  const envelope = encryptJson(payload);
-  return Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url');
+  return signOAuthState({ orgId: p.orgId, userId: p.userId, platform: 'meta' });
 }
 
 export function verifyState(token: string): { orgId: string; userId: string } | null {
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
-    if (!isEncryptedEnvelope(parsed)) return null;
-    const p = decryptJson<StatePayload>(parsed as EncryptedEnvelope);
-    if (typeof p.exp !== 'number' || p.exp < Date.now()) return null;
-    if (!p.orgId || !p.userId) return null;
-    return { orgId: p.orgId, userId: p.userId };
-  } catch {
-    return null;
-  }
+  const r = verifyOAuthState(token);
+  return r ? { orgId: r.orgId, userId: r.userId } : null;
 }
 
 export function buildAuthUrl(state: string): string {

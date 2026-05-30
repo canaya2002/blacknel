@@ -26,6 +26,10 @@ const VALID_FLAGS = new Set([
   'use_real_email',
   'use_real_inngest',
   'use_real_meta',
+  'use_real_linkedin',
+  'use_real_tiktok',
+  'use_real_x',
+  'use_real_youtube',
 ]);
 
 type Action = 'on' | 'off' | 'status';

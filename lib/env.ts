@@ -107,6 +107,20 @@ const envSchema = z.object({
    */
   CONNECTION_ENCRYPTION_KEY: optionalEnv(z.string().min(1)),
 
+  // --- Social connectors batch 2 (OAuth) — Phase 11 / C47 ------------------
+  // Each platform's real path serves only when its creds are set AND
+  // use_real_<platform>='on'; else mock (fail-safe). Redirect URI is derived
+  // from NEXT_PUBLIC_APP_URL (/api/connectors/<platform>/callback) — register
+  // that exact URL in each platform's app. Secrets stay server-side.
+  LINKEDIN_CLIENT_ID: optionalEnv(z.string().min(1)),
+  LINKEDIN_CLIENT_SECRET: optionalEnv(z.string().min(1)),
+  TIKTOK_CLIENT_KEY: optionalEnv(z.string().min(1)),
+  TIKTOK_CLIENT_SECRET: optionalEnv(z.string().min(1)),
+  X_CLIENT_ID: optionalEnv(z.string().min(1)),
+  X_CLIENT_SECRET: optionalEnv(z.string().min(1)),
+  YOUTUBE_CLIENT_ID: optionalEnv(z.string().min(1)),
+  YOUTUBE_CLIENT_SECRET: optionalEnv(z.string().min(1)),
+
   // --- AI (Anthropic) — Phase 11 / C43a ---
   /**
    * Anthropic API key. Required when the real-AI gate is open; the adapter
