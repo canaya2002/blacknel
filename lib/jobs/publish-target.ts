@@ -1,11 +1,12 @@
 import 'server-only';
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { type AnyPgTx, dbAdmin, dbAs } from '@/lib/db/client';
 import {
   auditEvents,
   connectedAccounts,
+  contentAssets,
   postTargets,
   posts,
 } from '@/lib/db/schema';
@@ -75,6 +76,35 @@ const defaultDeps: DispatchOneTargetDeps = {
   now: () => new Date(),
 };
 
+/**
+ * Resolve a post's media ids (content_assets) to public URLs for the connector
+ * (C46), preserving order. Uses the caller's `asAdmin` seam so tests resolve
+ * against the injected pglite. The real Meta publisher needs these URLs; the
+ * mock ignores them — so for media-less posts the caller skips this entirely.
+ */
+export async function resolveMediaUrls(
+  asAdmin: DispatchOneTargetDeps['asAdmin'],
+  orgId: string,
+  mediaIds: ReadonlyArray<string>,
+): Promise<ReadonlyArray<string>> {
+  if (mediaIds.length === 0) return [];
+  const rows = await asAdmin<Array<{ id: string; url: string }>>((tx) =>
+    tx
+      .select({ id: contentAssets.id, url: contentAssets.url })
+      .from(contentAssets)
+      .where(
+        and(
+          eq(contentAssets.organizationId, orgId),
+          inArray(contentAssets.id, [...mediaIds]),
+        ),
+      ),
+  );
+  const byId = new Map(rows.map((r) => [r.id, r.url]));
+  return mediaIds
+    .map((id) => byId.get(id))
+    .filter((u): u is string => typeof u === 'string');
+}
+
 export interface DispatchOneTargetOpts {
   readonly orgId: string;
   /** Actor identity for the audit trail. Use 'system' for cron path. */
@@ -134,10 +164,10 @@ export async function dispatchOneTarget(
   const targetRow = targetRows[0];
   if (!targetRow) return err('NOT_FOUND', 'Target no encontrado.');
 
-  type PostRow = { postText: string; postLink: string | null };
+  type PostRow = { postText: string; postLink: string | null; postMediaIds: unknown };
   const postRows = await deps.asAdmin<PostRow[]>((tx) =>
     tx
-      .select({ postText: posts.text, postLink: posts.link })
+      .select({ postText: posts.text, postLink: posts.link, postMediaIds: posts.mediaIds })
       .from(posts)
       .where(eq(posts.id, targetRow.postId))
       .limit(1),
@@ -228,6 +258,21 @@ export async function dispatchOneTarget(
       ? variant.link
       : row.postLink ?? undefined;
 
+  // Media: per-target variant override wins over the post's media list. Resolve
+  // content_assets ids → public URLs for the connector (C46). Empty → skip the
+  // query entirely so media-less posts keep their fast path.
+  const variantMediaIds = Array.isArray(variant.mediaIds)
+    ? (variant.mediaIds.filter((m): m is string => typeof m === 'string'))
+    : null;
+  const postMediaIds = Array.isArray(row.postMediaIds)
+    ? (row.postMediaIds as unknown[]).filter((m): m is string => typeof m === 'string')
+    : [];
+  const effectiveMediaIds = variantMediaIds ?? postMediaIds;
+  const mediaUrls =
+    effectiveMediaIds.length > 0
+      ? await resolveMediaUrls(deps.asAdmin, opts.orgId, effectiveMediaIds)
+      : [];
+
   const account: ConnectorAccount = {
     id: row.accountId,
     organizationId: opts.orgId,
@@ -258,6 +303,7 @@ export async function dispatchOneTarget(
       {
         text: effectiveText,
         ...(effectiveLink ? { link: effectiveLink } : {}),
+        ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
       },
       { idempotencyKey: row.idempotencyKey },
     );
