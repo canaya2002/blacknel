@@ -18,8 +18,8 @@ import { LINKEDIN_API_BASE, LINKEDIN_API_VERSION } from './config';
  * comes back in the `x-restli-id` response header. Only the real path (gated by
  * isRealLinkedinEnabled); mock stays in MockConnector.
  *
- * GAP: video chunked-upload (uploadInstructions with >1 part) is not handled —
- * single-part only. Validated at soak.
+ * Images upload single-shot; videos use the multi-part uploadInstructions flow
+ * (PUT each byte range, collect ETags, finalizeUpload). Validated at soak.
  */
 
 export interface LinkedinPublishDeps {
@@ -45,43 +45,106 @@ function authHeaders(token: string): Record<string, string> {
   };
 }
 
-async function uploadAsset(
+function uploadAsset(
   deps: LinkedinPublishDeps,
   owner: string,
   token: string,
   url: string,
 ): Promise<string> {
-  const isVideo = isVideoUrl(url);
-  const endpoint = isVideo ? 'videos' : 'images';
-  const init = await deps.http<{
-    value?: {
-      uploadUrl?: string;
-      image?: string;
-      video?: string;
-      uploadInstructions?: Array<{ uploadUrl: string }>;
-    };
-  }>({
+  return isVideoUrl(url)
+    ? uploadVideo(deps, owner, token, url)
+    : uploadImage(deps, owner, token, url);
+}
+
+async function uploadImage(
+  deps: LinkedinPublishDeps,
+  owner: string,
+  token: string,
+  url: string,
+): Promise<string> {
+  const init = await deps.http<{ value?: { uploadUrl?: string; image?: string } }>({
     method: 'POST',
-    url: `${LINKEDIN_API_BASE}/${endpoint}?action=initializeUpload`,
+    url: `${LINKEDIN_API_BASE}/images?action=initializeUpload`,
     platform: 'linkedin',
     headers: authHeaders(token),
     json: { initializeUploadRequest: { owner } },
   });
   const v = init.data.value ?? {};
-  const uploadUrl = v.uploadUrl ?? v.uploadInstructions?.[0]?.uploadUrl;
-  const urn = isVideo ? v.video : v.image;
-  if (!uploadUrl || !urn) {
-    throw new PlatformError('linkedin', 'LinkedIn upload initialization failed.');
+  if (!v.uploadUrl || !v.image) {
+    throw new PlatformError('linkedin', 'LinkedIn image upload initialization failed.');
   }
   const bytes = await deps.fetchMedia(url);
   await deps.http({
     method: 'PUT',
-    url: uploadUrl,
+    url: v.uploadUrl,
     platform: 'linkedin',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/octet-stream' },
     body: bytes,
   });
-  return urn;
+  return v.image;
+}
+
+async function uploadVideo(
+  deps: LinkedinPublishDeps,
+  owner: string,
+  token: string,
+  url: string,
+): Promise<string> {
+  // LinkedIn needs the file size up front, then returns per-part upload URLs.
+  const bytes = await deps.fetchMedia(url);
+  const init = await deps.http<{
+    value?: {
+      video?: string;
+      uploadToken?: string;
+      uploadInstructions?: Array<{ uploadUrl: string; firstByte: number; lastByte: number }>;
+    };
+  }>({
+    method: 'POST',
+    url: `${LINKEDIN_API_BASE}/videos?action=initializeUpload`,
+    platform: 'linkedin',
+    headers: authHeaders(token),
+    json: {
+      initializeUploadRequest: {
+        owner,
+        fileSizeBytes: bytes.length,
+        uploadCaptions: false,
+        uploadThumbnail: false,
+      },
+    },
+  });
+  const v = init.data.value ?? {};
+  const instructions = v.uploadInstructions ?? [];
+  if (!v.video || instructions.length === 0) {
+    throw new PlatformError('linkedin', 'LinkedIn video upload initialization failed.');
+  }
+  // PUT each byte range; LinkedIn returns the part id in the ETag header.
+  const uploadedPartIds: string[] = [];
+  for (const ins of instructions) {
+    const chunk = bytes.slice(ins.firstByte, ins.lastByte + 1);
+    const put = await deps.http({
+      method: 'PUT',
+      url: ins.uploadUrl,
+      platform: 'linkedin',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/octet-stream' },
+      body: chunk,
+    });
+    const etag = put.headers.get('etag');
+    if (etag) uploadedPartIds.push(etag);
+  }
+  await deps.http({
+    method: 'POST',
+    url: `${LINKEDIN_API_BASE}/videos?action=finalizeUpload`,
+    platform: 'linkedin',
+    headers: authHeaders(token),
+    json: {
+      finalizeUploadRequest: {
+        video: v.video,
+        uploadToken: v.uploadToken ?? '',
+        uploadedPartIds,
+      },
+    },
+  });
+  return v.video;
 }
 
 export async function publishToLinkedin(
