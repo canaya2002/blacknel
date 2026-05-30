@@ -20,15 +20,56 @@ export async function publishViaConnector(
   draft: { text: string; mediaUrls?: ReadonlyArray<string>; link?: string },
   options: { idempotencyKey?: string },
 ): Promise<{ externalId: string }> {
-  if (account.platform === 'facebook' || account.platform === 'instagram') {
-    const { isRealMetaEnabled } = await import('./meta/config');
-    if (await isRealMetaEnabled()) {
-      const { publishToMeta } = await import('./meta/publish');
-      return publishToMeta(account, draft, options);
-    }
-  }
+  // Per-platform real path (gated + lazy-imported so the server-only Graph/OAuth
+  // code never enters the client-reachable registry graph). Falls through to the
+  // connector mock when the platform's real flag is off.
+  const real = await tryRealPublish(account, draft, options);
+  if (real) return real;
+
   if (typeof connector.publishPost !== 'function') {
     throw new Error(`Connector ${account.platform} does not support publishPost.`);
   }
   return connector.publishPost(account, draft, options);
+}
+
+async function tryRealPublish(
+  account: ConnectorAccount,
+  draft: { text: string; mediaUrls?: ReadonlyArray<string>; link?: string },
+  options: { idempotencyKey?: string },
+): Promise<{ externalId: string } | null> {
+  switch (account.platform) {
+    case 'facebook':
+    case 'instagram': {
+      const { isRealMetaEnabled } = await import('./meta/config');
+      if (!(await isRealMetaEnabled())) return null;
+      const { publishToMeta } = await import('./meta/publish');
+      return publishToMeta(account, draft, options);
+    }
+    case 'linkedin': {
+      const { isRealLinkedinEnabled } = await import('./linkedin/config');
+      if (!(await isRealLinkedinEnabled())) return null;
+      const { publishToLinkedin } = await import('./linkedin/publish');
+      return publishToLinkedin(account, draft, options);
+    }
+    case 'tiktok': {
+      const { isRealTiktokEnabled } = await import('./tiktok/config');
+      if (!(await isRealTiktokEnabled())) return null;
+      const { publishToTiktok } = await import('./tiktok/publish');
+      return publishToTiktok(account, draft, options);
+    }
+    case 'x': {
+      const { isRealXEnabled } = await import('./x/config');
+      if (!(await isRealXEnabled())) return null;
+      const { publishToX } = await import('./x/publish');
+      return publishToX(account, draft, options);
+    }
+    case 'youtube': {
+      const { isRealYoutubeEnabled } = await import('./youtube/config');
+      if (!(await isRealYoutubeEnabled())) return null;
+      const { publishToYoutube } = await import('./youtube/publish');
+      return publishToYoutube(account, draft, options);
+    }
+    default:
+      return null;
+  }
 }
