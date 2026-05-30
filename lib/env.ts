@@ -98,11 +98,14 @@ const envSchema = z.object({
   META_GRAPH_VERSION: z.string().default('v21.0'),
   /**
    * AES-256-GCM key for encrypting connector OAuth tokens at rest
-   * (connected_accounts.oauth_tokens_encrypted). Any string ≥32 chars; a
-   * 32-byte key is derived via scrypt. Server-only secret — tokens are NEVER
-   * stored plaintext nor sent to the client. Required when use_real_meta is on.
+   * (connected_accounts.oauth_tokens_encrypted). A 32-byte key is derived via
+   * scrypt, so any input works — but use a high-entropy value ≥32 chars in prod
+   * (`openssl rand -base64 48`). min(1) (not min(32)) matches the C43 placeholder
+   * pattern so `__LO_PONE_CARLOS__` validates at build. Server-only secret —
+   * tokens are NEVER stored plaintext nor sent to the client. Required (a real
+   * value) before `pnpm db:flag use_real_meta on`.
    */
-  CONNECTION_ENCRYPTION_KEY: optionalEnv(z.string().min(32)),
+  CONNECTION_ENCRYPTION_KEY: optionalEnv(z.string().min(1)),
 
   // --- AI (Anthropic) — Phase 11 / C43a ---
   /**

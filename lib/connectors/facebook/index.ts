@@ -1,14 +1,6 @@
-import { buildMetaConnector, type MetaConnector } from '../meta/connector';
-
-import { FACEBOOK_CAPABILITIES } from './capabilities';
-
 export { FACEBOOK_CAPABILITIES } from './capabilities';
-
-/**
- * C46 — Facebook Pages run on the real Meta connector (Graph API behind
- * useRealMeta(), else the shared mock). `buildFacebookConnector` keeps the same
- * name/registry slot; only the implementation graduated from pure-mock.
- */
-export function buildFacebookConnector(): MetaConnector {
-  return buildMetaConnector('facebook', FACEBOOK_CAPABILITIES);
-}
+// C46 — the registry stays client-safe (mock connector). Real Facebook Page
+// publishing is layered at the server-only dispatch seam
+// (lib/connectors/publish-dispatch.ts → lib/connectors/meta/publish.ts), gated by
+// isRealMetaEnabled(); the connector keeps the mock surface for everything else.
+export { buildFacebookConnector } from './mock';

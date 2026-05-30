@@ -20,7 +20,7 @@ import { graphRequest as defaultGraph } from './graph';
  *     container, then /{ig}/media_publish. IG requires media.
  *
  * Media kind is inferred from the URL extension (R2 keys carry it) — see the C46
- * report for the limitation. Only invoked on the real path (useRealMeta()); the
+ * report for the limitation. Only invoked on the real path (isRealMetaEnabled()); the
  * mock path stays in MockConnector.
  */
 

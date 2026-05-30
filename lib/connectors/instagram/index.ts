@@ -1,13 +1,4 @@
-import { buildMetaConnector, type MetaConnector } from '../meta/connector';
-
-import { INSTAGRAM_CAPABILITIES } from './capabilities';
-
 export { INSTAGRAM_CAPABILITIES } from './capabilities';
-
-/**
- * C46 — Instagram Business runs on the real Meta connector (Graph container flow
- * behind useRealMeta(), else the shared mock).
- */
-export function buildInstagramConnector(): MetaConnector {
-  return buildMetaConnector('instagram', INSTAGRAM_CAPABILITIES);
-}
+// C46 — registry stays client-safe (mock). Real IG publishing (container flow)
+// is layered at the server-only dispatch seam (lib/connectors/publish-dispatch.ts).
+export { buildInstagramConnector } from './mock';

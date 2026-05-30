@@ -15,7 +15,7 @@ import { graphBaseUrl } from './config';
  *   - everything else → PlatformError
  *
  * A fetch seam (`_setGraphFetchForTests`) lets tests inject responses — CI never
- * touches the network. Only invoked on the real path (useRealMeta()).
+ * touches the network. Only invoked on the real path (isRealMetaEnabled()).
  */
 
 export interface GraphError {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireUser } from '@/lib/auth/server';
-import { useRealMeta } from '@/lib/connectors/meta/config';
+import { isRealMetaEnabled } from '@/lib/connectors/meta/config';
 import { buildAuthUrl, signState } from '@/lib/connectors/meta/oauth';
 import { env } from '@/lib/env';
 import { authorize } from '@/lib/permissions/can';
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Meta OAuth start (C46). Authenticated; binds a signed `state` to the caller's
- * org+user. Real mode → redirect to Meta's OAuth dialog. Mock mode (useRealMeta
+ * org+user. Real mode → redirect to Meta's OAuth dialog. Mock mode (isRealMetaEnabled
  * off) → bounce straight to our callback with a `mock` marker so dev/preview can
  * exercise the connect flow without a live Meta App.
  */
@@ -22,7 +22,7 @@ export async function GET(): Promise<Response> {
 
   const state = signState({ orgId: session.orgId, userId: session.userId });
 
-  if (await useRealMeta()) {
+  if (await isRealMetaEnabled()) {
     return NextResponse.redirect(buildAuthUrl(state));
   }
 

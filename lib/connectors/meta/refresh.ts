@@ -9,7 +9,7 @@ import { log } from '@/lib/log';
 
 import { readAccountTokens, writeAccountTokens, type ConnectionTokens } from '../tokens';
 
-import { useRealMeta } from './config';
+import { isRealMetaEnabled } from './config';
 import { graphRequest } from './graph';
 
 /**
@@ -33,7 +33,7 @@ export interface RefreshDeps {
 async function defaultRefreshToken(
   tokens: ConnectionTokens,
 ): Promise<{ accessToken: string; expiresAt: string | null }> {
-  if (!(await useRealMeta())) {
+  if (!(await isRealMetaEnabled())) {
     return { accessToken: tokens.accessToken, expiresAt: new Date(Date.now() + MOCK_EXTENSION_MS).toISOString() };
   }
   const long = await graphRequest<{ access_token: string; expires_in?: number }>({

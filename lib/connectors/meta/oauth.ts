@@ -11,13 +11,13 @@ import {
   type EncryptedEnvelope,
 } from '../crypto';
 
-import { META_SCOPES, oauthDialogUrl, useRealMeta } from './config';
+import { META_SCOPES, oauthDialogUrl, isRealMetaEnabled } from './config';
 import { graphRequest } from './graph';
 
 /**
  * Meta OAuth flow (C46): build the dialog URL, sign/verify the CSRF `state`,
  * exchange the code for a long-lived token, and list the user's Pages + linked
- * Instagram Business accounts. Real path hits Graph; mock path (useRealMeta off)
+ * Instagram Business accounts. Real path hits Graph; mock path (isRealMetaEnabled off)
  * returns deterministic fake accounts so dev/CI exercise the whole flow.
  *
  * `state` is an AES-256-GCM envelope of {orgId, userId, nonce, exp} (reusing the
@@ -83,11 +83,11 @@ export interface ManagedAccount {
   readonly parentPageId?: string;
 }
 
-/** Exchange the OAuth code for a long-lived user token. Mock when useRealMeta off. */
+/** Exchange the OAuth code for a long-lived user token. Mock when isRealMetaEnabled off. */
 export async function exchangeCodeForTokens(
   code: string,
 ): Promise<{ userAccessToken: string; expiresAt: string | null }> {
-  if (!(await useRealMeta())) {
+  if (!(await isRealMetaEnabled())) {
     return { userAccessToken: `mock-user-token-${code.slice(0, 8) || 'dev'}`, expiresAt: null };
   }
   // 1. code → short-lived user token.
@@ -118,9 +118,9 @@ export async function exchangeCodeForTokens(
   return { userAccessToken: long.access_token, expiresAt };
 }
 
-/** List the user's Pages + linked IG Business accounts. Mock when useRealMeta off. */
+/** List the user's Pages + linked IG Business accounts. Mock when isRealMetaEnabled off. */
 export async function listManagedAccounts(userAccessToken: string): Promise<ManagedAccount[]> {
-  if (!(await useRealMeta())) {
+  if (!(await isRealMetaEnabled())) {
     const seed = userAccessToken.slice(-6) || 'dev';
     return [
       {

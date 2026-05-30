@@ -26,6 +26,14 @@ vi.mock('@/lib/db/client', () => ({
   dbAdmin: (...args: unknown[]) => dbAdminMock(...args),
 }));
 
+// The route fans the persisted event out to the inbox (C46). Stub the emitter +
+// processor so this suite stays focused on the persist/dedup/freshness contract
+// (the fan-out itself is covered by tests/integration/meta-inbox-ingest.test.ts).
+vi.mock('@/lib/inngest/client', () => ({ tryEmit: vi.fn(async () => false) }));
+vi.mock('@/lib/connectors/meta/inbound', () => ({
+  processMetaWebhookEvent: vi.fn(async () => ({ processed: true, items: 0 })),
+}));
+
 // Import AFTER mocks are registered.
 const { GET, POST } = await import('../../app/api/webhooks/meta/route');
 

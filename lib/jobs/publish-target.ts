@@ -13,6 +13,7 @@ import {
 import { AppError } from '@/lib/errors';
 import { log } from '@/lib/log';
 import { getConnector } from '@/lib/connectors/registry';
+import { publishViaConnector } from '@/lib/connectors/publish-dispatch';
 import type { ConnectorAccount, PlatformCode } from '@/lib/connectors/base';
 import { err, ok, type Result } from '@/lib/types/result';
 
@@ -298,7 +299,9 @@ export async function dispatchOneTarget(
   }
 
   try {
-    const result = await connector.publishPost(
+    // Real-vs-mock routing for Meta happens in the server-only dispatch seam.
+    const result = await publishViaConnector(
+      connector,
       account,
       {
         text: effectiveText,

@@ -45,6 +45,9 @@ import { timingSafeStringEqual, validateWebhookSignature } from '@/lib/meta/webh
  * the kill switch nor the auth gate runs here. Auth lives at the
  * signature layer (POST) and verify-token layer (GET).
  */
+// Node runtime: the POST path now does inline DB work (persist + inbox fan-out
+// when Inngest is off). force-dynamic keeps it from being statically optimized.
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const SIGNATURE_HEADER = 'x-hub-signature-256';

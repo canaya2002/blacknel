@@ -17,7 +17,7 @@ export function metaCredsPresent(): boolean {
 }
 
 /** Gate: use the real Meta Graph path iff creds present AND the flag is on. */
-export async function useRealMeta(): Promise<boolean> {
+export async function isRealMetaEnabled(): Promise<boolean> {
   if (!metaCredsPresent()) return false;
   return isFlagOn('use_real_meta');
 }
