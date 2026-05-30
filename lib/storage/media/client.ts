@@ -76,6 +76,17 @@ function bucketName(): string {
   return env.R2_BUCKET ?? 'blacknel-media-dev';
 }
 
+/**
+ * Resolve the durable public URL for an object key (CDN URL when
+ * R2_PUBLIC_BASE_URL is configured + real adapter, else a `mock://` stub).
+ * Used by consumers that persist a long-lived reference to the object (e.g. the
+ * composer projecting a media_assets upload into a content_assets library row).
+ */
+export async function publicUrlFor(key: string): Promise<string> {
+  const adapter = await resolveAdapter();
+  return adapter.publicUrl(key);
+}
+
 // --- DB deps seam (tenant-isolation tests run against pglite) ---------------
 
 type RunAsFn = <T>(

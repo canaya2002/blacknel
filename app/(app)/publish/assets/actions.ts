@@ -9,13 +9,20 @@ import { dbAdmin, dbAs } from '@/lib/db/client';
 import { auditEvents, posts } from '@/lib/db/schema';
 import { AppError } from '@/lib/errors';
 import { authorize } from '@/lib/permissions/can';
+import type { AssetListItem } from '@/lib/publish/assets/queries';
 import {
   bumpUsedCount,
   deleteAsset,
   uploadAndRecord,
   type UploadAndRecordSuccess,
 } from '@/lib/publish/assets/upload';
+import {
+  finalizeComposerUpload,
+  requestComposerUpload,
+  type RequestComposerUploadResult,
+} from '@/lib/publish/composer/media-upload';
 import { getOrgPlanCode } from '@/lib/queries/plan';
+import { MediaError } from '@/lib/storage/media/client';
 import { err, ok, type Result } from '@/lib/types/result';
 
 /**
@@ -88,6 +95,102 @@ export async function uploadAssetAction(
     }
     return result;
   });
+}
+
+// ---------------------------------------------------------------------------
+// C44 direct-to-R2 composer upload: request + finalize
+// ---------------------------------------------------------------------------
+
+/** Map a C44 MediaError to a user-facing Result; rethrow anything else. */
+function mediaErrorToResult(e: unknown): Result<never> {
+  if (e instanceof MediaError) {
+    if (e.code === 'quota_exceeded') return err('PLAN_LIMIT_REACHED', e.message);
+    if (e.code === 'not_found') return err('NOT_FOUND', e.message);
+    return err('VALIDATION_ERROR', e.message);
+  }
+  throw e;
+}
+
+const requestUploadSchema = z
+  .object({
+    contentType: z.string().min(1).max(255),
+    originalFilename: z.string().min(1).max(500),
+    sizeBytes: z.number().int().positive(),
+    brandId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+/**
+ * Reserve a direct-to-R2 upload (C44). Returns a presigned PUT URL + the
+ * pending `media_assets` id; the client uploads the file straight to R2 (or
+ * skips the PUT when `isMock`) and then calls `finalizeComposerUploadAction`.
+ */
+export async function requestComposerUploadAction(
+  _prev: unknown,
+  input: z.infer<typeof requestUploadSchema>,
+): Promise<Result<RequestComposerUploadResult>> {
+  const session = await requireUser();
+  authorize(session.role, 'posts:create');
+
+  const parsed = requestUploadSchema.safeParse(input);
+  if (!parsed.success) {
+    return err('VALIDATION_ERROR', 'Datos de subida inválidos.', {
+      meta: { issues: parsed.error.flatten() },
+    });
+  }
+
+  const plan = await getOrgPlanCode(session);
+  try {
+    const result = await requestComposerUpload({
+      orgId: session.orgId,
+      userId: session.userId,
+      plan,
+      contentType: parsed.data.contentType,
+      originalFilename: parsed.data.originalFilename,
+      sizeBytes: parsed.data.sizeBytes,
+    });
+    return ok(result);
+  } catch (e) {
+    return mediaErrorToResult(e);
+  }
+}
+
+const finalizeUploadSchema = z
+  .object({
+    assetId: z.string().uuid(),
+    brandId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+/**
+ * Finalize a C44 upload (ready + media.process + quota) and project it into a
+ * content_assets library row so the composer can attach it to the draft. RLS
+ * scopes the asset to the caller's org — a foreign id resolves to not_found.
+ */
+export async function finalizeComposerUploadAction(
+  _prev: unknown,
+  input: z.infer<typeof finalizeUploadSchema>,
+): Promise<Result<{ asset: AssetListItem }>> {
+  const session = await requireUser();
+  authorize(session.role, 'posts:create');
+
+  const parsed = finalizeUploadSchema.safeParse(input);
+  if (!parsed.success) {
+    return err('VALIDATION_ERROR', 'Datos de finalización inválidos.');
+  }
+
+  try {
+    const asset = await finalizeComposerUpload({
+      orgId: session.orgId,
+      userId: session.userId,
+      assetId: parsed.data.assetId,
+      ...(parsed.data.brandId ? { brandId: parsed.data.brandId } : {}),
+    });
+    revalidatePath('/publish/assets');
+    return ok({ asset });
+  } catch (e) {
+    return mediaErrorToResult(e);
+  }
 }
 
 // ---------------------------------------------------------------------------

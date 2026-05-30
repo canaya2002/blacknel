@@ -9,9 +9,12 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 
-import { uploadAssetAction } from '@/app/(app)/publish/assets/actions';
+import {
+  finalizeComposerUploadAction,
+  requestComposerUploadAction,
+} from '@/app/(app)/publish/assets/actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
@@ -63,7 +66,9 @@ const KIND_ICONS = {
  * Already-attached uploads survive a failed batch — only the
  * offending files get rejected.
  */
-const ACCEPT_HTML = 'image/png,image/jpeg,image/gif,image/webp,video/mp4,video/quicktime,video/webm,application/pdf';
+// C44 storage accepts images + video only (no PDF). The composer uploader
+// targets the C44 direct-to-R2 path, so the picker matches that allowlist.
+const ACCEPT_HTML = 'image/png,image/jpeg,image/gif,image/webp,video/mp4,video/quicktime,video/webm';
 const ACCEPT_EXTENSIONS = new Set([
   '.png',
   '.jpg',
@@ -73,8 +78,22 @@ const ACCEPT_EXTENSIONS = new Set([
   '.mp4',
   '.mov',
   '.webm',
-  '.pdf',
 ]);
+const CONTENT_TYPE_BY_EXT: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+};
+
+interface UploadingItem {
+  readonly tempId: string;
+  readonly name: string;
+}
 
 export function MediaUploader({
   attached,
@@ -87,6 +106,18 @@ export function MediaUploader({
   const [dragOver, setDragOver] = useState(false);
   const [pending, startTransition] = useTransition();
   const [errors, setErrors] = useState<ReadonlyArray<string>>([]);
+  const [uploading, setUploading] = useState<ReadonlyArray<UploadingItem>>([]);
+  // Local object URLs used for instant preview (the persisted R2 public URL is
+  // only resolvable once flags + R2 are live). Revoked on unmount / detach.
+  const objectUrls = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    const urls = objectUrls.current;
+    return () => {
+      for (const url of urls.values()) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
 
   const remaining =
     maxAttachments === null
@@ -142,29 +173,64 @@ export function MediaUploader({
       const newlyAttached: AssetListItem[] = [];
       const uploadErrors: string[] = [];
       for (const file of candidates) {
-        const formData = new FormData();
-        formData.append('file', file);
-        if (brandId) formData.append('brandId', brandId);
-        const result = await uploadAssetAction(null, formData);
-        if (!result.ok) {
-          uploadErrors.push(`${file.name}: ${result.error.message}`);
-          continue;
+        const tempId =
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${file.name}-${file.size}-${file.lastModified}`;
+        const ext = extensionOf(file.name);
+        const contentType =
+          file.type || CONTENT_TYPE_BY_EXT[ext] || 'application/octet-stream';
+        setUploading((prev) => [...prev, { tempId, name: file.name }]);
+        try {
+          // 1. Reserve the upload (validate + presigned PUT + pending row).
+          const requested = await requestComposerUploadAction(null, {
+            contentType,
+            originalFilename: file.name,
+            sizeBytes: file.size,
+            ...(brandId ? { brandId } : {}),
+          });
+          if (!requested.ok) {
+            uploadErrors.push(`${file.name}: ${requested.error.message}`);
+            continue;
+          }
+          // 2. Upload straight to R2 when a real presigned URL was issued. In
+          //    mock mode (flags off) there is no object store — skip the PUT.
+          if (!requested.data.isMock) {
+            const put = await fetch(requested.data.url, {
+              method: 'PUT',
+              body: file,
+              headers: { 'Content-Type': contentType },
+            });
+            if (!put.ok) {
+              uploadErrors.push(
+                `${file.name}: falló la subida a R2 (HTTP ${put.status}).`,
+              );
+              continue;
+            }
+          }
+          // 3. Finalize → ready + media.process; projects a library row.
+          const finalized = await finalizeComposerUploadAction(null, {
+            assetId: requested.data.assetId,
+            ...(brandId ? { brandId } : {}),
+          });
+          if (!finalized.ok) {
+            uploadErrors.push(`${file.name}: ${finalized.error.message}`);
+            continue;
+          }
+          const asset = finalized.data.asset;
+          const isImage = asset.kind === 'image' || asset.kind === 'gif';
+          const previewUrl = URL.createObjectURL(file);
+          objectUrls.current.set(asset.id, previewUrl);
+          newlyAttached.push({
+            ...asset,
+            // The persisted public URL isn't resolvable until R2 is live; show
+            // a local object URL for instant preview this session.
+            url: isImage ? previewUrl : asset.url,
+            thumbnailUrl: isImage ? previewUrl : null,
+          });
+        } finally {
+          setUploading((prev) => prev.filter((u) => u.tempId !== tempId));
         }
-        newlyAttached.push({
-          id: result.data.assetId,
-          kind: result.data.kind,
-          name: file.name,
-          url: result.data.url,
-          thumbnailUrl: null,
-          brandId,
-          tags: [],
-          usedCount: 0,
-          bytes: result.data.bytes,
-          contentType: file.type,
-          storageKey: null,
-          createdAt: new Date(),
-          approved: true,
-        });
       }
       if (newlyAttached.length > 0) {
         onChange([...attached, ...newlyAttached]);
@@ -192,6 +258,11 @@ export function MediaUploader({
   };
 
   const detach = (assetId: string): void => {
+    const url = objectUrls.current.get(assetId);
+    if (url) {
+      URL.revokeObjectURL(url);
+      objectUrls.current.delete(assetId);
+    }
     onChange(attached.filter((a) => a.id !== assetId));
   };
 
@@ -264,11 +335,16 @@ export function MediaUploader({
         </ul>
       ) : null}
 
-      {attached.length > 0 ? (
+      {attached.length > 0 || uploading.length > 0 ? (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {attached.map((asset) => (
             <li key={asset.id}>
               <AttachmentTile asset={asset} onRemove={() => detach(asset.id)} />
+            </li>
+          ))}
+          {uploading.map((item) => (
+            <li key={item.tempId}>
+              <UploadingTile name={item.name} />
             </li>
           ))}
         </ul>
@@ -322,6 +398,22 @@ function AttachmentTile({
         <span className="text-[10px] text-muted-foreground tabular-nums">
           {formatMb(asset.bytes)}
         </span>
+      </div>
+    </div>
+  );
+}
+
+function UploadingTile({ name }: { name: string }): React.ReactElement {
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-dashed bg-background p-1.5">
+      <div className="flex aspect-video w-full items-center justify-center rounded-sm bg-muted">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
+      </div>
+      <div className="flex flex-col gap-0.5 px-1 pb-1">
+        <span className="line-clamp-1 text-[11px] font-medium" title={name}>
+          {name}
+        </span>
+        <span className="text-[10px] text-muted-foreground">Subiendo…</span>
       </div>
     </div>
   );
