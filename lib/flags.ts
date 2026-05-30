@@ -19,7 +19,8 @@ import { appSettings } from './db/schema';
 export type RuntimeFlag =
   | 'use_real_storage'
   | 'use_real_email'
-  | 'use_real_inngest';
+  | 'use_real_inngest'
+  | 'use_real_meta';
 
 type FlagReader = (key: string) => Promise<string | null>;
 

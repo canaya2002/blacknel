@@ -25,6 +25,7 @@ const VALID_FLAGS = new Set([
   'use_real_storage',
   'use_real_email',
   'use_real_inngest',
+  'use_real_meta',
 ]);
 
 type Action = 'on' | 'off' | 'status';

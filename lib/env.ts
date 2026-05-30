@@ -86,6 +86,24 @@ const envSchema = z.object({
    */
   META_WEBHOOK_VERIFY_TOKEN: optionalEnv(z.string().min(1)),
 
+  // --- Meta connector (OAuth + Graph API) — Phase 11 / C46 -----------------
+  // Real Meta (Facebook Pages + Instagram Business) connect/publish/ingest
+  // serves only when these are set AND use_real_meta='on'; otherwise the mock
+  // connector is used (fail-safe). META_APP_SECRET (above) is reused.
+  /** Public Meta App ID (client_id in the OAuth dialog + Graph calls). */
+  META_APP_ID: optionalEnv(z.string().min(1)),
+  /** OAuth redirect URI registered in the Meta App (= our callback route). */
+  META_REDIRECT_URI: optionalEnv(z.string().url()),
+  /** Graph API version, e.g. v21.0. Pinned so a Meta version bump is a config change. */
+  META_GRAPH_VERSION: z.string().default('v21.0'),
+  /**
+   * AES-256-GCM key for encrypting connector OAuth tokens at rest
+   * (connected_accounts.oauth_tokens_encrypted). Any string ≥32 chars; a
+   * 32-byte key is derived via scrypt. Server-only secret — tokens are NEVER
+   * stored plaintext nor sent to the client. Required when use_real_meta is on.
+   */
+  CONNECTION_ENCRYPTION_KEY: optionalEnv(z.string().min(32)),
+
   // --- AI (Anthropic) — Phase 11 / C43a ---
   /**
    * Anthropic API key. Required when the real-AI gate is open; the adapter

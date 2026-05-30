@@ -39,8 +39,16 @@ export const connectedAccounts = pgTable(
     errorMessage: text('error_message'),
     /** Frozen `ConnectorCapabilities.supported` array at connect time. */
     capabilities: jsonb('capabilities').notNull().default(sql`'[]'::jsonb`),
-    /** Reserved for Phase 11 OAuth tokens. Empty in mock mode. */
+    /**
+     * OAuth tokens (C46) — AES-256-GCM envelope { v, alg, iv, ct, tag } written
+     * by lib/connectors/tokens.ts. Empty `{}` in mock mode / before connect.
+     */
     oauthTokensEncrypted: jsonb('oauth_tokens_encrypted').notNull().default(sql`'{}'::jsonb`),
+    /**
+     * Plaintext mirror of the token expiry (C46) so the refresh cron can find
+     * soon-to-expire connections without decrypting. Null = non-expiring / none.
+     */
+    tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
     metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
