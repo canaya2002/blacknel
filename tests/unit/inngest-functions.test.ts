@@ -77,8 +77,10 @@ beforeEach(() => {
 });
 
 describe('registry', () => {
-  it('exposes exactly the four C44 functions', () => {
-    expect(functions).toHaveLength(4);
+  it('exposes the C44 + C46 functions', () => {
+    // C44: cleanup-pending-uploads, usage-maintenance, send-email, process-media.
+    // C46: meta-process-inbound, meta-refresh-tokens.
+    expect(functions).toHaveLength(6);
     expect(functions.every(Boolean)).toBe(true);
   });
 });

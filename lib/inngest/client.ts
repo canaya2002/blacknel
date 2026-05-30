@@ -36,6 +36,10 @@ export interface BlacknelEvents {
   'media.process': {
     data: { readonly orgId: string; readonly assetId: string };
   };
+  'meta.inbound': {
+    // The stored meta_webhook_events row to process (org resolved inside).
+    data: { readonly webhookEventId: string };
+  };
 }
 
 export const inngest = new Inngest({

@@ -2,9 +2,11 @@ import 'server-only';
 
 import { type NextRequest, NextResponse } from 'next/server';
 
+import { processMetaWebhookEvent } from '@/lib/connectors/meta/inbound';
 import { dbAdmin } from '@/lib/db/client';
 import { metaWebhookEvents } from '@/lib/db/schema';
 import { env } from '@/lib/env';
+import { tryEmit } from '@/lib/inngest/client';
 import { log } from '@/lib/log';
 import { timingSafeStringEqual, validateWebhookSignature } from '@/lib/meta/webhook-signature';
 
@@ -184,6 +186,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // contain DMs, comments, and other PII. The object field is the only
   // safe routing breadcrumb.
   log.info({ eventObject }, 'meta.webhook.received');
+
+  // Fan out to the inbox (C46): durable via Inngest when enabled, else inline
+  // best-effort (a single event is a few queries). tryEmit is flag-gated +
+  // fail-safe; on inline failure the row stays `pending` for a later sweep.
+  const webhookEventId = inserted[0]!.id;
+  const emitted = await tryEmit('meta.inbound', { webhookEventId });
+  if (!emitted) {
+    try {
+      await processMetaWebhookEvent({ webhookEventId });
+    } catch (err) {
+      log.error({ err: (err as Error).message }, 'meta.webhook.inline_process_failed');
+    }
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }
