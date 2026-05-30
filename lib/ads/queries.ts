@@ -28,7 +28,7 @@ import {
 
 export interface AdsAccountRow {
   readonly id: string;
-  readonly platform: 'google' | 'meta';
+  readonly platform: 'google' | 'meta' | 'tiktok';
   readonly externalAccountId: string;
   readonly accountName: string | null;
   readonly currency: string;
@@ -56,7 +56,7 @@ export async function listAdsAccountsWithTx(
 
   type Row = {
     id: string;
-    platform: 'google' | 'meta';
+    platform: 'google' | 'meta' | 'tiktok';
     externalAccountId: string;
     accountName: string | null;
     currency: string;
@@ -153,7 +153,7 @@ export async function getAdsOverviewWithTx(
 
 export interface AdsAccountDetail {
   readonly id: string;
-  readonly platform: 'google' | 'meta';
+  readonly platform: 'google' | 'meta' | 'tiktok';
   readonly externalAccountId: string;
   readonly accountName: string | null;
   readonly currency: string;
@@ -171,7 +171,7 @@ export async function getAdsAccountDetailWithTx(
 ): Promise<AdsAccountDetail | null> {
   type Row = {
     id: string;
-    platform: 'google' | 'meta';
+    platform: 'google' | 'meta' | 'tiktok';
     externalAccountId: string;
     accountName: string | null;
     currency: string;

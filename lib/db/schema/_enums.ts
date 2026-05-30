@@ -362,7 +362,7 @@ export const contentAssetKindEnum = pgEnum('content_asset_kind', [
 // Re-connecting flips an existing row back to `connected`.
 // ---------------------------------------------------------------------------
 
-export const adsPlatformEnum = pgEnum('ads_platform', ['google', 'meta']);
+export const adsPlatformEnum = pgEnum('ads_platform', ['google', 'meta', 'tiktok']);
 
 export const adsAccountStatusEnum = pgEnum('ads_account_status', [
   'connected',

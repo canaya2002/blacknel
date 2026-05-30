@@ -1,7 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { googleMockConnector } from '../../lib/ads-connectors/google-mock';
 import { metaMockConnector } from '../../lib/ads-connectors/meta-mock';
+import { tiktokMockConnector } from '../../lib/ads-connectors/tiktok-mock';
 import { applyAdsEntityAction } from '../../lib/ads/entity-actions';
 import { type AnyPgTx, runAdmin, runAsOrg } from '../../lib/db/client';
 import {
@@ -27,10 +29,17 @@ const orgB = '11111111-1111-4111-8111-c50ac50ac0b0';
 const adsAccountA = '33333333-3333-4333-8333-c50ac50ac0a0';
 const campaignExt = 'm-acct-1-c0';
 const adSetExt = 'm-acct-1-c0-s0';
+const tiktokAccount = '33333333-3333-4333-8333-c50ac50ac0c0';
+const tiktokCampaignExt = 't-acct-9-c0';
 
 const deps = {
   orgTx: <T>(orgId: string, fn: (tx: AnyPgTx) => Promise<T>) => runAsOrg(fixture.db, orgId, fn),
-  connectorFor: async () => metaMockConnector,
+  connectorFor: async (platform: 'google' | 'meta' | 'tiktok') =>
+    platform === 'google'
+      ? googleMockConnector
+      : platform === 'tiktok'
+        ? tiktokMockConnector
+        : metaMockConnector,
 };
 
 beforeAll(async () => {
@@ -66,6 +75,25 @@ beforeAll(async () => {
       campaignExternalId: campaignExt,
       name: 'S0',
       status: 'active',
+    });
+    // TikTok account + campaign — same platform-agnostic action path.
+    await tx.insert(adsAccounts).values({
+      id: tiktokAccount,
+      organizationId: orgA,
+      platform: 'tiktok',
+      externalAccountId: 'acct-9',
+      accountName: 'Org A TikTok',
+      currency: 'USD',
+      status: 'connected',
+    });
+    await tx.insert(adsCampaigns).values({
+      organizationId: orgA,
+      adsAccountId: tiktokAccount,
+      externalId: tiktokCampaignExt,
+      name: 'TT C0',
+      status: 'active',
+      dailyBudgetCents: 4000,
+      currency: 'USD',
     });
   });
 }, 60_000);
@@ -156,5 +184,18 @@ describe('applyAdsEntityAction', () => {
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe('NOT_FOUND');
+  });
+
+  it('pauses a TikTok campaign through the same platform-agnostic path', async () => {
+    const r = await applyAdsEntityAction(
+      { orgId: orgA, adsAccountId: tiktokAccount, level: 'campaign', externalId: tiktokCampaignExt, action: 'pause' },
+      deps,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.status).toBe('paused');
+    const rows = await runAdmin<Array<{ status: string }>>(fixture.db, (tx) =>
+      tx.select({ status: adsCampaigns.status }).from(adsCampaigns).where(eq(adsCampaigns.externalId, tiktokCampaignExt)),
+    );
+    expect(rows[0]?.status).toBe('paused');
   });
 });

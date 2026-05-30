@@ -30,7 +30,7 @@ export interface AdsAlertListItem {
   readonly id: string;
   readonly adsAccountId: string;
   readonly accountName: string | null;
-  readonly accountPlatform: 'google' | 'meta';
+  readonly accountPlatform: 'google' | 'meta' | 'tiktok';
   readonly externalAccountId: string;
   readonly brandId: string | null;
   readonly brandName: string | null;
@@ -82,7 +82,7 @@ export async function listAdsAlertsWithTx(
     id: string;
     adsAccountId: string;
     accountName: string | null;
-    accountPlatform: 'google' | 'meta';
+    accountPlatform: 'google' | 'meta' | 'tiktok';
     externalAccountId: string;
     brandId: string | null;
     brandName: string | null;

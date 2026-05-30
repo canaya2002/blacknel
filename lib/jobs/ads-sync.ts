@@ -74,7 +74,7 @@ export async function runAdsSyncTick(
   type AccountRow = {
     id: string;
     organizationId: string;
-    platform: 'google' | 'meta';
+    platform: 'google' | 'meta' | 'tiktok';
     externalAccountId: string;
     currency: string;
     metadata: unknown;
@@ -130,7 +130,7 @@ export async function runAdsSyncTick(
 interface SyncAccount {
   id: string;
   organizationId: string;
-  platform: 'google' | 'meta';
+  platform: 'google' | 'meta' | 'tiktok';
   externalAccountId: string;
   currency: string;
   metadata?: unknown;

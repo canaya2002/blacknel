@@ -110,7 +110,11 @@ export default async function AdsAccountDetailPage({
                 {displayName}
               </h1>
               <Badge variant="outline" className="font-normal">
-                {account.platform === 'google' ? 'Google Ads' : 'Meta Ads'}
+                {account.platform === 'google'
+                  ? 'Google Ads'
+                  : account.platform === 'tiktok'
+                    ? 'TikTok Ads'
+                    : 'Meta Ads'}
               </Badge>
               <StatusBadge status={account.status} />
             </div>

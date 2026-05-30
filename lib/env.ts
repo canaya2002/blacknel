@@ -125,6 +125,16 @@ const envSchema = z.object({
   GBP_CLIENT_ID: optionalEnv(z.string().min(1)),
   GBP_CLIENT_SECRET: optionalEnv(z.string().min(1)),
 
+  // Google Ads (C51) — its own OAuth client (adwords scope) + the mandatory
+  // developer token; LOGIN_CUSTOMER_ID is the manager (MCC) account, optional.
+  GOOGLE_ADS_CLIENT_ID: optionalEnv(z.string().min(1)),
+  GOOGLE_ADS_CLIENT_SECRET: optionalEnv(z.string().min(1)),
+  GOOGLE_ADS_DEVELOPER_TOKEN: optionalEnv(z.string().min(1)),
+  GOOGLE_ADS_LOGIN_CUSTOMER_ID: optionalEnv(z.string().min(1)),
+  // TikTok Ads (C51) — TikTok for Business / Marketing API app creds.
+  TIKTOK_ADS_APP_ID: optionalEnv(z.string().min(1)),
+  TIKTOK_ADS_SECRET: optionalEnv(z.string().min(1)),
+
   // --- AI (Anthropic) — Phase 11 / C43a ---
   /**
    * Anthropic API key. Required when the real-AI gate is open; the adapter

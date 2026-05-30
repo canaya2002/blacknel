@@ -116,11 +116,13 @@ export function AdsAccountsTable({
 function PlatformBadge({
   platform,
 }: {
-  platform: 'google' | 'meta';
+  platform: 'google' | 'meta' | 'tiktok';
 }): React.ReactElement {
+  const label =
+    platform === 'google' ? 'Google Ads' : platform === 'tiktok' ? 'TikTok Ads' : 'Meta Ads';
   return (
     <Badge variant="outline" className="font-normal">
-      {platform === 'google' ? 'Google Ads' : 'Meta Ads'}
+      {label}
     </Badge>
   );
 }

@@ -24,7 +24,9 @@ import { readAccountTokens, writeAccountTokens, type ConnectionTokens } from './
  */
 
 const REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // refresh when <7d to expiry
-const REFRESH_PLATFORMS = ['facebook', 'instagram', 'meta_ads', 'linkedin', 'tiktok', 'x', 'youtube', 'gbp'] as const;
+// google_ads (C51) refreshes via its stored refresh_token. tiktok_ads tokens are
+// long-lived (no expiry stored) so the scan never selects them.
+const REFRESH_PLATFORMS = ['facebook', 'instagram', 'meta_ads', 'linkedin', 'tiktok', 'x', 'youtube', 'gbp', 'google_ads'] as const;
 
 /** Refresh dispatch for one connection's tokens, by platform. */
 export async function refreshForPlatform(
@@ -35,6 +37,10 @@ export async function refreshForPlatform(
   if (platform === 'facebook' || platform === 'instagram' || platform === 'meta_ads') {
     const { refreshMetaToken } = await import('./meta/refresh');
     return refreshMetaToken(tokens);
+  }
+  if (platform === 'google_ads') {
+    const { refreshGoogleAdsToken } = await import('./google-ads/oauth');
+    return refreshGoogleAdsToken(tokens.refreshToken);
   }
   const provider = getOAuthProvider(platform);
   if (!provider) throw new Error(`No OAuth provider for platform ${platform}.`);

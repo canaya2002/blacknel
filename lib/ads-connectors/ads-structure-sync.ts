@@ -1,9 +1,13 @@
 import 'server-only';
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { type AnyPgTx, dbAdmin, dbAsOrg } from '@/lib/db/client';
 import { readAccountTokens } from '@/lib/connectors/tokens';
+import {
+  GOOGLE_ADS_PLATFORM,
+  TIKTOK_ADS_PLATFORM,
+} from '@/lib/connectors/ads-connection-store';
 import {
   adsAccounts,
   adsAdSets,
@@ -18,15 +22,16 @@ import { resolveAdsConnector } from './dispatch';
 import { META_ADS_PLATFORM } from '@/lib/connectors/meta/ads-connection';
 
 /**
- * Ads structure poll-sync (C50). Two passes, both idempotent + org-scoped (RLS):
+ * Ads structure poll-sync (C50/C51). Two passes, both idempotent + org-scoped
+ * (RLS), across every ad platform:
  *
- *   1. DISCOVERY — for every `meta_ads` connection, list the user's ad accounts
- *      via the connector and upsert them into `ads_accounts` (platform 'meta'),
- *      tagging `metadata.connectedAccountId` so the insights sync + actions know
- *      which connection's token to use.
- *   2. STRUCTURE — for every `ads_accounts` (meta) linked to a connection, pull
- *      the campaign→ad-set→ad tree and upsert into `ads_campaigns` /
- *      `ads_ad_sets` / `ads_ads`.
+ *   1. DISCOVERY — for every ads CONNECTION (meta_ads / google_ads / tiktok_ads),
+ *      list the user's ad accounts via that platform's connector and upsert them
+ *      into `ads_accounts` (platform meta/google/tiktok), tagging
+ *      `metadata.connectedAccountId` so the insights sync + actions know which
+ *      connection's token to use.
+ *   2. STRUCTURE — for every `ads_accounts` linked to a connection, pull the
+ *      campaign→ad-set→ad tree into `ads_campaigns` / `ads_ad_sets` / `ads_ads`.
  *
  * Insights stay in `runAdsSyncTick` (lib/jobs/ads-sync) → `ads_spend_daily`; the
  * Inngest cron runs this first so newly-discovered accounts get insights the same
@@ -34,6 +39,21 @@ import { META_ADS_PLATFORM } from '@/lib/connectors/meta/ads-connection';
  * aborts the sweep. Token reads + all writes happen under `dbAsOrg` (RLS); the
  * decrypted token never leaves the function.
  */
+
+/** ads-connection platform → ads_accounts platform. */
+const CONNECTION_TO_ADS_PLATFORM: ReadonlyArray<{
+  connection: string;
+  ads: AdsConnectorPlatform;
+}> = [
+  { connection: META_ADS_PLATFORM, ads: 'meta' },
+  { connection: GOOGLE_ADS_PLATFORM, ads: 'google' },
+  { connection: TIKTOK_ADS_PLATFORM, ads: 'tiktok' },
+];
+const CONNECTION_PLATFORMS = CONNECTION_TO_ADS_PLATFORM.map((m) => m.connection);
+const ADS_PLATFORMS = CONNECTION_TO_ADS_PLATFORM.map((m) => m.ads);
+const ADS_PLATFORM_BY_CONNECTION = new Map(
+  CONNECTION_TO_ADS_PLATFORM.map((m) => [m.connection, m.ads]),
+);
 
 export interface AdsStructureSyncDeps {
   asAdmin: <T>(fn: (tx: AnyPgTx) => Promise<T>) => Promise<T>;
@@ -69,19 +89,20 @@ export async function runAdsStructureSync(
   let ads = 0;
   let failed = 0;
 
-  // ---- 1. Discovery: meta_ads connections → ads_accounts -------------------
+  // ---- 1. Discovery: ads connections → ads_accounts ------------------------
   const conns = await deps.asAdmin<
-    Array<{ id: string; organizationId: string }>
+    Array<{ id: string; organizationId: string; platform: string }>
   >((tx) =>
     tx
       .select({
         id: connectedAccounts.id,
         organizationId: connectedAccounts.organizationId,
+        platform: connectedAccounts.platform,
       })
       .from(connectedAccounts)
       .where(
         and(
-          eq(connectedAccounts.platform, META_ADS_PLATFORM),
+          inArray(connectedAccounts.platform, CONNECTION_PLATFORMS),
           eq(connectedAccounts.status, 'connected'),
           ...(opts.orgId ? [eq(connectedAccounts.organizationId, opts.orgId)] : []),
         ),
@@ -89,33 +110,36 @@ export async function runAdsStructureSync(
   );
 
   for (const conn of conns) {
+    const adsPlatform = ADS_PLATFORM_BY_CONNECTION.get(conn.platform);
+    if (!adsPlatform) continue;
     try {
       const token = await deps.orgTx(conn.organizationId, (tx) =>
         readAccountTokens(tx, conn.id),
       );
       if (!token?.accessToken) continue;
-      const connector = await deps.connectorFor('meta');
+      const connector = await deps.connectorFor(adsPlatform);
       const found = await connector.listAdAccounts({ accessToken: token.accessToken });
       await deps.orgTx(conn.organizationId, async (tx) => {
         for (const acc of found) {
-          const inserted = await upsertAdAccount(tx, conn.organizationId, conn.id, acc);
+          const inserted = await upsertAdAccount(tx, conn.organizationId, conn.id, adsPlatform, acc);
           if (inserted) discovered += 1;
         }
       });
     } catch (err) {
       failed += 1;
       log.warn(
-        { connectionId: conn.id, err: (err as Error).message },
+        { connectionId: conn.id, platform: conn.platform, err: (err as Error).message },
         'ads_structure_sync.discovery_failed',
       );
     }
   }
 
-  // ---- 2. Structure: ads_accounts (meta) → campaign/ad-set/ad tables -------
+  // ---- 2. Structure: ads_accounts → campaign/ad-set/ad tables --------------
   const adAccounts = await deps.asAdmin<
     Array<{
       id: string;
       organizationId: string;
+      platform: AdsConnectorPlatform;
       externalAccountId: string;
       currency: string;
       metadata: unknown;
@@ -125,6 +149,7 @@ export async function runAdsStructureSync(
       .select({
         id: adsAccounts.id,
         organizationId: adsAccounts.organizationId,
+        platform: adsAccounts.platform,
         externalAccountId: adsAccounts.externalAccountId,
         currency: adsAccounts.currency,
         metadata: adsAccounts.metadata,
@@ -132,7 +157,7 @@ export async function runAdsStructureSync(
       .from(adsAccounts)
       .where(
         and(
-          eq(adsAccounts.platform, 'meta'),
+          inArray(adsAccounts.platform, ADS_PLATFORMS),
           eq(adsAccounts.status, 'connected'),
           ...(opts.orgId ? [eq(adsAccounts.organizationId, opts.orgId)] : []),
         ),
@@ -148,7 +173,7 @@ export async function runAdsStructureSync(
       const token = await deps.orgTx(acc.organizationId, (tx) =>
         readAccountTokens(tx, connectedAccountId),
       );
-      const connector = await deps.connectorFor('meta');
+      const connector = await deps.connectorFor(acc.platform);
       const structure = await connector.syncStructure({
         adsAccountId: acc.id,
         externalAccountId: acc.externalAccountId,
@@ -180,6 +205,7 @@ async function upsertAdAccount(
   tx: AnyPgTx,
   orgId: string,
   connectionId: string,
+  adsPlatform: AdsConnectorPlatform,
   acc: { externalAccountId: string; name: string; currency: string; status: 'connected' | 'disconnected' | 'error' },
 ): Promise<boolean> {
   const existing = (await tx
@@ -188,12 +214,13 @@ async function upsertAdAccount(
     .where(
       and(
         eq(adsAccounts.organizationId, orgId),
-        eq(adsAccounts.platform, 'meta'),
+        eq(adsAccounts.platform, adsPlatform),
         eq(adsAccounts.externalAccountId, acc.externalAccountId),
       ),
     )
     .limit(1)) as Array<{ id: string; status: 'connected' | 'disconnected' | 'error' }>;
 
+  const metaPatch = JSON.stringify({ connectedAccountId: connectionId, provider: adsPlatform });
   if (existing[0]) {
     // Reflect a platform-side disable/error (downgrade out of 'connected'), but
     // never auto-resurrect an account the user deliberately disconnected: only
@@ -210,7 +237,7 @@ async function upsertAdAccount(
         currency: acc.currency,
         status: nextStatus,
         // Merge so a manually-set brandId/other metadata survives; right side wins.
-        metadata: sql`${adsAccounts.metadata} || ${JSON.stringify({ connectedAccountId: connectionId, provider: 'meta' })}::jsonb`,
+        metadata: sql`${adsAccounts.metadata} || ${metaPatch}::jsonb`,
         updatedAt: new Date(),
       })
       .where(eq(adsAccounts.id, existing[0].id));
@@ -218,12 +245,12 @@ async function upsertAdAccount(
   }
   await tx.insert(adsAccounts).values({
     organizationId: orgId,
-    platform: 'meta',
+    platform: adsPlatform,
     externalAccountId: acc.externalAccountId,
     accountName: acc.name,
     currency: acc.currency,
     status: acc.status,
-    metadata: { connectedAccountId: connectionId, provider: 'meta' },
+    metadata: { connectedAccountId: connectionId, provider: adsPlatform },
   });
   return true;
 }

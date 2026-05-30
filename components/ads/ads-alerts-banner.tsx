@@ -66,7 +66,11 @@ function AlertRow({ alert, canDecide }: AlertRowProps): React.ReactElement {
               {KIND_LABEL[alert.kind]}
             </Badge>
             <Badge variant="outline" className="font-normal">
-              {alert.accountPlatform === 'google' ? 'Google Ads' : 'Meta Ads'}
+              {alert.accountPlatform === 'google'
+                ? 'Google Ads'
+                : alert.accountPlatform === 'tiktok'
+                  ? 'TikTok Ads'
+                  : 'Meta Ads'}
               {alert.accountName ? ` · ${alert.accountName}` : ''}
             </Badge>
           </div>

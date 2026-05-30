@@ -8,6 +8,7 @@
 import { type AdsConnector, type AdsConnectorPlatform } from './base';
 import { googleMockConnector } from './google-mock';
 import { metaMockConnector } from './meta-mock';
+import { tiktokMockConnector } from './tiktok-mock';
 
 export function getAdsConnector(platform: AdsConnectorPlatform): AdsConnector {
   switch (platform) {
@@ -15,6 +16,8 @@ export function getAdsConnector(platform: AdsConnectorPlatform): AdsConnector {
       return googleMockConnector;
     case 'meta':
       return metaMockConnector;
+    case 'tiktok':
+      return tiktokMockConnector;
     default: {
       const exhaustive: never = platform;
       throw new Error(`Unsupported ads platform: ${String(exhaustive)}`);

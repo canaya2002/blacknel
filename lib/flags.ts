@@ -26,7 +26,9 @@ export type RuntimeFlag =
   | 'use_real_x'
   | 'use_real_youtube'
   | 'use_real_gbp'
-  | 'use_real_meta_ads';
+  | 'use_real_meta_ads'
+  | 'use_real_google_ads'
+  | 'use_real_tiktok_ads';
 
 type FlagReader = (key: string) => Promise<string | null>;
 

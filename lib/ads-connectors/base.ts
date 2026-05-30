@@ -24,7 +24,7 @@
  * `(platform_campaign_id, date)` — never aggregating dates.
  */
 
-export type AdsConnectorPlatform = 'google' | 'meta';
+export type AdsConnectorPlatform = 'google' | 'meta' | 'tiktok';
 
 export interface AdsConnectorAccount {
   /** Our internal id — passed through for logging only. */
