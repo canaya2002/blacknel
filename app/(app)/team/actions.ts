@@ -1,30 +1,27 @@
 'use server';
 
-import { and, eq, gt, ne, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { requireUser } from '@/lib/auth/server';
 import { dbAdmin, dbAs } from '@/lib/db/client';
 import { invitations, organizationMembers } from '@/lib/db/schema';
-import { sendEmail } from '@/lib/emails/send';
-import { env } from '@/lib/env';
-import {
-  generateInvitationToken,
-  invitationAcceptUrl,
-  INVITATION_TTL_MS,
-} from '@/lib/invitations/tokens';
-import { checkUsage, decrementUsage, incrementUsage } from '@/lib/usage/counters';
+import { decrementUsage } from '@/lib/usage/counters';
 import { authorize } from '@/lib/permissions/can';
 import type { Role } from '@/lib/permissions/roles';
 import { getOrgPlanCode } from '@/lib/queries/plan';
+import { createInvitations } from '@/lib/team/invite';
 import { err, ok, type Result } from '@/lib/types/result';
 
 /**
- * Team management Server Actions: invite, change role, remove. The
- * "send email" piece is delegated to `lib/emails/send.ts` which writes
- * to the dev outbox today and swaps to Resend in Phase 11 — the
- * invitation token + DB row are real either way.
+ * Team management Server Actions: invite, change role, remove.
+ *
+ * The invite path delegates seats-gate + DB rows + transactional email to
+ * `lib/team/invite.ts` (`createInvitations`), which sends the typed
+ * `team_invite` template via C44 Email (Resend behind a flag, durable retry via
+ * the Inngest `email.send` event). The action stays a thin auth + parse +
+ * revalidate wrapper.
  */
 
 const inviteSchema = z.object({
@@ -60,80 +57,16 @@ export async function inviteTeamAction(
 
   const planCode = await getOrgPlanCode(session);
 
-  // Plan limit: pending invitations + active members must fit under the
-  // users cap. Each accepted invite consumes one user slot, so we count
-  // each pending invite as a +1 on usage.
-  const usage = await dbAdmin(async (tx) =>
-    checkUsage(tx, session.orgId, planCode, 'users', invites.length),
-  );
-  if (!usage.ok) {
-    return err(
-      'PLAN_LIMIT_REACHED',
-      `Tu plan permite ${usage.cap} usuario(s) y ya tienes ${usage.current}. Sube de plan o cancela una invitación pendiente.`,
-      { meta: { plan: planCode, cap: usage.cap, current: usage.current, delta: invites.length } },
-    );
-  }
+  const result = await createInvitations({
+    orgId: session.orgId,
+    userId: session.userId,
+    inviterName: session.name ?? session.email,
+    invites: parsed.data.invites,
+    planCode,
+  });
 
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + INVITATION_TTL_MS);
-
-  let inserted = 0;
-  await dbAs(
-    { orgId: session.orgId, userId: session.userId },
-    async (tx) => {
-      for (const invite of parsed.data.invites) {
-        const token = generateInvitationToken();
-        await tx
-          .insert(invitations)
-          .values({
-            organizationId: session.orgId,
-            email: invite.email,
-            role: invite.role,
-            token,
-            expiresAt,
-            invitedBy: session.userId,
-          });
-        inserted += 1;
-
-        // Dev outbox — link is also shown in the UI so reviewers don't
-        // have to fish through logs.
-        const link = invitationAcceptUrl(env.NEXT_PUBLIC_APP_URL, token);
-        await sendEmail({
-          kind: 'invite',
-          to: invite.email,
-          subject: `Te invitaron a Blacknel`,
-          text:
-            `Te invitaron a unirte como ${invite.role}.\n\n` +
-            `Acepta la invitación: ${link}\n\n` +
-            `El enlace caduca el ${expiresAt.toISOString()}.`,
-          meta: { orgId: session.orgId, role: invite.role, token, link },
-        });
-      }
-    },
-  );
-
-  // Bump the usage counter — pending invitations count against the users cap.
-  await dbAdmin(async (tx) =>
-    incrementUsage(tx, session.orgId, 'users', inserted),
-  );
-
-  revalidatePath('/team');
-
-  const pendingTotal = await dbAs<Array<{ n: number }>>(
-    { orgId: session.orgId, userId: session.userId },
-    async (tx) =>
-      tx
-        .select({ n: countCol() })
-        .from(invitations)
-        .where(
-          and(
-            eq(invitations.organizationId, session.orgId),
-            gt(invitations.expiresAt, now),
-          ),
-        ),
-  ).then((r) => r[0]?.n ?? 0);
-
-  return ok({ count: inserted, pendingTotal });
+  if (result.ok) revalidatePath('/team');
+  return result;
 }
 
 const changeRoleSchema = z.object({
