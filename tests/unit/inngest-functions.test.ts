@@ -77,11 +77,12 @@ beforeEach(() => {
 });
 
 describe('registry', () => {
-  it('exposes the C44 + C46 + C48 + C49 + C50 + C52 functions', () => {
+  it('exposes the C44 + C46 + C48 + C49 + C50 + C52 + C53 functions', () => {
     // C44: cleanup-pending-uploads, usage-maintenance, send-email, process-media.
     // C46: meta-process-inbound. C48: refresh-connection-tokens. C49: sync-reviews.
     // C50: sync-ads. C52: sync-post-insights, generate-report, dispatch-scheduled-reports.
-    expect(functions).toHaveLength(11);
+    // C53: sync-mentions, sync-competitors.
+    expect(functions).toHaveLength(13);
     expect(functions.every(Boolean)).toBe(true);
   });
 });

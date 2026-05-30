@@ -7,6 +7,7 @@ import type {
   DataSource,
   DataSourceContext,
   ScalarMetric,
+  TimeseriesPoint,
 } from './index';
 
 /**
@@ -68,12 +69,41 @@ async function loadBuckets(
   throw new Error(`listening_aggregates: buckets '${groupBy}' not supported`);
 }
 
+async function loadTimeseries(
+  metric: string,
+  ctx: DataSourceContext,
+): Promise<ReadonlyArray<TimeseriesPoint>> {
+  // mention_volume: daily count. net_sentiment: daily (positives − negatives).
+  const expr =
+    metric === 'mention_volume'
+      ? sql`COUNT(*)::int`
+      : metric === 'net_sentiment'
+        ? sql`(COUNT(*) FILTER (WHERE sentiment = 'positive') - COUNT(*) FILTER (WHERE sentiment = 'negative'))::int`
+        : null;
+  if (!expr) throw new Error(`listening_aggregates: timeseries '${metric}' not supported`);
+  const rows = normalizeRows<{ day: string; v: number | null }>(
+    await ctx.tx.execute(
+      sql`SELECT to_char(date_trunc('day', captured_at), 'YYYY-MM-DD') AS day,
+                  ${expr} AS v
+             FROM listening_mentions
+            WHERE organization_id = ${ctx.orgId}
+              AND captured_at >= ${ctx.rangeStart}
+              AND captured_at <= ${ctx.rangeEnd}
+            GROUP BY day
+            ORDER BY day ASC`,
+    ),
+  );
+  return rows.map((r) => ({ t: r.day, v: Number(r.v ?? 0) }));
+}
+
 export const listeningAggregatesSource: DataSource = {
   key: 'listening_aggregates',
   capabilities: {
     scalar: ['total_mentions'],
+    timeseries: ['mention_volume', 'net_sentiment'],
     buckets: ['sentiment'],
   },
   loadScalar,
+  loadTimeseries,
   loadBuckets,
 };

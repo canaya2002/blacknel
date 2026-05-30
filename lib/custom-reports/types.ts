@@ -45,6 +45,7 @@ export type CustomReportDataSource =
   | 'ads_spend'
   | 'nps_aggregates'
   | 'listening_aggregates'
+  | 'competitors_aggregates'
   | 'crisis_aggregates';
 
 export interface KpiCardConfig {

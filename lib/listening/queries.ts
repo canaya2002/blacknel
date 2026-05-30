@@ -87,9 +87,10 @@ export async function listTrackedTerms(ctx: {
 
 export interface MentionRow {
   readonly id: string;
-  readonly trackedTermId: string;
-  readonly term: string;
-  readonly termKind: ListeningTrackedTerm['termKind'];
+  // Nullable since C53: account-discovered mentions match no tracked term.
+  readonly trackedTermId: string | null;
+  readonly term: string | null;
+  readonly termKind: ListeningTrackedTerm['termKind'] | null;
   readonly brandId: string | null;
   readonly platform: string;
   readonly authorHandle: string;
@@ -144,8 +145,8 @@ export async function listMentionsWithTx(
 
   const rows: Array<{
     mention: ListeningMention;
-    term: string;
-    termKind: ListeningTrackedTerm['termKind'];
+    term: string | null;
+    termKind: ListeningTrackedTerm['termKind'] | null;
   }> = await tx
     .select({
       mention: listeningMentions,
@@ -153,7 +154,10 @@ export async function listMentionsWithTx(
       termKind: listeningTrackedTerms.termKind,
     })
     .from(listeningMentions)
-    .innerJoin(
+    // LEFT JOIN (C53): account-discovered mentions have a NULL tracked_term_id
+    // and must still surface in the feed / leads / CSV, consistent with the KPI
+    // aggregates which count them.
+    .leftJoin(
       listeningTrackedTerms,
       eq(listeningTrackedTerms.id, listeningMentions.trackedTermId),
     )

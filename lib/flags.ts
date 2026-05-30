@@ -28,7 +28,8 @@ export type RuntimeFlag =
   | 'use_real_gbp'
   | 'use_real_meta_ads'
   | 'use_real_google_ads'
-  | 'use_real_tiktok_ads';
+  | 'use_real_tiktok_ads'
+  | 'use_real_listening';
 
 type FlagReader = (key: string) => Promise<string | null>;
 

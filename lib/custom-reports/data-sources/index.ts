@@ -5,6 +5,7 @@ import type { AnyPgTx } from '@/lib/db/client';
 import type { CustomReportDataSource } from '../types';
 
 import { adsSpendSource } from './ads-spend';
+import { competitorsAggregatesSource } from './competitors-aggregates';
 import { crisisAggregatesSource } from './crisis-aggregates';
 import { inboxKpisSource } from './inbox-kpis';
 import { listeningAggregatesSource } from './listening-aggregates';
@@ -102,6 +103,7 @@ const REGISTRY: Record<CustomReportDataSource, DataSource> = {
   ads_spend: adsSpendSource,
   nps_aggregates: npsAggregatesSource,
   listening_aggregates: listeningAggregatesSource,
+  competitors_aggregates: competitorsAggregatesSource,
   crisis_aggregates: crisisAggregatesSource,
 };
 

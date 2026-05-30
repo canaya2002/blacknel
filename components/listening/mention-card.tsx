@@ -83,7 +83,13 @@ export function MentionCard({
       <p className="text-sm leading-relaxed">{mention.body}</p>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <TrackedTermPill term={mention.term} termKind={mention.termKind} />
+        {mention.term && mention.termKind ? (
+          <TrackedTermPill term={mention.term} termKind={mention.termKind} />
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            @mención directa
+          </span>
+        )}
         {mention.url ? (
           <a
             href={mention.url}

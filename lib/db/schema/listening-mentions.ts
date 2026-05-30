@@ -19,6 +19,7 @@ import {
   listeningMentionStatusEnum,
 } from './_enums';
 import { brands } from './brands';
+import { connectedAccounts } from './connected-accounts';
 import { inboxThreads } from './inbox-threads';
 import { listeningTrackedTerms } from './listening-tracked-terms';
 import { organizations } from './organizations';
@@ -52,9 +53,15 @@ export const listeningMentions = pgTable(
     organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
-    trackedTermId: uuid('tracked_term_id')
-      .notNull()
-      .references(() => listeningTrackedTerms.id, { onDelete: 'cascade' }),
+    // Nullable since C53: account-discovered @mentions/tags match no tracked term.
+    trackedTermId: uuid('tracked_term_id').references(() => listeningTrackedTerms.id, {
+      onDelete: 'cascade',
+    }),
+    // C53 — which connected account surfaced this mention (the "connection ref").
+    connectedAccountId: uuid('connected_account_id').references(
+      () => connectedAccounts.id,
+      { onDelete: 'set null' },
+    ),
     brandId: uuid('brand_id').references(() => brands.id, {
       onDelete: 'set null',
     }),
@@ -112,6 +119,9 @@ export const listeningMentions = pgTable(
     assignedThreadIdx: index('listening_mentions_assigned_thread_idx')
       .on(table.assignedThreadId)
       .where(sql`assigned_thread_id IS NOT NULL`),
+    connectedAccountIdx: index('listening_mentions_connected_account_idx')
+      .on(table.connectedAccountId)
+      .where(sql`connected_account_id IS NOT NULL`),
     scoreRange: check(
       'listening_mentions_sentiment_score_range',
       sql`sentiment_score >= 0 AND sentiment_score <= 1`,

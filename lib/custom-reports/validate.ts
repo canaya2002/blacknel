@@ -27,6 +27,7 @@ const DATA_SOURCE_CODES = [
   'ads_spend',
   'nps_aggregates',
   'listening_aggregates',
+  'competitors_aggregates',
   'crisis_aggregates',
 ] as const satisfies ReadonlyArray<CustomReportDataSource>;
 

@@ -34,6 +34,7 @@ const VALID_FLAGS = new Set([
   'use_real_meta_ads',
   'use_real_google_ads',
   'use_real_tiktok_ads',
+  'use_real_listening',
 ]);
 
 type Action = 'on' | 'off' | 'status';

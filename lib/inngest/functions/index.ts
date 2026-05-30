@@ -6,6 +6,8 @@ import { processMediaFn } from './process-media';
 import { refreshConnectionTokens } from './refresh-connection-tokens';
 import { sendEmailFn } from './send-email';
 import { syncAds } from './sync-ads';
+import { syncCompetitors } from './sync-competitors';
+import { syncMentions } from './sync-mentions';
 import { syncPostInsights } from './sync-post-insights';
 import { syncReviews } from './sync-reviews';
 import { usageMaintenance } from './usage-maintenance';
@@ -23,4 +25,6 @@ export const functions = [
   syncPostInsights,
   generateReportFn,
   dispatchScheduledReports,
+  syncMentions,
+  syncCompetitors,
 ];

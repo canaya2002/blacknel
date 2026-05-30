@@ -10,12 +10,13 @@ import {
 } from '../../lib/custom-reports/data-sources';
 
 describe('data source registry', () => {
-  it('exposes all 8 data sources', () => {
+  it('exposes all 9 data sources', () => {
     const sources = listDataSources();
     const keys = sources.map((s) => s.key).sort();
     expect(keys).toEqual(
       [
         'ads_spend',
+        'competitors_aggregates',
         'crisis_aggregates',
         'inbox_kpis',
         'listening_aggregates',
