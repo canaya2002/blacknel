@@ -79,7 +79,7 @@ beforeEach(async () => {
 describe('refreshForPlatform (mock dispatch, no network)', () => {
   it('dispatches each platform to its refresh + extends the expiry', async () => {
     const tokens: ConnectionTokens = { accessToken: 'a', refreshToken: 'r', expiresAt: SOON() };
-    for (const platform of ['facebook', 'instagram', 'linkedin', 'tiktok', 'x', 'youtube']) {
+    for (const platform of ['facebook', 'instagram', 'meta_ads', 'linkedin', 'tiktok', 'x', 'youtube', 'gbp']) {
       const res: TokenExchangeResult = await refreshForPlatform(platform, tokens);
       expect(res.accessToken).toBeTruthy();
       expect(res.expiresAt && Date.parse(res.expiresAt) > Date.now()).toBe(true);

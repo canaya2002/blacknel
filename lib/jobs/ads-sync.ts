@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, eq, sql } from 'drizzle-orm';
 
-import { dbAdmin, type AnyPgTx } from '@/lib/db/client';
+import { dbAdmin, dbAsOrg, type AnyPgTx } from '@/lib/db/client';
 import {
   adsAccounts,
   adsSpendDaily,
@@ -11,7 +11,8 @@ import {
 import { log } from '@/lib/log';
 import { ok, type Result } from '@/lib/types/result';
 import { toUsdCents } from '@/lib/ads/fx-rates';
-import { getAdsConnector } from '@/lib/ads-connectors';
+import { isRealAdsEnabled, resolveAdsConnector } from '@/lib/ads-connectors/dispatch';
+import { readAccountTokens } from '@/lib/connectors/tokens';
 
 /**
  * Ads-sync producer — Phase 8 / Commit 28.
@@ -44,11 +45,18 @@ const SYNC_WINDOW_DAYS = 2;
 
 export interface AdsSyncDeps {
   asAdmin: <T>(fn: (tx: AnyPgTx) => Promise<T>) => Promise<T>;
+  /**
+   * Org-scoped tx (C50) — only used on the REAL path to read a connection's
+   * encrypted token under its org RLS. Optional so the mock path / existing
+   * callers ({asAdmin, now}) keep working untouched.
+   */
+  orgTx?: <T>(orgId: string, fn: (tx: AnyPgTx) => Promise<T>) => Promise<T>;
   now: () => Date;
 }
 
 const defaultDeps: AdsSyncDeps = {
   asAdmin: (fn) => dbAdmin(fn),
+  orgTx: (orgId, fn) => dbAsOrg(orgId, fn),
   now: () => new Date(),
 };
 
@@ -69,6 +77,7 @@ export async function runAdsSyncTick(
     platform: 'google' | 'meta';
     externalAccountId: string;
     currency: string;
+    metadata: unknown;
   };
   const accounts = await deps.asAdmin<AccountRow[]>((tx) =>
     tx
@@ -78,6 +87,7 @@ export async function runAdsSyncTick(
         platform: adsAccounts.platform,
         externalAccountId: adsAccounts.externalAccountId,
         currency: adsAccounts.currency,
+        metadata: adsAccounts.metadata,
       })
       .from(adsAccounts)
       .where(eq(adsAccounts.status, 'connected'))
@@ -123,6 +133,7 @@ interface SyncAccount {
   platform: 'google' | 'meta';
   externalAccountId: string;
   currency: string;
+  metadata?: unknown;
 }
 
 interface DateRange {
@@ -145,12 +156,26 @@ async function syncOneAccount(
   account: SyncAccount,
   range: DateRange,
 ): Promise<number> {
-  const connector = getAdsConnector(account.platform);
+  // Real path threads the platform token (from the linked connection) onto the
+  // account; mock ignores it. Token read happens under the org's RLS.
+  const connectedAccountId = (account.metadata as { connectedAccountId?: string } | null)
+    ?.connectedAccountId;
+  let accessToken: string | undefined;
+  if (connectedAccountId && (await isRealAdsEnabled(account.platform))) {
+    const orgTx = deps.orgTx ?? ((orgId, fn) => dbAsOrg(orgId, fn));
+    const tokens = await orgTx(account.organizationId, (tx) =>
+      readAccountTokens(tx, connectedAccountId),
+    );
+    accessToken = tokens?.accessToken;
+  }
+
+  const connector = await resolveAdsConnector(account.platform);
   const rows = await connector.fetchDailySpend(
     {
       adsAccountId: account.id,
       externalAccountId: account.externalAccountId,
       currency: account.currency,
+      ...(accessToken ? { accessToken } : {}),
     },
     range,
   );
@@ -170,6 +195,7 @@ async function syncOneAccount(
     clicks: r.clicks,
     spendCents: r.spendCents,
     spendUsdCents: toUsdCents(r.spendCents, account.currency),
+    conversions: r.conversions ?? 0,
     currency: account.currency,
   }));
 
@@ -190,6 +216,7 @@ async function syncOneAccount(
           clicks: sql`excluded.clicks`,
           spendCents: sql`excluded.spend_cents`,
           spendUsdCents: sql`excluded.spend_usd_cents`,
+          conversions: sql`excluded.conversions`,
           updatedAt: sql`now()`,
         },
       }),

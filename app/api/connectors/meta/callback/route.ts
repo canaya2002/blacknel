@@ -43,7 +43,9 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const { userAccessToken } = await exchangeCodeForTokens(url.searchParams.get('code') ?? 'mock');
+    const { userAccessToken, expiresAt } = await exchangeCodeForTokens(
+      url.searchParams.get('code') ?? 'mock',
+    );
     const accounts = await listManagedAccounts(userAccessToken);
     const planCode = await getOrgPlanCode(session);
     const result = await persistMetaAccounts({
@@ -52,6 +54,26 @@ export async function GET(request: Request): Promise<Response> {
       planCode,
       accounts,
     });
+    // C50: persist the USER token as the `meta_ads` connection so the Marketing
+    // API sync can use it (Pages persist only Page tokens). Best-effort — never
+    // fail the content connect if this hiccups; ad accounts are discovered on the
+    // next ads-sync tick (or via the manual "sync ads" action). ONLY on the real
+    // path — the mock exchange returns a fake token, and persisting it would leave
+    // a junk ads connection that the discovery sweep would later choke on.
+    try {
+      const { isRealMetaEnabled } = await import('@/lib/connectors/meta/config');
+      if (await isRealMetaEnabled()) {
+        const { persistMetaAdsConnection } = await import('@/lib/connectors/meta/ads-connection');
+        await persistMetaAdsConnection({
+          orgId: session.orgId,
+          userId: session.userId,
+          userAccessToken,
+          expiresAt,
+        });
+      }
+    } catch (cause) {
+      log.warn({ err: (cause as Error).message }, 'meta.ads.connection_persist_failed');
+    }
     if (result.connected === 0 && result.accountIds.length === 0) {
       return back(result.skippedForPlan > 0 ? 'plan_limit' : 'no_accounts');
     }

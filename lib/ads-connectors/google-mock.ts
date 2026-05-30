@@ -17,23 +17,35 @@
  */
 
 import {
+  type AdAccountSummary,
+  type AdStructure,
+  type AdsActionInput,
+  type AdsActionResult,
   type AdsConnector,
   type AdsConnectorAccount,
+  type AdsConnectorAuth,
   type AdsConnectorDateRange,
   type AdsConnectorSpendRow,
   enumerateDates,
   fnv1a32,
   mulberry32,
 } from './base';
+import {
+  mockApplyAction,
+  mockConversions,
+  mockListAdAccounts,
+  mockSyncStructure,
+} from './mock-structure';
 
 const CAMPAIGNS_PER_ACCOUNT = 3;
+const PREFIX = 'g';
 
 function generateRow(
   externalAccountId: string,
   date: string,
   campaignIndex: number,
 ): AdsConnectorSpendRow {
-  const platformCampaignId = `g-${externalAccountId}-c${campaignIndex}`;
+  const platformCampaignId = `${PREFIX}-${externalAccountId}-c${campaignIndex}`;
   const seed = fnv1a32(`${externalAccountId}|${date}|${campaignIndex}`);
   const rng = mulberry32(seed);
 
@@ -45,7 +57,14 @@ function generateRow(
   const ctr = 0.01 + rng() * 0.02;
   const clicks = Math.round(impressions * ctr);
 
-  return { platformCampaignId, date, impressions, clicks, spendCents };
+  return {
+    platformCampaignId,
+    date,
+    impressions,
+    clicks,
+    spendCents,
+    conversions: mockConversions(seed, clicks),
+  };
 }
 
 export const googleMockConnector: AdsConnector = {
@@ -62,5 +81,17 @@ export const googleMockConnector: AdsConnector = {
       }
     }
     return out;
+  },
+  async listAdAccounts(auth: AdsConnectorAuth): Promise<readonly AdAccountSummary[]> {
+    return mockListAdAccounts(PREFIX, auth);
+  },
+  async syncStructure(account: AdsConnectorAccount): Promise<AdStructure> {
+    return mockSyncStructure(PREFIX, CAMPAIGNS_PER_ACCOUNT, account);
+  },
+  async applyAction(
+    _account: AdsConnectorAccount,
+    input: AdsActionInput,
+  ): Promise<AdsActionResult> {
+    return mockApplyAction(input);
   },
 };

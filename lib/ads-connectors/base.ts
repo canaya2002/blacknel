@@ -33,6 +33,118 @@ export interface AdsConnectorAccount {
   externalAccountId: string;
   /** Native currency for this account (USD, EUR, MXN, ...). */
   currency: string;
+  /**
+   * Platform access token for the REAL path (C50). Mocks ignore it; the real
+   * adapter requires it (loaded from the `meta_ads` connection's encrypted
+   * token). Optional so mock/test callers don't have to thread it.
+   */
+  accessToken?: string;
+}
+
+/** Credentials for account-level (pre-account) calls like listAdAccounts. */
+export interface AdsConnectorAuth {
+  /** Platform access token (real path); mocks seed deterministically from it. */
+  accessToken: string;
+}
+
+/** Normalized cross-platform entity lifecycle. Stored as text in the DB. */
+export type AdEntityStatus =
+  | 'active'
+  | 'paused'
+  | 'archived'
+  | 'deleted'
+  | 'pending'
+  | 'unknown';
+
+/** One ad account the authenticated user can manage. */
+export interface AdAccountSummary {
+  externalAccountId: string;
+  name: string;
+  currency: string;
+  status: 'connected' | 'disconnected' | 'error';
+}
+
+export interface AdCampaignNode {
+  externalId: string;
+  name: string;
+  status: AdEntityStatus;
+  objective?: string | null;
+  dailyBudgetCents?: number | null;
+  lifetimeBudgetCents?: number | null;
+  currency?: string | null;
+  raw?: Record<string, unknown>;
+}
+
+export interface AdSetNode {
+  externalId: string;
+  /** Parent campaign's external id, or null when the platform omits it. */
+  campaignExternalId: string | null;
+  name: string;
+  status: AdEntityStatus;
+  dailyBudgetCents?: number | null;
+  lifetimeBudgetCents?: number | null;
+  currency?: string | null;
+  raw?: Record<string, unknown>;
+}
+
+export interface AdNode {
+  externalId: string;
+  /** Parent ad set's external id, or null when the platform omits it. */
+  adSetExternalId: string | null;
+  name: string;
+  status: AdEntityStatus;
+  raw?: Record<string, unknown>;
+}
+
+/** The full campaign→ad-set→ad hierarchy for one account. */
+export interface AdStructure {
+  campaigns: readonly AdCampaignNode[];
+  adSets: readonly AdSetNode[];
+  ads: readonly AdNode[];
+}
+
+export type AdsEntityLevel = 'campaign' | 'ad_set' | 'ad';
+export type AdsActionType = 'pause' | 'resume' | 'set_budget';
+
+export interface AdsActionInput {
+  level: AdsEntityLevel;
+  /** Platform id of the campaign / ad set / ad to act on. */
+  externalId: string;
+  action: AdsActionType;
+  /** For `set_budget`: new DAILY budget in NATIVE cents. */
+  dailyBudgetCents?: number;
+}
+
+export interface AdsActionResult {
+  ok: boolean;
+  externalId: string;
+  /** Resulting normalized status (for pause/resume). */
+  status?: AdEntityStatus;
+}
+
+/**
+ * Normalize a platform-specific status string to our `AdEntityStatus`. Meta
+ * uses ACTIVE/PAUSED/ARCHIVED/DELETED plus review states; unknowns map to
+ * 'unknown' rather than throwing so a new platform value never breaks a sync.
+ */
+export function normalizeAdStatus(raw: string | null | undefined): AdEntityStatus {
+  switch ((raw ?? '').toUpperCase()) {
+    case 'ACTIVE':
+      return 'active';
+    case 'PAUSED':
+      return 'paused';
+    case 'ARCHIVED':
+      return 'archived';
+    case 'DELETED':
+      return 'deleted';
+    case 'PENDING_REVIEW':
+    case 'IN_PROCESS':
+    case 'PENDING_BILLING_INFO':
+    case 'WITH_ISSUES':
+      return 'pending';
+    default:
+      return 'unknown';
+  }
 }
 
 export interface AdsConnectorDateRange {
@@ -50,6 +162,8 @@ export interface AdsConnectorSpendRow {
   clicks: number;
   /** Native-currency cents — connectors do NOT convert to USD. */
   spendCents: number;
+  /** Attributed conversions for (campaign, date). Optional; defaults to 0. */
+  conversions?: number;
 }
 
 export interface AdsConnector {
@@ -63,6 +177,24 @@ export interface AdsConnector {
     account: AdsConnectorAccount,
     range: AdsConnectorDateRange,
   ): Promise<readonly AdsConnectorSpendRow[]>;
+  /**
+   * List the ad accounts the authenticated user can manage (C50). Used by the
+   * OAuth-discovery step to upsert `ads_accounts`.
+   */
+  listAdAccounts(auth: AdsConnectorAuth): Promise<readonly AdAccountSummary[]>;
+  /**
+   * Fetch the campaign→ad-set→ad structure for one account (C50). Idempotent on
+   * the caller side via (org, account, external_id) upserts.
+   */
+  syncStructure(account: AdsConnectorAccount): Promise<AdStructure>;
+  /**
+   * Apply a pause / resume / budget change to one entity (C50). Returns the
+   * resulting normalized status so the caller can reflect it locally.
+   */
+  applyAction(
+    account: AdsConnectorAccount,
+    input: AdsActionInput,
+  ): Promise<AdsActionResult>;
 }
 
 /**

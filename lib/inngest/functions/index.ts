@@ -3,6 +3,7 @@ import { metaProcessInbound } from './meta-process-inbound';
 import { processMediaFn } from './process-media';
 import { refreshConnectionTokens } from './refresh-connection-tokens';
 import { sendEmailFn } from './send-email';
+import { syncAds } from './sync-ads';
 import { syncReviews } from './sync-reviews';
 import { usageMaintenance } from './usage-maintenance';
 
@@ -15,4 +16,5 @@ export const functions = [
   metaProcessInbound,
   refreshConnectionTokens,
   syncReviews,
+  syncAds,
 ];

@@ -34,8 +34,15 @@ export function oauthDialogUrl(): string {
 
 /**
  * Scopes requested at connect time. Covers publishing (pages_manage_posts,
- * instagram_content_publish), reading engagement for inbox ingest, and listing
- * the user's pages + IG business accounts.
+ * instagram_content_publish), reading engagement for inbox ingest, listing the
+ * user's pages + IG business accounts, and (C50) reading + managing the user's
+ * ad accounts via the Marketing API.
+ *
+ * `ads_read` + `ads_management` require Meta App Review (advanced access) before
+ * they grant anything in production — until then the real ads path stays behind
+ * `use_real_meta_ads` and the mock connector serves. Adding them here means the
+ * SAME Meta consent that connects Pages/IG also authorizes the ads pillar; no
+ * separate OAuth flow.
  */
 export const META_SCOPES: ReadonlyArray<string> = [
   'pages_show_list',
@@ -47,4 +54,6 @@ export const META_SCOPES: ReadonlyArray<string> = [
   'instagram_basic',
   'instagram_content_publish',
   'instagram_manage_comments',
+  'ads_read',
+  'ads_management',
 ];

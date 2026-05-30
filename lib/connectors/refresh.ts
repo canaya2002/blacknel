@@ -24,14 +24,15 @@ import { readAccountTokens, writeAccountTokens, type ConnectionTokens } from './
  */
 
 const REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // refresh when <7d to expiry
-const REFRESH_PLATFORMS = ['facebook', 'instagram', 'linkedin', 'tiktok', 'x', 'youtube', 'gbp'] as const;
+const REFRESH_PLATFORMS = ['facebook', 'instagram', 'meta_ads', 'linkedin', 'tiktok', 'x', 'youtube', 'gbp'] as const;
 
 /** Refresh dispatch for one connection's tokens, by platform. */
 export async function refreshForPlatform(
   platform: string,
   tokens: ConnectionTokens,
 ): Promise<TokenExchangeResult> {
-  if (platform === 'facebook' || platform === 'instagram') {
+  // meta_ads holds the Meta USER token (C50) — same fb_exchange_token refresh.
+  if (platform === 'facebook' || platform === 'instagram' || platform === 'meta_ads') {
     const { refreshMetaToken } = await import('./meta/refresh');
     return refreshMetaToken(tokens);
   }

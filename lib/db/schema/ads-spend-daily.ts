@@ -51,6 +51,8 @@ export const adsSpendDaily = pgTable(
     spendCents: integer('spend_cents').notNull().default(0),
     /** USD-converted cents, frozen at-insert. See JSDoc above. */
     spendUsdCents: integer('spend_usd_cents').notNull().default(0),
+    /** Attributed conversions for the (campaign, date). Added C50. */
+    conversions: integer('conversions').notNull().default(0),
     currency: text('currency').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
