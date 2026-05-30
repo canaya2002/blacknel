@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { PlatformCode } from '../base/types';
+import { gbpOAuth } from '../gbp/oauth';
 import { linkedinOAuth } from '../linkedin/oauth';
 import { tiktokOAuth } from '../tiktok/oauth';
 import { xOAuth } from '../x/oauth';
@@ -22,6 +23,7 @@ const PROVIDERS: Partial<Record<PlatformCode, OAuthProvider>> = {
   tiktok: tiktokOAuth,
   x: xOAuth,
   youtube: youtubeOAuth,
+  gbp: gbpOAuth,
 };
 
 export function getOAuthProvider(platform: string): OAuthProvider | null {

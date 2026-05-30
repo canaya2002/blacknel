@@ -120,6 +120,10 @@ const envSchema = z.object({
   X_CLIENT_SECRET: optionalEnv(z.string().min(1)),
   YOUTUBE_CLIENT_ID: optionalEnv(z.string().min(1)),
   YOUTUBE_CLIENT_SECRET: optionalEnv(z.string().min(1)),
+  // Google Business Profile (C49) — separate Google OAuth client so the consent
+  // dialog only requests business.manage (not YouTube's upload scope).
+  GBP_CLIENT_ID: optionalEnv(z.string().min(1)),
+  GBP_CLIENT_SECRET: optionalEnv(z.string().min(1)),
 
   // --- AI (Anthropic) — Phase 11 / C43a ---
   /**

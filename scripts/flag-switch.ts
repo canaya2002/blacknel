@@ -30,6 +30,7 @@ const VALID_FLAGS = new Set([
   'use_real_tiktok',
   'use_real_x',
   'use_real_youtube',
+  'use_real_gbp',
 ]);
 
 type Action = 'on' | 'off' | 'status';

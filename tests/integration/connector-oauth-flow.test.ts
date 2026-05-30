@@ -27,7 +27,7 @@ const orgId = '47044444-4444-4444-8470-a00000000001';
 const otherOrg = '47044444-4444-4444-8470-b00000000002';
 const userId = '47055555-5555-4555-8570-a00000000001';
 
-const PLATFORMS = ['linkedin', 'tiktok', 'x', 'youtube'] as const;
+const PLATFORMS = ['linkedin', 'tiktok', 'x', 'youtube', 'gbp'] as const;
 
 function stateFromRedirect(url: string): string {
   return new URL(url).searchParams.get('state') ?? '';
@@ -57,10 +57,11 @@ afterAll(async () => {
 });
 
 describe('provider registry', () => {
-  it('exposes the four batch-2 providers and nothing else', () => {
-    expect([...OAUTH_PROVIDER_PLATFORMS].sort()).toEqual(['linkedin', 'tiktok', 'x', 'youtube']);
+  it('exposes the batch-2 + GBP providers and nothing else', () => {
+    expect([...OAUTH_PROVIDER_PLATFORMS].sort()).toEqual(['gbp', 'linkedin', 'tiktok', 'x', 'youtube']);
     expect(getOAuthProvider('bogus')).toBeNull();
     expect(getOAuthProvider('linkedin')?.platform).toBe('linkedin');
+    expect(getOAuthProvider('gbp')?.platform).toBe('gbp');
     expect(getOAuthProvider('x')?.usesPkce).toBe(true);
   });
 });
@@ -99,10 +100,10 @@ describe('handleCallback — connect each platform (mock)', () => {
         .from(connectedAccounts)
         .where(eq(connectedAccounts.organizationId, orgId)),
     );
-    // linkedin returns 2 (member + company), the rest 1 each → 5 total.
-    expect(rows.length).toBe(5);
+    // linkedin returns 2 (member + company), the rest 1 each (incl. gbp) → 6 total.
+    expect(rows.length).toBe(6);
     expect(new Set(rows.map((r) => r.platform))).toEqual(
-      new Set(['linkedin', 'tiktok', 'x', 'youtube']),
+      new Set(['linkedin', 'tiktok', 'x', 'youtube', 'gbp']),
     );
     for (const row of rows) {
       expect(row.org).toBe(orgId);
