@@ -18,6 +18,11 @@ import { graphRequest } from './graph';
  * connected_accounts by the plaintext token_expires_at mirror (admin, system-
  * wide), then refreshes each UNDER its own org RLS (dbAsOrg). Real path calls
  * Graph's fb_exchange_token; mock path extends the expiry (no network).
+ *
+ * GAP (C47): only facebook/instagram are refreshed here. The batch-2 platforms
+ * (linkedin/tiktok/x/youtube) store refresh_tokens but have NO refresh cron yet,
+ * so their tokens lapse at the 60-day default TTL. A generic per-provider refresh
+ * (OAuthProvider.refreshToken + a cron over all platforms) is follow-up work.
  */
 
 const REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // refresh when <7d to expiry

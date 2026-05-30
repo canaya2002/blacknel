@@ -140,6 +140,22 @@ describe('TikTok publisher', () => {
       publishToTiktok(fakeAccount('tiktok', 'o1'), { text: 'no video' }, {}, { ...TOKENS, http, sleep: async () => {} }),
     ).rejects.toBeInstanceOf(Error);
   });
+
+  it('throws when the publish status comes back FAILED', async () => {
+    const { http } = makeHttp((c) => {
+      if (c.url.endsWith('/video/init/')) return { data: { data: { publish_id: 'p2' } } };
+      if (c.url.endsWith('/status/fetch/')) return { data: { data: { status: 'FAILED' } } };
+      return {};
+    });
+    await expect(
+      publishToTiktok(
+        fakeAccount('tiktok', 'o1'),
+        { text: 'x', mediaUrls: ['https://cdn/v.mp4'] },
+        {},
+        { ...TOKENS, http, sleep: async () => {} },
+      ),
+    ).rejects.toThrow(/failed/i);
+  });
 });
 
 describe('X publisher', () => {
@@ -158,6 +174,25 @@ describe('X publisher', () => {
     expect(res.externalId).toBe('t1');
     const tweet = calls.find((c) => c.url.endsWith('/tweets'))!;
     expect((tweet.json as { media: { media_ids: string[] } }).media.media_ids).toEqual(['m1']);
+  });
+
+  it('uploads multiple images and includes all media_ids', async () => {
+    let n = 0;
+    const { http, calls } = makeHttp((c) => {
+      if (c.url.includes('upload.twitter.com')) return { data: { media_id_string: `m${++n}` } };
+      if (c.url.endsWith('/tweets')) return { data: { data: { id: 't3' } } };
+      return {};
+    });
+    const res = await publishToX(
+      fakeAccount('x', 'x1'),
+      { text: 'gallery', mediaUrls: ['https://cdn/a.jpg', 'https://cdn/b.jpg'] },
+      {},
+      { ...TOKENS, ...FETCH_MEDIA, http },
+    );
+    expect(res.externalId).toBe('t3');
+    expect(calls.filter((c) => c.url.includes('upload.twitter.com'))).toHaveLength(2);
+    const tweet = calls.find((c) => c.url.endsWith('/tweets'))!;
+    expect((tweet.json as { media: { media_ids: string[] } }).media.media_ids).toEqual(['m1', 'm2']);
   });
 
   it('text-only tweet omits media', async () => {

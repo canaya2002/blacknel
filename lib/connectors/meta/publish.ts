@@ -190,7 +190,7 @@ async function publishInstagram(
   media: ReadonlyArray<string>,
 ): Promise<{ externalId: string }> {
   if (media.length === 0) {
-    throw new PlatformError('instagram', 'Instagram requiere al menos una imagen o video.');
+    throw new PlatformError('instagram', 'Instagram requires at least one image or video.');
   }
   const hasVideo = media.some(isVideoUrl);
 

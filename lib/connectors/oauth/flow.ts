@@ -84,6 +84,9 @@ export async function handleCallback(
   if (verified.orgId !== input.orgId || verified.userId !== input.userId) {
     return { kind: 'state_mismatch' };
   }
+  // PKCE providers MUST carry the verifier in the (encrypted) state — reject
+  // rather than let the provider fall back to an empty verifier.
+  if (provider.usesPkce && !verified.extra.pkce) return { kind: 'invalid_state' };
 
   const redirectUri = connectorRedirectUri(input.platform);
   const tokens = await provider.exchangeCode(

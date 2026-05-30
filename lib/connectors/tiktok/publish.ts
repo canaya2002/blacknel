@@ -46,7 +46,7 @@ export async function publishToTiktok(
   const tokens = await deps.loadTokens(account);
   if (!tokens?.accessToken) throw new TokenExpiredError('tiktok');
   const video = (draft.mediaUrls ?? []).find(isVideoUrl);
-  if (!video) throw new PlatformError('tiktok', 'TikTok requiere un video para publicar.');
+  if (!video) throw new PlatformError('tiktok', 'TikTok requires a video to publish.');
   const token = tokens.accessToken;
   const headers = { authorization: `Bearer ${token}` };
 
@@ -81,6 +81,8 @@ export async function publishToTiktok(
     });
     const status = st.data.data?.status;
     if (status === 'PUBLISH_COMPLETE') {
+      // `publicaly_available_post_id` matches TikTok's (misspelled) API field;
+      // re-verify against the live API at soak.
       return { externalId: st.data.data?.publicaly_available_post_id?.[0] ?? publishId };
     }
     if (status === 'FAILED') {

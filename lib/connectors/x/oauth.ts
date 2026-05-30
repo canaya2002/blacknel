@@ -23,13 +23,14 @@ export const xOAuth: OAuthProvider = {
   isRealEnabled: isRealXEnabled,
 
   buildAuthUrl(state, redirectUri, pkceChallenge) {
+    if (!pkceChallenge) throw new Error('X OAuth requires a PKCE code_challenge.');
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: env.X_CLIENT_ID ?? '',
       redirect_uri: redirectUri,
       scope: X_SCOPES.join(' '),
       state,
-      code_challenge: pkceChallenge ?? 'challenge',
+      code_challenge: pkceChallenge,
       code_challenge_method: 'S256',
     });
     return `${X_AUTH_URL}?${params.toString()}`;
@@ -39,6 +40,8 @@ export const xOAuth: OAuthProvider = {
     if (!(await isRealXEnabled())) {
       return { accessToken: `mock-x-token-${code.slice(0, 6) || 'dev'}`, expiresAt: null };
     }
+    // PKCE is mandatory on the real path — never send an empty verifier.
+    if (!pkceVerifier) throw new Error('X OAuth requires a PKCE code_verifier.');
     const r = await httpJson<{ access_token: string; refresh_token?: string; expires_in?: number }>({
       method: 'POST',
       url: X_TOKEN_URL,
@@ -49,7 +52,7 @@ export const xOAuth: OAuthProvider = {
         code,
         redirect_uri: redirectUri,
         client_id: env.X_CLIENT_ID,
-        code_verifier: pkceVerifier ?? '',
+        code_verifier: pkceVerifier,
       },
     });
     return {

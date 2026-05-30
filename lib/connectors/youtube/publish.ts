@@ -46,7 +46,7 @@ export async function publishToYoutube(
   const tokens = await deps.loadTokens(account);
   if (!tokens?.accessToken) throw new TokenExpiredError('youtube');
   const video = (draft.mediaUrls ?? []).find(isVideoUrl);
-  if (!video) throw new PlatformError('youtube', 'YouTube requiere un video para publicar.');
+  if (!video) throw new PlatformError('youtube', 'YouTube requires a video to publish.');
   const token = tokens.accessToken;
 
   // Title: first line of the text (≤100), description: full text.

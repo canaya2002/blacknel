@@ -3,9 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type AnyPgTx, runAdmin, runAs } from '../../lib/db/client';
 import { connectedAccounts, organizations, plans, users } from '../../lib/db/schema';
-import { _setEncryptionKeyForTests, isEncryptedEnvelope } from '../../lib/connectors/crypto';
+import { _setEncryptionKeyForTests, encryptJson, isEncryptedEnvelope } from '../../lib/connectors/crypto';
+import { signOAuthState } from '../../lib/connectors/oauth-state';
 import { handleCallback, startOAuth } from '../../lib/connectors/oauth/flow';
 import { getOAuthProvider, OAUTH_PROVIDER_PLATFORMS } from '../../lib/connectors/oauth/registry';
+import { incrementUsage } from '../../lib/usage/counters';
 import { type PersistDeps } from '../../lib/connectors/persist';
 import { readAccountTokens } from '../../lib/connectors/tokens';
 import { createTestDb, type TestDb } from '../helpers/test-db';
@@ -170,5 +172,59 @@ describe('handleCallback — CSRF + provider guards', () => {
       deps,
     );
     expect(r.kind).toBe('invalid_state');
+  });
+
+  it('rejects an X callback whose state lacks the PKCE verifier', async () => {
+    // State signed without the PKCE extra → the flow must reject (no empty-verifier fallback).
+    const state = signOAuthState({ orgId, userId, platform: 'x' });
+    const r = await handleCallback(
+      { orgId, userId, planCode: 'growth', platform: 'x', params: { state, code: null, error: null } },
+      deps,
+    );
+    expect(r.kind).toBe('invalid_state');
+  });
+
+  it('rejects an expired state', async () => {
+    const envelope = encryptJson({
+      orgId,
+      userId,
+      platform: 'linkedin',
+      nonce: 'x',
+      exp: Date.now() - 1000,
+    });
+    const expired = Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url');
+    const r = await handleCallback(
+      { orgId, userId, planCode: 'growth', platform: 'linkedin', params: { state: expired, code: null, error: null } },
+      deps,
+    );
+    expect(r.kind).toBe('invalid_state');
+  });
+});
+
+describe('handleCallback — plan seat cap (batch-2)', () => {
+  it('skips accounts over the cap instead of dropping silently', async () => {
+    const capPlan = '00000000-0000-4000-8000-d47000000099';
+    const capOrg = '47044444-4444-4444-8470-c00000000003';
+    await runAdmin(fixture.db, async (tx) => {
+      await tx.insert(plans).values({ id: capPlan, code: 'standard', name: 'Standard', priceCents: 6900 });
+      await tx.insert(organizations).values({ id: capOrg, name: 'Cap', slug: 'cap-flow', planId: capPlan });
+      await incrementUsage(tx, capOrg, 'socialAccounts', 5); // standard socialAccounts cap = 5
+    });
+    const { redirectUrl } = await startOAuth({ orgId: capOrg, userId, platform: 'linkedin' });
+    const r = await handleCallback(
+      {
+        orgId: capOrg,
+        userId,
+        planCode: 'standard',
+        platform: 'linkedin',
+        params: { state: stateFromRedirect(redirectUrl), code: null, error: null },
+      },
+      deps,
+    );
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') {
+      expect(r.result.connected).toBe(0);
+      expect(r.result.skippedForPlan).toBe(2); // linkedin mock = member + company
+    }
   });
 });
