@@ -4,6 +4,7 @@ import { env } from '@/lib/env';
 
 import { httpJson } from '../http';
 import type { ManagedAccount, OAuthProvider, TokenExchangeResult } from '../oauth/types';
+import type { ConnectionTokens } from '../tokens';
 
 import {
   isRealTiktokEnabled,
@@ -93,5 +94,28 @@ export const tiktokOAuth: OAuthProvider = {
         tokenExpiresAt: tokens.expiresAt,
       },
     ];
+  },
+
+  async refreshAccessToken(tokens: ConnectionTokens): Promise<TokenExchangeResult> {
+    if (!(await isRealTiktokEnabled())) {
+      return { accessToken: tokens.accessToken, expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString() };
+    }
+    if (!tokens.refreshToken) throw new Error('TikTok: no refresh_token stored to refresh.');
+    const r = await httpJson<{ access_token: string; expires_in?: number; refresh_token?: string }>({
+      method: 'POST',
+      url: TIKTOK_TOKEN_URL,
+      platform: 'tiktok',
+      form: {
+        client_key: env.TIKTOK_CLIENT_KEY,
+        client_secret: env.TIKTOK_CLIENT_SECRET,
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refreshToken,
+      },
+    });
+    return {
+      accessToken: r.access_token,
+      refreshToken: r.refresh_token ?? tokens.refreshToken,
+      expiresAt: r.expires_in ? new Date(Date.now() + r.expires_in * 1000).toISOString() : null,
+    };
   },
 };

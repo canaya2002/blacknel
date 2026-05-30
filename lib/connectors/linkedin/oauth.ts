@@ -4,6 +4,7 @@ import { env } from '@/lib/env';
 
 import { httpJson } from '../http';
 import type { ManagedAccount, OAuthProvider, TokenExchangeResult } from '../oauth/types';
+import type { ConnectionTokens } from '../tokens';
 
 import {
   isRealLinkedinEnabled,
@@ -130,5 +131,28 @@ export const linkedinOAuth: OAuthProvider = {
       // Org listing is optional — a member with no admin orgs still connects.
     }
     return out;
+  },
+
+  async refreshAccessToken(tokens: ConnectionTokens): Promise<TokenExchangeResult> {
+    if (!(await isRealLinkedinEnabled())) {
+      return { accessToken: tokens.accessToken, expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString() };
+    }
+    if (!tokens.refreshToken) throw new Error('LinkedIn: no refresh_token stored to refresh.');
+    const r = await httpJson<{ access_token: string; expires_in?: number; refresh_token?: string }>({
+      method: 'POST',
+      url: LINKEDIN_TOKEN_URL,
+      platform: 'linkedin',
+      form: {
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refreshToken,
+        client_id: env.LINKEDIN_CLIENT_ID,
+        client_secret: env.LINKEDIN_CLIENT_SECRET,
+      },
+    });
+    return {
+      accessToken: r.access_token,
+      refreshToken: r.refresh_token ?? tokens.refreshToken,
+      expiresAt: r.expires_in ? new Date(Date.now() + r.expires_in * 1000).toISOString() : null,
+    };
   },
 };

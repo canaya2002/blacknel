@@ -1,7 +1,7 @@
 import { cleanupPendingUploads } from './cleanup-pending-uploads';
 import { metaProcessInbound } from './meta-process-inbound';
-import { metaRefreshTokens } from './meta-refresh-tokens';
 import { processMediaFn } from './process-media';
+import { refreshConnectionTokens } from './refresh-connection-tokens';
 import { sendEmailFn } from './send-email';
 import { usageMaintenance } from './usage-maintenance';
 
@@ -12,5 +12,5 @@ export const functions = [
   sendEmailFn,
   processMediaFn,
   metaProcessInbound,
-  metaRefreshTokens,
+  refreshConnectionTokens,
 ];

@@ -4,6 +4,7 @@ import { env } from '@/lib/env';
 
 import { httpJson } from '../http';
 import type { ManagedAccount, OAuthProvider, TokenExchangeResult } from '../oauth/types';
+import type { ConnectionTokens } from '../tokens';
 
 import { isRealXEnabled, X_API_BASE, X_AUTH_URL, X_SCOPES, X_TOKEN_URL } from './config';
 
@@ -95,5 +96,28 @@ export const xOAuth: OAuthProvider = {
         tokenExpiresAt: tokens.expiresAt,
       },
     ];
+  },
+
+  async refreshAccessToken(tokens: ConnectionTokens): Promise<TokenExchangeResult> {
+    if (!(await isRealXEnabled())) {
+      return { accessToken: tokens.accessToken, expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() };
+    }
+    if (!tokens.refreshToken) throw new Error('X: no refresh_token stored to refresh.');
+    const r = await httpJson<{ access_token: string; refresh_token?: string; expires_in?: number }>({
+      method: 'POST',
+      url: X_TOKEN_URL,
+      platform: 'x',
+      headers: { authorization: `Basic ${basicAuth()}` },
+      form: {
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refreshToken,
+        client_id: env.X_CLIENT_ID,
+      },
+    });
+    return {
+      accessToken: r.access_token,
+      refreshToken: r.refresh_token ?? tokens.refreshToken,
+      expiresAt: r.expires_in ? new Date(Date.now() + r.expires_in * 1000).toISOString() : null,
+    };
   },
 };

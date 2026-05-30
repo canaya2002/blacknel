@@ -1,4 +1,5 @@
 import type { PlatformCode } from '../base/types';
+import type { ConnectionTokens } from '../tokens';
 
 /**
  * Shared OAuth provider contract (C47). Each batch-2 platform implements this so
@@ -43,4 +44,11 @@ export interface OAuthProvider {
   exchangeCode(code: string, redirectUri: string, pkceVerifier?: string): Promise<TokenExchangeResult>;
   /** List the connectable accounts for the authenticated user. Mock when off. */
   listAccounts(tokens: TokenExchangeResult): Promise<ManagedAccount[]>;
+  /**
+   * Refresh a soon-to-expire access token (called by the connector refresh cron).
+   * Real path uses the stored refresh_token; mock extends the expiry. Throws when
+   * the token can't be refreshed (revoked / no refresh_token) so the cron can
+   * mark the connection expired.
+   */
+  refreshAccessToken(tokens: ConnectionTokens): Promise<TokenExchangeResult>;
 }

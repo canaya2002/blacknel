@@ -13,8 +13,6 @@ import {
 } from '../../lib/db/schema';
 import { _setEncryptionKeyForTests } from '../../lib/connectors/crypto';
 import { processMetaWebhookEvent, type InboundDeps } from '../../lib/connectors/meta/inbound';
-import { runMetaTokenRefresh, type RefreshDeps } from '../../lib/connectors/meta/refresh';
-import { writeAccountTokens } from '../../lib/connectors/tokens';
 import { createTestDb, type TestDb } from '../helpers/test-db';
 
 /**
@@ -167,46 +165,5 @@ describe('processMetaWebhookEvent — page comment → inbox', () => {
         .where(eq(metaWebhookEvents.id, evId)),
     );
     expect(ev[0]).toMatchObject({ status: 'failed', reason: 'unknown_account' });
-  });
-});
-
-describe('runMetaTokenRefresh', () => {
-  it('re-derives tokens for accounts inside the expiry window', async () => {
-    // Account whose token expires tomorrow (inside the 7-day window).
-    const soon = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await runAsOrg(fixture.db, orgA, (tx) =>
-      writeAccountTokens(tx, accountA, { accessToken: 'old-token', expiresAt: soon }),
-    );
-
-    const refreshDeps: RefreshDeps = {
-      asAdmin: <T>(fn: (tx: AnyPgTx) => Promise<T>) => runAdmin(fixture.db, fn),
-      orgTx: <T>(orgId: string, fn: (tx: AnyPgTx) => Promise<T>) => runAsOrg(fixture.db, orgId, fn),
-      refreshToken: async () => ({ accessToken: 'fresh-token', expiresAt: new Date(Date.now() + 60 * 86400_000).toISOString() }),
-      now: () => new Date(),
-    };
-    const res = await runMetaTokenRefresh(refreshDeps);
-    expect(res.refreshed).toBe(1);
-
-    const newExpiry = await runAdmin<Array<{ exp: Date | null }>>(fixture.db, (tx) =>
-      tx.select({ exp: connectedAccounts.tokenExpiresAt }).from(connectedAccounts).where(eq(connectedAccounts.id, accountA)),
-    );
-    expect(newExpiry[0]?.exp && newExpiry[0].exp.getTime() > Date.parse(soon)).toBe(true);
-  });
-
-  it('skips accounts comfortably far from expiry', async () => {
-    const far = new Date(Date.now() + 90 * 86400_000).toISOString();
-    await runAsOrg(fixture.db, orgA, (tx) =>
-      writeAccountTokens(tx, accountA, { accessToken: 'tok', expiresAt: far }),
-    );
-    const refreshDeps: RefreshDeps = {
-      asAdmin: <T>(fn: (tx: AnyPgTx) => Promise<T>) => runAdmin(fixture.db, fn),
-      orgTx: <T>(orgId: string, fn: (tx: AnyPgTx) => Promise<T>) => runAsOrg(fixture.db, orgId, fn),
-      refreshToken: async () => {
-        throw new Error('should not refresh');
-      },
-      now: () => new Date(),
-    };
-    const res = await runMetaTokenRefresh(refreshDeps);
-    expect(res.refreshed).toBe(0);
   });
 });

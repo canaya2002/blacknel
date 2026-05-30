@@ -4,6 +4,7 @@ import { env } from '@/lib/env';
 
 import { httpJson } from '../http';
 import type { ManagedAccount, OAuthProvider, TokenExchangeResult } from '../oauth/types';
+import type { ConnectionTokens } from '../tokens';
 
 import {
   isRealYoutubeEnabled,
@@ -90,5 +91,29 @@ export const youtubeOAuth: OAuthProvider = {
       refreshToken: tokens.refreshToken ?? null,
       tokenExpiresAt: tokens.expiresAt,
     }));
+  },
+
+  async refreshAccessToken(tokens: ConnectionTokens): Promise<TokenExchangeResult> {
+    if (!(await isRealYoutubeEnabled())) {
+      return { accessToken: tokens.accessToken, expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() };
+    }
+    if (!tokens.refreshToken) throw new Error('YouTube: no refresh_token stored to refresh.');
+    // Google returns a new access token but keeps the same refresh_token.
+    const r = await httpJson<{ access_token: string; expires_in?: number }>({
+      method: 'POST',
+      url: YT_TOKEN_URL,
+      platform: 'youtube',
+      form: {
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refreshToken,
+        client_id: env.YOUTUBE_CLIENT_ID,
+        client_secret: env.YOUTUBE_CLIENT_SECRET,
+      },
+    });
+    return {
+      accessToken: r.access_token,
+      refreshToken: tokens.refreshToken,
+      expiresAt: r.expires_in ? new Date(Date.now() + r.expires_in * 1000).toISOString() : null,
+    };
   },
 };
