@@ -79,6 +79,24 @@ async function loadScalar(
     return { value: Number(row?.n ?? 0) };
   }
 
+  if (metric === 'response_rate') {
+    // % of reviews in the window that have been responded to. BBB excluded.
+    const [row] = normalizeRows<{ responded: number | null; total: number | null }>(
+      await ctx.tx.execute(
+        sql`SELECT COUNT(*) FILTER (WHERE status = 'responded')::int AS responded,
+                    COUNT(*)::int AS total
+               FROM reviews
+              WHERE organization_id = ${ctx.orgId}
+                AND platform <> 'bbb'
+                AND posted_at >= ${ctx.rangeStart}
+                AND posted_at <= ${ctx.rangeEnd}`,
+      ),
+    );
+    const total = Number(row?.total ?? 0);
+    const responded = Number(row?.responded ?? 0);
+    return { value: total > 0 ? roundTo((responded / total) * 100, 1) : 0 };
+  }
+
   throw new Error(`reviews_aggregates: scalar metric '${metric}' not supported`);
 }
 
@@ -117,7 +135,7 @@ function roundTo(v: number, digits: number): number {
 export const reviewsAggregatesSource: DataSource = {
   key: 'reviews_aggregates',
   capabilities: {
-    scalar: ['avg_rating', 'review_count'],
+    scalar: ['avg_rating', 'review_count', 'response_rate'],
     timeseries: ['avg_rating', 'review_count'],
   },
   loadScalar,

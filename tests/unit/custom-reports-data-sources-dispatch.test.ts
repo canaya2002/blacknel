@@ -10,7 +10,7 @@ import {
 } from '../../lib/custom-reports/data-sources';
 
 describe('data source registry', () => {
-  it('exposes all 7 data sources', () => {
+  it('exposes all 8 data sources', () => {
     const sources = listDataSources();
     const keys = sources.map((s) => s.key).sort();
     expect(keys).toEqual(
@@ -20,6 +20,7 @@ describe('data source registry', () => {
         'inbox_kpis',
         'listening_aggregates',
         'nps_aggregates',
+        'post_insights',
         'posts_metrics',
         'reviews_aggregates',
       ].sort(),

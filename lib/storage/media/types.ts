@@ -22,6 +22,13 @@ export interface MediaStorageAdapter {
   publicUrl(key: string): string;
   deleteObject(bucket: string, key: string): Promise<void>;
   listKeys(bucket: string, prefix: string): Promise<string[]>;
+  /** Server-side upload (C52) — for artifacts we generate in a job (e.g. PDFs). */
+  putObject(
+    bucket: string,
+    key: string,
+    body: Uint8Array,
+    contentType: string,
+  ): Promise<void>;
 }
 
 /** Presigned URL lifetime — short-lived. */

@@ -1,9 +1,12 @@
 import { cleanupPendingUploads } from './cleanup-pending-uploads';
+import { dispatchScheduledReports } from './dispatch-scheduled-reports';
+import { generateReportFn } from './generate-report';
 import { metaProcessInbound } from './meta-process-inbound';
 import { processMediaFn } from './process-media';
 import { refreshConnectionTokens } from './refresh-connection-tokens';
 import { sendEmailFn } from './send-email';
 import { syncAds } from './sync-ads';
+import { syncPostInsights } from './sync-post-insights';
 import { syncReviews } from './sync-reviews';
 import { usageMaintenance } from './usage-maintenance';
 
@@ -17,4 +20,7 @@ export const functions = [
   refreshConnectionTokens,
   syncReviews,
   syncAds,
+  syncPostInsights,
+  generateReportFn,
+  dispatchScheduledReports,
 ];

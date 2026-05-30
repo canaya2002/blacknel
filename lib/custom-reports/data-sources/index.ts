@@ -9,6 +9,7 @@ import { crisisAggregatesSource } from './crisis-aggregates';
 import { inboxKpisSource } from './inbox-kpis';
 import { listeningAggregatesSource } from './listening-aggregates';
 import { npsAggregatesSource } from './nps-aggregates';
+import { postInsightsSource } from './post-insights';
 import { postsMetricsSource } from './posts-metrics';
 import { reviewsAggregatesSource } from './reviews-aggregates';
 
@@ -97,6 +98,7 @@ const REGISTRY: Record<CustomReportDataSource, DataSource> = {
   inbox_kpis: inboxKpisSource,
   reviews_aggregates: reviewsAggregatesSource,
   posts_metrics: postsMetricsSource,
+  post_insights: postInsightsSource,
   ads_spend: adsSpendSource,
   nps_aggregates: npsAggregatesSource,
   listening_aggregates: listeningAggregatesSource,

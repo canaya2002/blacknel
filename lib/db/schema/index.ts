@@ -36,6 +36,7 @@ export * from './campaigns';
 export * from './content-assets';
 export * from './posts';
 export * from './post-targets';
+export * from './post-insights';
 export * from './ai-generations';
 export * from './ai-recommendations';
 export * from './ads-accounts';

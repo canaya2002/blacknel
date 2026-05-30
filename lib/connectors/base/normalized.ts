@@ -87,6 +87,19 @@ export interface NormalizedInsights {
   metrics: Record<string, number>;
 }
 
+/** Per-post engagement snapshot (C52). One published post on one platform. */
+export interface NormalizedPostInsights {
+  platform: PlatformCode;
+  externalPostId: string;
+  reach: number;
+  impressions: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  /** Total interactions (likes + comments + shares, or platform's own). */
+  engagement: number;
+}
+
 export interface NormalizedMention {
   platform: PlatformCode;
   externalId: string;

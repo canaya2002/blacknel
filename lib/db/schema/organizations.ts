@@ -25,6 +25,11 @@ export const organizations = pgTable(
     locale: text('locale').notNull().default('en'),
     timezone: text('timezone').notNull().default('UTC'),
     status: organizationStatusEnum('status').notNull().default('active'),
+    /** White-label branding (C52) — nullable; resolver falls back to Blacknel. */
+    displayName: text('display_name'),
+    logoUrl: text('logo_url'),
+    primaryColor: text('primary_color'),
+    secondaryColor: text('secondary_color'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

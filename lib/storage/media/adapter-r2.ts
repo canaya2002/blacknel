@@ -75,4 +75,10 @@ export const r2Adapter: MediaStorageAdapter = {
       .map((o) => o.Key)
       .filter((k): k is string => typeof k === 'string');
   },
+
+  async putObject(bucket, key, body, contentType) {
+    await getClient().send(
+      new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }),
+    );
+  },
 };

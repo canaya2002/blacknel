@@ -42,7 +42,9 @@ async function loadScalar(
                AND date <= ${ctx.rangeEnd.toISOString().slice(0, 10)}::date`,
       ),
     );
-    return { value: Math.round(Number(row?.cents ?? 0) / 100) };
+    // Round the cents to an integer, divide LAST → preserve the 2-decimal dollar
+    // value (e.g. 1249¢ → 12.49, not 12).
+    return { value: Math.round(Number(row?.cents ?? 0)) / 100 };
   }
   if (metric === 'conversions') {
     const [row] = normalizeRows<{ n: number | null }>(
@@ -55,6 +57,27 @@ async function loadScalar(
       ),
     );
     return { value: Number(row?.n ?? 0) };
+  }
+  if (metric === 'ctr' || metric === 'cpc') {
+    // Derived from the same totals — CTR = clicks/impressions %, CPC = $/click.
+    const [row] = normalizeRows<{ spend: number | null; impressions: number | null; clicks: number | null }>(
+      await ctx.tx.execute(
+        sql`SELECT COALESCE(SUM(spend_usd_cents), 0)::bigint AS spend,
+                    COALESCE(SUM(impressions), 0)::bigint AS impressions,
+                    COALESCE(SUM(clicks), 0)::bigint AS clicks
+               FROM ads_spend_daily
+              WHERE organization_id = ${ctx.orgId}
+                AND date >= ${ctx.rangeStart.toISOString().slice(0, 10)}::date
+                AND date <= ${ctx.rangeEnd.toISOString().slice(0, 10)}::date`,
+      ),
+    );
+    const impressions = Number(row?.impressions ?? 0);
+    const clicks = Number(row?.clicks ?? 0);
+    const spendUsd = Number(row?.spend ?? 0) / 100;
+    if (metric === 'ctr') {
+      return { value: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0 };
+    }
+    return { value: clicks > 0 ? Math.round((spendUsd / clicks) * 100) / 100 : 0 };
   }
   throw new Error(`ads_spend: scalar metric '${metric}' not supported`);
 }
@@ -78,7 +101,7 @@ async function loadTimeseries(
     );
     return rows.map((r) => ({
       t: r.day,
-      v: Math.round(Number(r.v ?? 0) / 100),
+      v: Math.round(Number(r.v ?? 0)) / 100, // cents → dollars w/ 2 decimals
     }));
   }
   if (metric === 'conversions') {
@@ -102,7 +125,7 @@ async function loadTimeseries(
 export const adsSpendSource: DataSource = {
   key: 'ads_spend',
   capabilities: {
-    scalar: ['spend_usd', 'conversions'],
+    scalar: ['spend_usd', 'conversions', 'ctr', 'cpc'],
     timeseries: ['spend_usd', 'conversions'],
   },
   loadScalar,

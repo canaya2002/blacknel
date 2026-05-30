@@ -23,6 +23,7 @@ const DATA_SOURCE_CODES = [
   'inbox_kpis',
   'reviews_aggregates',
   'posts_metrics',
+  'post_insights',
   'ads_spend',
   'nps_aggregates',
   'listening_aggregates',

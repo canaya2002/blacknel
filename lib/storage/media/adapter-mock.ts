@@ -27,6 +27,9 @@ export const mockAdapter: MediaStorageAdapter = {
   async listKeys(_bucket, prefix) {
     return [...store.keys()].filter((k) => k.startsWith(prefix));
   },
+  async putObject(_bucket, key, _body, contentType) {
+    store.set(key, { contentType });
+  },
 };
 
 /** Test seam. */

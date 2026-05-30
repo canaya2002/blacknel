@@ -5,6 +5,7 @@ import type {
   NormalizedMention,
   NormalizedMessage,
   NormalizedPost,
+  NormalizedPostInsights,
   NormalizedReview,
   NormalizedThread,
 } from './normalized';
@@ -108,6 +109,11 @@ export interface Connector {
     account: ConnectorAccount,
     range: { start: Date; end: Date },
   ): Promise<NormalizedInsights>;
+  /** Per-post engagement for one published post (C52). */
+  fetchPostInsights?(
+    account: ConnectorAccount,
+    externalPostId: string,
+  ): Promise<NormalizedPostInsights>;
   fetchPosts?(
     account: ConnectorAccount,
     opts?: FetchOptions,

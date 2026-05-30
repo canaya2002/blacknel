@@ -14,6 +14,7 @@ import type {
   NormalizedMention,
   NormalizedMessage,
   NormalizedPost,
+  NormalizedPostInsights,
   NormalizedReview,
   NormalizedThread,
 } from './normalized';
@@ -318,6 +319,30 @@ export class MockConnector extends BaseConnector {
         engagement: Math.floor(rng() * 5_000),
         followers: Math.floor(rng() * 10_000),
       },
+    };
+  }
+
+  async fetchPostInsights(
+    account: ConnectorAccount,
+    externalPostId: string,
+  ): Promise<NormalizedPostInsights> {
+    this.ensureCapability('read_insights');
+    this.maybeThrow(account, 'fetchPostInsights');
+    const rng = makeRng(`${this.platform}:${account.id}:post:${externalPostId}`);
+    const impressions = Math.floor(rng() * 20_000) + 100;
+    const reach = Math.floor(impressions * (0.4 + rng() * 0.4));
+    const likes = Math.floor(rng() * 500);
+    const comments = Math.floor(rng() * 80);
+    const shares = Math.floor(rng() * 40);
+    return {
+      platform: this.platform,
+      externalPostId,
+      reach,
+      impressions,
+      likes,
+      comments,
+      shares,
+      engagement: likes + comments + shares,
     };
   }
 

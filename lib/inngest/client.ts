@@ -40,6 +40,15 @@ export interface BlacknelEvents {
     // The stored meta_webhook_events row to process (org resolved inside).
     data: { readonly webhookEventId: string };
   };
+  'report.generate': {
+    // White-label PDF report to render → store → email (C52).
+    data: {
+      readonly orgId: string;
+      readonly periodDays: number;
+      readonly pillars: ReadonlyArray<string>;
+      readonly recipients: ReadonlyArray<string>;
+    };
+  };
 }
 
 export const inngest = new Inngest({

@@ -87,6 +87,22 @@ export async function publicUrlFor(key: string): Promise<string> {
   return adapter.publicUrl(key);
 }
 
+/**
+ * Server-side object upload (C52) for artifacts we generate in a job — e.g.
+ * white-label report PDFs. Reuses the same flag/keys gate + bucket as media;
+ * does NOT touch the media_assets quota (reports are internal artifacts).
+ * Returns the durable public URL (a `mock://` stub under the mock adapter).
+ */
+export async function putObjectToStorage(
+  key: string,
+  body: Uint8Array,
+  contentType: string,
+): Promise<string> {
+  const adapter = await resolveAdapter();
+  await adapter.putObject(bucketName(), key, body, contentType);
+  return adapter.publicUrl(key);
+}
+
 // --- DB deps seam (tenant-isolation tests run against pglite) ---------------
 
 type RunAsFn = <T>(
