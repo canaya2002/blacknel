@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 
 import { checkCompliance } from '../ai/skills/compliance';
+import { postReviewReplyToPlatform } from '../connectors/reviews-dispatch';
 import { type AnyPgTx, dbAdmin, dbAs } from '../db/client';
 
 import type { ComplianceResult } from '../ai/compliance-stub';
@@ -15,6 +16,7 @@ import {
   reviews,
 } from '../db/schema';
 import { AppError } from '../errors';
+import { log } from '../log';
 import { err, ok, type Result } from '../types/result';
 
 /**
@@ -75,11 +77,20 @@ export interface ReplyDeps {
     fn: (tx: AnyPgTx) => Promise<T>,
   ) => Promise<T>;
   asAdmin: <T>(fn: (tx: AnyPgTx) => Promise<T>) => Promise<T>;
+  /**
+   * Post a published response to the platform (C49). Best-effort, called after
+   * the DB row commits. Optional so tests that inject only asUser/asAdmin skip
+   * it; production defaults to the real-vs-mock connector dispatch.
+   */
+  postToPlatform?: (orgId: string, responseId: string) => Promise<void>;
 }
 
 const defaultDeps: ReplyDeps = {
   asUser: (ctx, fn) => dbAs(ctx, fn),
   asAdmin: (fn) => dbAdmin(fn),
+  postToPlatform: async (orgId, responseId) => {
+    await postReviewReplyToPlatform({ orgId, responseId });
+  },
 };
 
 const REPLY_CAPABLE_PLATFORMS = new Set<string>([
@@ -357,6 +368,18 @@ async function publishDirect(
     },
     riskLevel: args.compliance.riskLevel,
   });
+
+  // Best-effort: post the reply to the platform (real GBP when gated, else mock).
+  // The DB row is already published — a platform-post failure is logged + retried
+  // later (the response carries no external_response_id until it succeeds).
+  if (deps.postToPlatform) {
+    await deps.postToPlatform(ctx.orgId, responseId).catch((cause: unknown) =>
+      log.warn(
+        { responseId, err: (cause as Error).message },
+        'review.response.platform_post_failed',
+      ),
+    );
+  }
 
   return ok({ outcome: 'sent', responseId });
 }

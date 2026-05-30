@@ -69,6 +69,12 @@ async function tryRealPublish(
       const { publishToYoutube } = await import('./youtube/publish');
       return publishToYoutube(account, draft, options);
     }
+    case 'gbp': {
+      const { isRealGbpEnabled } = await import('./gbp/config');
+      if (!(await isRealGbpEnabled())) return null;
+      const { publishToGbp } = await import('./gbp/publish');
+      return publishToGbp(account, draft, options);
+    }
     default:
       return null;
   }

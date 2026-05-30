@@ -77,10 +77,10 @@ beforeEach(() => {
 });
 
 describe('registry', () => {
-  it('exposes the C44 + C46 + C48 functions', () => {
+  it('exposes the C44 + C46 + C48 + C49 functions', () => {
     // C44: cleanup-pending-uploads, usage-maintenance, send-email, process-media.
-    // C46: meta-process-inbound. C48: refresh-connection-tokens (generic refresh).
-    expect(functions).toHaveLength(6);
+    // C46: meta-process-inbound. C48: refresh-connection-tokens. C49: sync-reviews.
+    expect(functions).toHaveLength(7);
     expect(functions.every(Boolean)).toBe(true);
   });
 });
