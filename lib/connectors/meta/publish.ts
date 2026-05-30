@@ -49,6 +49,45 @@ function isVideoUrl(url: string): boolean {
   return VIDEO_EXT.test(url);
 }
 
+// IG media containers (especially REELS/video) are processed async — they must
+// reach status_code FINISHED before media_publish, else Meta errors. Bounded
+// poll (~30s) with a test-injectable sleep.
+const CONTAINER_POLL_MAX_ATTEMPTS = 15;
+const CONTAINER_POLL_DELAY_MS = 2000;
+
+let sleepImpl: (ms: number) => Promise<void> = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Test seam — replace the poll delay (no real waiting in CI). */
+export function _setSleepForTests(fn: ((ms: number) => Promise<void>) | null): void {
+  sleepImpl = fn ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+}
+
+async function waitForContainerReady(
+  graph: typeof defaultGraph,
+  creationId: string,
+  accessToken: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < CONTAINER_POLL_MAX_ATTEMPTS; attempt++) {
+    const res = await graph<{ status_code?: string }>({
+      method: 'GET',
+      path: `/${creationId}`,
+      platform: 'instagram',
+      params: { fields: 'status_code', access_token: accessToken },
+    });
+    const code = res.status_code;
+    if (code === 'FINISHED') return;
+    if (code === 'ERROR' || code === 'EXPIRED') {
+      throw new PlatformError('instagram', `IG media container ${creationId} failed: ${code}.`);
+    }
+    await sleepImpl(CONTAINER_POLL_DELAY_MS);
+  }
+  throw new PlatformError(
+    'instagram',
+    `IG media container ${creationId} not ready after ${CONTAINER_POLL_MAX_ATTEMPTS} polls.`,
+  );
+}
+
 export async function publishToMeta(
   account: ConnectorAccount,
   draft: MetaPublishDraft,
@@ -153,6 +192,7 @@ async function publishInstagram(
   if (media.length === 0) {
     throw new PlatformError('instagram', 'Instagram requiere al menos una imagen o video.');
   }
+  const hasVideo = media.some(isVideoUrl);
 
   let creationId: string;
   if (media.length === 1) {
@@ -206,6 +246,12 @@ async function publishInstagram(
       },
     });
     creationId = parent.id;
+  }
+
+  // Video/REELS containers process asynchronously — wait until FINISHED before
+  // publishing (image-only containers are ready synchronously, so skip the poll).
+  if (hasVideo) {
+    await waitForContainerReady(graph, creationId, accessToken);
   }
 
   const published = await graph<{ id: string }>({

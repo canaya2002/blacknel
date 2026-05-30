@@ -9,6 +9,7 @@ import {
 
 import { env } from '@/lib/env';
 import { AppError } from '@/lib/errors';
+import { log } from '@/lib/log';
 
 /**
  * AES-256-GCM at-rest encryption for connector OAuth tokens (C46).
@@ -48,16 +49,30 @@ function deriveKey(raw: string): Buffer {
   return scryptSync(raw, KEY_SALT, 32);
 }
 
+const DEV_FALLBACK_SECRET = 'blacknel-dev-insecure-connection-key-do-not-use-in-prod';
+let warnedDevFallback = false;
+
 function resolveKey(): Buffer {
   if (keyOverride) return keyOverride;
   const raw = env.CONNECTION_ENCRYPTION_KEY;
-  if (!raw) {
+  if (raw) return deriveKey(raw);
+  // Production MUST have a real key — fail loudly. Non-prod (dev/preview without
+  // the key) gets an insecure fallback so the mock OAuth flow (signState ⇒
+  // encrypt) works on a fresh clone without setup. Real tokens are only stored
+  // on the gated real path, where prod requires the configured key.
+  if (env.NODE_ENV === 'production') {
     throw new AppError(
       'INTERNAL_ERROR',
-      'CONNECTION_ENCRYPTION_KEY is not set — cannot encrypt/decrypt connector tokens.',
+      'CONNECTION_ENCRYPTION_KEY is not set — cannot encrypt/decrypt connector tokens in production.',
     );
   }
-  return deriveKey(raw);
+  if (!warnedDevFallback) {
+    warnedDevFallback = true;
+    log.warn(
+      'CONNECTION_ENCRYPTION_KEY not set — using an INSECURE dev fallback key. Set it before enabling real connectors.',
+    );
+  }
+  return deriveKey(DEV_FALLBACK_SECRET);
 }
 
 /** Encrypt a UTF-8 string into an AES-256-GCM envelope. */

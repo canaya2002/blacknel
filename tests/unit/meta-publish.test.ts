@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { RateLimitedError, TokenExpiredError } from '../../lib/connectors/base/errors';
-import type { ConnectorAccount } from '../../lib/connectors/base/types';
+import type { Connector, ConnectorAccount } from '../../lib/connectors/base';
 import { _setGraphFetchForTests, graphRequest } from '../../lib/connectors/meta/graph';
-import { publishToMeta, type MetaPublishDeps } from '../../lib/connectors/meta/publish';
+import { _setSleepForTests, publishToMeta, type MetaPublishDeps } from '../../lib/connectors/meta/publish';
+import { publishViaConnector } from '../../lib/connectors/publish-dispatch';
 
 /**
  * C46 Meta publisher (P1). Graph is injected (deps.graph) so CI never hits the
@@ -147,6 +148,51 @@ describe('publishToMeta — Instagram', () => {
     await expect(
       publishToMeta(fakeAccount('instagram', 'IG'), { text: 'no media' }, {}, deps),
     ).rejects.toBeInstanceOf(Error);
+  });
+
+  it('polls a REELS/video container until FINISHED before media_publish', async () => {
+    _setSleepForTests(async () => {}); // no real waiting
+    let statusChecks = 0;
+    const { deps, calls } = makeDeps((c) => {
+      if (c.path === '/IG/media') return { id: 'creation_reel' };
+      if (c.path === '/creation_reel') {
+        statusChecks += 1;
+        return { status_code: statusChecks >= 2 ? 'FINISHED' : 'IN_PROGRESS' };
+      }
+      if (c.path.endsWith('/media_publish')) return { id: 'ig_reel_pub' };
+      return { id: 'x' };
+    });
+    const res = await publishToMeta(
+      fakeAccount('instagram', 'IG'),
+      { text: 'reel', mediaUrls: ['https://cdn/clip.mp4'] },
+      {},
+      deps,
+    );
+    expect(res.externalId).toBe('ig_reel_pub');
+    // Container created as REELS, polled (2 status checks: IN_PROGRESS→FINISHED),
+    // then published.
+    expect(calls[0]!.params.media_type).toBe('REELS');
+    expect(calls[0]!.params.video_url).toBe('https://cdn/clip.mp4');
+    expect(statusChecks).toBe(2);
+    expect(calls[calls.length - 1]!.path).toBe('/IG/media_publish');
+    _setSleepForTests(null);
+  });
+});
+
+describe('publishViaConnector — dispatch seam gating', () => {
+  it('routes to the connector mock path when real Meta is disabled (no creds)', async () => {
+    // In tests META_* creds are absent → isRealMetaEnabled() is false → the seam
+    // delegates to the connector (mock), never the real Graph publisher.
+    const publishPost = vi.fn(async () => ({ externalId: 'mock-fb-123' }));
+    const connector = { platform: 'facebook', publishPost } as unknown as Connector;
+    const res = await publishViaConnector(
+      connector,
+      fakeAccount('facebook', 'PAGE'),
+      { text: 'hi' },
+      { idempotencyKey: 'k1' },
+    );
+    expect(res.externalId).toBe('mock-fb-123');
+    expect(publishPost).toHaveBeenCalledTimes(1);
   });
 });
 

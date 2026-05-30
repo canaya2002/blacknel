@@ -130,11 +130,15 @@ export async function persistMetaAccounts(
       connected += 1;
     }
 
-    // Encrypt + store tokens (always, so re-connect refreshes them).
+    // Encrypt + store tokens (always, so re-connect refreshes them). Default a
+    // 60-day expiry when Meta omits one, so the refresh cron (which filters on a
+    // non-null token_expires_at) always picks the account up before it lapses.
+    const expiresAt =
+      acc.tokenExpiresAt ?? new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
     await deps.asUser({ orgId, userId }, (tx) =>
       writeAccountTokens(tx, accountId, {
         accessToken: acc.accessToken,
-        expiresAt: acc.tokenExpiresAt,
+        expiresAt,
         scopes: META_SCOPES,
       }),
     );

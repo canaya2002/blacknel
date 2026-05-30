@@ -101,9 +101,18 @@ export async function resolveMediaUrls(
       ),
   );
   const byId = new Map(rows.map((r) => [r.id, r.url]));
-  return mediaIds
+  const resolved = mediaIds
     .map((id) => byId.get(id))
     .filter((u): u is string => typeof u === 'string');
+  // Surface silent data loss: a missing/cross-tenant asset id is dropped (the
+  // post would publish with fewer media than authored) — make it visible.
+  if (resolved.length < mediaIds.length) {
+    log.warn(
+      { orgId, requested: mediaIds.length, resolved: resolved.length },
+      'publish.media.partial_resolution',
+    );
+  }
+  return resolved;
 }
 
 export interface DispatchOneTargetOpts {
@@ -201,7 +210,14 @@ export async function dispatchOneTarget(
         accountMetadata: connectedAccounts.metadata,
       })
       .from(connectedAccounts)
-      .where(eq(connectedAccounts.id, targetRow.connectedAccountId))
+      .where(
+        // Defense-in-depth: pin the account to the target's org so a mismatched
+        // (org A target → org B account) row can never load org B's tokens.
+        and(
+          eq(connectedAccounts.id, targetRow.connectedAccountId),
+          eq(connectedAccounts.organizationId, opts.orgId),
+        ),
+      )
       .limit(1),
   );
   const accountRow = accountRows[0];
