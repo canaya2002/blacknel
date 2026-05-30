@@ -64,6 +64,20 @@ async function writeAudit(
   );
 }
 
+/**
+ * Post an approved review reply to the platform (C49). Best-effort, called AFTER
+ * the approval txn commits so the HTTP call never holds the txn open. Lazy-import
+ * keeps the server-only connector dispatch out of unrelated approval paths.
+ */
+async function postApprovedReviewReply(orgId: string, responseId: string): Promise<void> {
+  try {
+    const { postReviewReplyToPlatform } = await import('@/lib/connectors/reviews-dispatch');
+    await postReviewReplyToPlatform({ orgId, responseId });
+  } catch (cause) {
+    console.error('approval.review_response.platform_post.failed', cause);
+  }
+}
+
 /** Sentinel returned by the txn body. The action wraps it in `Result`. */
 type TxOutcome =
   | {
@@ -246,6 +260,11 @@ export async function approveAction(
         via: 'approval_dispatch',
       },
     );
+    // Post the approved reply to the platform (C49) — best-effort, after the
+    // approval txn commits (so the HTTP call never holds the txn open). The DB
+    // row is already 'published'; a failure is logged + retried later (no
+    // external_response_id until it succeeds). Mirrors the post sync-dispatch.
+    await postApprovedReviewReply(session.orgId, dispatchedResponseId);
   }
   if (dispatchedPostId) {
     await writeAudit(
@@ -471,6 +490,8 @@ export async function approveWithEditsAction(
         via: 'approval_dispatch_edited',
       },
     );
+    // Post the approved (edited) reply to the platform — best-effort, post-commit.
+    await postApprovedReviewReply(session.orgId, dispatchedResponseId);
   }
   if (dispatchedPostId) {
     await writeAudit(

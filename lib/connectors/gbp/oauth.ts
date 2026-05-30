@@ -80,35 +80,52 @@ export const gbpOAuth: OAuthProvider = {
     }
 
     const headers = { authorization: `Bearer ${tokens.accessToken}` };
-    const accounts = await httpJson<{ accounts?: Array<{ name: string; accountName?: string }> }>({
-      method: 'GET',
-      url: `${GBP_ACCOUNT_API}/accounts`,
-      platform: 'gbp',
-      headers,
-    });
+
+    // Paginate accounts (a user can manage many) and locations per account
+    // (>100) — without the pageToken loops, large portfolios silently truncate.
+    const accountsList: Array<{ name: string; accountName?: string }> = [];
+    let acctPageToken: string | undefined;
+    do {
+      const url = new URL(`${GBP_ACCOUNT_API}/accounts`);
+      if (acctPageToken) url.searchParams.set('pageToken', acctPageToken);
+      const page = await httpJson<{
+        accounts?: Array<{ name: string; accountName?: string }>;
+        nextPageToken?: string;
+      }>({ method: 'GET', url: url.toString(), platform: 'gbp', headers });
+      accountsList.push(...(page.accounts ?? []));
+      acctPageToken = page.nextPageToken;
+    } while (acctPageToken);
 
     const out: ManagedAccount[] = [];
-    for (const acct of accounts.accounts ?? []) {
-      const locs = await httpJson<{ locations?: Array<{ name: string; title?: string }> }>({
-        method: 'GET',
-        url: `${GBP_INFO_API}/${acct.name}/locations?readMask=name,title&pageSize=100`,
-        platform: 'gbp',
-        headers,
-      });
-      for (const loc of locs.locations ?? []) {
-        // Reviews/posts APIs use the full accounts/{a}/locations/{l} resource.
-        const locId = loc.name.startsWith('locations/') ? loc.name.slice('locations/'.length) : loc.name;
-        out.push({
-          platform: 'gbp',
-          externalId: `${acct.name}/locations/${locId}`,
-          name: loc.title ?? acct.accountName ?? 'Business Location',
-          handle: null,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken ?? null,
-          tokenExpiresAt: tokens.expiresAt,
-          metadata: { locationTitle: loc.title ?? null },
-        });
-      }
+    for (const acct of accountsList) {
+      let locPageToken: string | undefined;
+      do {
+        const url = new URL(`${GBP_INFO_API}/${acct.name}/locations`);
+        url.searchParams.set('readMask', 'name,title');
+        url.searchParams.set('pageSize', '100');
+        if (locPageToken) url.searchParams.set('pageToken', locPageToken);
+        const locs = await httpJson<{
+          locations?: Array<{ name: string; title?: string }>;
+          nextPageToken?: string;
+        }>({ method: 'GET', url: url.toString(), platform: 'gbp', headers });
+        for (const loc of locs.locations ?? []) {
+          // Reviews/posts APIs use the full accounts/{a}/locations/{l} resource.
+          const locId = loc.name.startsWith('locations/')
+            ? loc.name.slice('locations/'.length)
+            : loc.name;
+          out.push({
+            platform: 'gbp',
+            externalId: `${acct.name}/locations/${locId}`,
+            name: loc.title ?? acct.accountName ?? 'Business Location',
+            handle: null,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken ?? null,
+            tokenExpiresAt: tokens.expiresAt,
+            metadata: { locationTitle: loc.title ?? null },
+          });
+        }
+        locPageToken = locs.nextPageToken;
+      } while (locPageToken);
     }
     return out;
   },

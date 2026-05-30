@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { _clearLruForTests } from '../../lib/ai/cache';
 import {
@@ -238,6 +238,81 @@ describe('sendReviewResponse — direct publish (rating ≥4 + clean compliance)
       (e) => (e.after as { reviewId?: string } | null)?.reviewId === review5,
     );
     expect(evt).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C49 — direct publish fires the postToPlatform hook (best-effort)
+// ---------------------------------------------------------------------------
+
+const reviewHook = '55555555-5555-4555-8555-cc00000000a1';
+const reviewHookFail = '55555555-5555-4555-8555-cc00000000a2';
+
+describe('sendReviewResponse — postToPlatform hook on direct publish', () => {
+  async function seedReview(id: string, externalReviewId: string) {
+    await runAdmin(fixture.db, async (tx) =>
+      tx.insert(reviews).values({
+        id,
+        organizationId: orgA,
+        brandId: brandA,
+        locationId: locationA,
+        platform: 'gbp',
+        externalReviewId,
+        authorName: 'Hook',
+        rating: 5,
+        body: 'Genial.',
+        sentiment: 'positive',
+        status: 'pending',
+      }),
+    );
+  }
+
+  it('invokes postToPlatform with (orgId, responseId) after a 5★ publish', async () => {
+    await seedReview(reviewHook, 'gbp-rq-hook');
+    const postToPlatform = vi.fn().mockResolvedValue(undefined);
+    const result = await sendReviewResponse(
+      { orgId: orgA, userId: userA },
+      {
+        reviewId: reviewHook,
+        body: 'Mil gracias!',
+        mode: 'send',
+        idempotencyKey: '11111111-1111-4111-8111-cc0000ide0a1',
+      },
+      { ...deps(), postToPlatform },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.data.outcome).toBe('sent');
+    expect(postToPlatform).toHaveBeenCalledTimes(1);
+    expect(postToPlatform).toHaveBeenCalledWith(orgA, result.data.responseId);
+  });
+
+  it('swallows a postToPlatform failure — DB row stays published', async () => {
+    await seedReview(reviewHookFail, 'gbp-rq-hook-fail');
+    const postToPlatform = vi.fn().mockRejectedValue(new Error('platform 503'));
+    const result = await sendReviewResponse(
+      { orgId: orgA, userId: userA },
+      {
+        reviewId: reviewHookFail,
+        body: 'Gracias de nuevo!',
+        mode: 'send',
+        idempotencyKey: '11111111-1111-4111-8111-cc0000ide0a2',
+      },
+      { ...deps(), postToPlatform },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.data.outcome).toBe('sent');
+    expect(postToPlatform).toHaveBeenCalledTimes(1);
+
+    // The post failed but the response is already committed as published.
+    const [respRow] = await runAdmin<Array<{ status: string }>>(fixture.db, async (tx) =>
+      tx
+        .select({ status: reviewResponses.status })
+        .from(reviewResponses)
+        .where(eq(reviewResponses.id, result.data.responseId)),
+    );
+    expect(respRow?.status).toBe('published');
   });
 });
 
